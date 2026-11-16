@@ -7,11 +7,13 @@
 **仓库已收敛：** 初始提交到 GitHub `Y10ng/wscyber`；旧自研实现（`cmd/ internal/ web/ deploy/`）和 30 余份过程文档已删除，保存在 tag `legacy-snapshot`。现行文档只有 AGENTS + `docs/{product,architecture,ui,roadmap,STATUS}.md` + `native/*.md`。
 
 **已在 native 上实现并验证的用户链：**
-建任务（两输入 + 授权 origin）→ 真实模型自主探索 → HTTP 原件可回看 → 候选（编号、修订、证据引用定位、宽屏主从布局、Markdown 草稿导出）→ 发起独立验证（保存/失联核对/原生 Open/Run）。功能状态表见 [product.md §5](product.md#5-功能状态)。
+建任务（两输入 + 授权 origin）→ 真实模型自主探索 → HTTP 原件可回看 → 候选（编号、修订、证据引用定位、宽屏主从布局、Markdown 草稿导出）→ 发起独立验证（保存/失联核对/原生 Open/Run）。
+
+**R3 报告后端已提交（a89f35f）：** 固定候选修订（可附同修订验证）的报告、独立报告会话、`webapi_report_draft` 不可变草稿、确定性 Markdown/JSON 导出、旧库分阶段补表（见 `native/REPORT.md`）。定向测试 6/6 通过（overlay 入口）。新 Hub 首次指向 `var/preview/state` 时会为其补两张报告表。功能状态表见 [product.md §5](product.md#5-功能状态)。
 
 **真实数据：** 一次获准的本地靶场运行（目标 `http://192.168.157.1:8000`，产品模型 `wangsu-ds-flash-latest`）：2 任务 / 11 HTTP / 3 候选 / 0 验证结果。状态库 `var/preview/state`（含两张验证表）。
 
-**预览：** 当前没有运行中的 Hub。重开方式（新二进制已于 11-16 构建）：
+**预览：** 当前没有运行中的 Hub。重开方式（`var/wscyber-hub` 于 11-16 含报告路由重建）：
 
 ```bash
 cd /root/桌面/wscyber
@@ -29,7 +31,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 下一步（按顺序）
 
-1. **报告（R3，进行中）**：后端片已派发（任务包 `var/r3-report/task.md`）→ 前端片（GLM）。
+1. **报告（R3，进行中）**：后端已完成；前端片执行中（`var/r3-report-ui/task.md`）→ 前端验收后给预览。
 2. **复测（R4）**：复用验证执行路径，增加独立复测结论。
 3. **执行复盘（R2）**：按方向/会话阅读执行流，GLM 前端为主；需用户看预览验收版式。
 4. **真实验证链（R1，挂起）**：需要运行现场与真实模型/靶场，等用户授权并安排；主会话只做静态验收。
@@ -37,4 +39,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-- `wscyber-r3-backend`（`wangsu-o-latest`，临时代替 Kimi）：R3 报告后端片，交回 `var/r3-report/result.md`。
+- `wscyber-r3-frontend`（`wangsu-glm-latest`）：R3 报告前端片，交回 `var/r3-report-ui/result.md`。
