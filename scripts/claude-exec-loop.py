@@ -2,8 +2,9 @@
 """执行会话自动续跑：headless 运行 claude，中断（网关错误/提前结束）后自动 resume，
 直到任务目录出现 result.md 或达到轮数上限。
 
-用法：scripts/claude-exec-loop.py <model> <短名> <任务目录> [--rounds N]
+用法：scripts/claude-exec-loop.py <model> <短名> <任务目录> [--rounds N] [--session ID]
 例：  scripts/claude-exec-loop.py wangsu-o-latest r3-backend var/r3-report
+--session 续跑已有会话（如主机重启后），直接以“继续”恢复，不新建会话。
 """
 import argparse
 import json
@@ -47,6 +48,7 @@ def main() -> int:
     parser.add_argument("name")
     parser.add_argument("taskdir")
     parser.add_argument("--rounds", type=int, default=30)
+    parser.add_argument("--session", help="续跑已有会话 id")
     args = parser.parse_args()
 
     os.chdir(ROOT)
@@ -55,7 +57,7 @@ def main() -> int:
     if not os.path.isfile(task):
         print(f"缺少 {task}", file=sys.stderr)
         return 2
-    session = str(uuid.uuid4())
+    session = args.session or str(uuid.uuid4())
     log = open(os.path.join(args.taskdir, "exec.log"), "a", encoding="utf-8")
     print(f"会话 wscyber-{args.name} id={session}（手动接管：claude --resume {session}）", flush=True)
 
@@ -64,7 +66,7 @@ def main() -> int:
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--disallowedTools", "Agent", "Workflow"]
     for round_no in range(1, args.rounds + 1):
-        if round_no == 1:
+        if round_no == 1 and not args.session:
             cmd = base + ["--session-id", session, "--name", f"wscyber-{args.name}", "--",
                           FIRST.format(task=task, result=result)]
         else:
