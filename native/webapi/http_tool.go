@@ -140,7 +140,9 @@ func buildHTTPRequest(method, rawURL string, headers map[string]string, body []b
 	if err != nil {
 		return nil, errors.New("url path转义非法")
 	}
-	u.Path, u.RawPath = decodedPath, rawPath
+	u.Path = decodedPath
+	// RawPath 必须是合法的全 ASCII 转义形式；保留已有 %XX，将其余需转义字节（含非 ASCII）按 UTF-8 编码。
+	u.RawPath = escapeRawPath(rawPath)
 	req, err := http.NewRequest(method, u.String(), strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
@@ -165,6 +167,24 @@ func buildHTTPRequest(method, rawURL string, headers map[string]string, body []b
 		}
 	}
 	return req, nil
+}
+
+func escapeRawPath(rawPath string) string {
+	const upperhex = "0123456789ABCDEF"
+	var escaped strings.Builder
+	escaped.Grow(len(rawPath))
+	for i := 0; i < len(rawPath); i++ {
+		c := rawPath[i]
+		alphanumeric := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+		if alphanumeric || strings.IndexByte("-_.~/!$&'()*+,;=:@[]%", c) >= 0 {
+			escaped.WriteByte(c)
+			continue
+		}
+		escaped.WriteByte('%')
+		escaped.WriteByte(upperhex[c>>4])
+		escaped.WriteByte(upperhex[c&15])
+	}
+	return escaped.String()
 }
 
 func httpgutsValidHeader(name, value string) bool {

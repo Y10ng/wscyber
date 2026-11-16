@@ -540,3 +540,24 @@ func TestWebAPIHTTPRequestHostAndHeaders(t *testing.T) {
 		t.Fatal("newline header unexpectedly accepted")
 	}
 }
+
+func TestWebAPIHTTPRequestURIAndEvidenceURLConsistent(t *testing.T) {
+	uris := make(chan string, 1)
+	capability, tool, task, inv, _, _ := newHTTPToolFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uris <- r.RequestURI
+		_, _ = w.Write([]byte("ok"))
+	}))
+	_, evidence := executeHTTP(t, tool, inv, "GET", task.Origins[0]+"/a%2fb/%e8%b7%af/路径?literal=%2f", "", "")
+	const requestURI = "/a%2fb/%e8%b7%af/%E8%B7%AF%E5%BE%84?literal=%2f"
+	if uri := <-uris; uri != requestURI {
+		t.Fatalf("wire RequestURI=%q", uri)
+	}
+	model, err := capability.store.evidenceByID(t.Context(), task.ID, evidence.EvidenceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := task.Origins[0] + requestURI
+	if model == nil || model.URL != wantURL {
+		t.Fatalf("evidence=%+v want URL=%q", model, wantURL)
+	}
+}
