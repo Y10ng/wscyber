@@ -32,8 +32,9 @@
 | 角色 | 模型 | 职责 |
 |---|---|---|
 | 主会话 | 当前会话（`wangsu-o-latest`） | 需求理解、契约/接口决策、拆任务、派发、验收真实效果、维护 STATUS。**不写产品代码** |
-| 后端执行 | `wangsu-o-latest`（临时；额度不足时用户通知换回 `wangsu-kimi-latest`） | Go、Cyber 扩展、集成、测试脚本 |
-| 前端执行 | `wangsu-glm-latest` | 前端设计与实现（`native/ui/source-overlay`） |
+| 后端执行·核心 | `wangsu-o-latest` | 新功能/新接口、Cyber 扩展设计、数据契约落地等核心开发与创造性任务 |
+| 后端执行·一般 | `wangsu-kimi-latest` | Bug 修复、调试、测试补充、脚本/文档小改等低复杂度任务（主会话按任务包与验收严格监督） |
+| 前端执行 | `wangsu-glm-latest` | 全部前端（含设计类改版与修复，`native/ui/source-overlay`）；主会话负责把设计规范写到尺寸/断点级 |
 
 启动执行会话：在项目根目录、新的可见终端中运行
 `scripts/claude-exec-loop.py <型号> <短名> var/<片名>`。它以 headless 方式运行 claude（空 MCP、禁用 Agent/Workflow），中断后自动 resume 续跑，直到 `var/<片名>/result.md` 出现；日志在同目录 `exec.log`，需要手动接管时用脚本打印的 `claude --resume <id>`。
