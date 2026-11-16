@@ -60,6 +60,9 @@ func (c *Capability) ToolExtension() extension.Extension {
 			if err := extension.Add[coretool.Tool](scope, &verificationTool{store: c.store}); err != nil {
 				return err
 			}
+			if err := extension.Add[coretool.Tool](scope, &reportDraftTool{store: c.store}); err != nil {
+				return err
+			}
 			registry, err := extension.Use[*corehooks.Registry](scope)
 			if err != nil {
 				return err

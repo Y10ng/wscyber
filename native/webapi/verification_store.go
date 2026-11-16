@@ -254,19 +254,28 @@ func (s *taskStore) saveVerificationResult(ctx context.Context, inv operation.In
 	return &VerificationResultView{SessionID: model.SessionID, TurnID: model.TurnID, CallID: model.CallID, Payload: args, Evidence: snapshots, CreatedAt: model.CreatedAt}, nil
 }
 
-// legacyWebAPISchema 仅用于识别本次升级前的原生core+四个业务表。
-func legacyWebAPISchema() webservice.SchemaModule {
+// webapiTableOrder 与SchemaModule().Models顺序一致；已知历史阶段都是其前缀。
+var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts"}
+
+// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表。
+var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}}
+
+func webapiSchemaStage(models, indexes int) webservice.SchemaModule {
 	module := SchemaModule()
-	module.Models = []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil)}
-	module.Indexes = module.Indexes[:len(module.Indexes)-2]
-	delete(module.Tables, "webapi_verifications")
-	delete(module.Tables, "webapi_verification_results")
+	for _, name := range webapiTableOrder[models:] {
+		delete(module.Tables, name)
+	}
+	module.Models = module.Models[:models]
+	module.Indexes = module.Indexes[:indexes]
 	return module
 }
 
-// PrepareVerificationSchema 只支持已知旧结构加表；本轮未对用户库运行。
+// legacyWebAPISchema 是验证与报告之前的原生core+四个业务表。
+func legacyWebAPISchema() webservice.SchemaModule { return webapiSchemaStage(4, 6) }
+
+// PrepareWebAPISchema 只支持已知旧阶段补表到完整结构，单事务、不DROP/ALTER。
 // 空库不操作，交原生创建完整schema；未知或半成结构由原生的严格校验拒绝。
-func PrepareVerificationSchema(database string) error {
+func PrepareWebAPISchema(database string) error {
 	info, err := os.Stat(database)
 	if errors.Is(err, os.ErrNotExist) || err == nil && info.Size() == 0 {
 		return nil
@@ -278,25 +287,35 @@ func PrepareVerificationSchema(database string) error {
 	if err == nil {
 		return complete.Close()
 	}
-	legacy, legacyErr := webservice.NewSQLiteStore(database, legacyWebAPISchema())
-	if legacyErr != nil {
-		return errors.Join(errors.New("现有库既不是完整新结构也不是已知旧结构"), err, legacyErr)
+	failures := []error{errors.New("现有库既不是完整新结构也不是已知旧结构"), err}
+	for _, stage := range webapiSchemaStages {
+		known, stageErr := webservice.NewSQLiteStore(database, webapiSchemaStage(stage.models, stage.indexes))
+		if stageErr != nil {
+			failures = append(failures, stageErr)
+			continue
+		}
+		if closeErr := known.Close(); closeErr != nil {
+			return closeErr
+		}
+		return addWebAPISchemaStage(database, stage.models, stage.indexes)
 	}
-	if closeErr := legacy.Close(); closeErr != nil {
-		return closeErr
-	}
+	return errors.Join(failures...)
+}
+
+func addWebAPISchemaStage(database string, models, indexes int) error {
 	store, err := openTaskStore(database)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+	full := SchemaModule()
 	return store.orm.RunInTx(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
-		for _, model := range []any{(*verificationModel)(nil), (*verificationResultModel)(nil)} {
+		for _, model := range full.Models[models:] {
 			if _, err := tx.NewCreateTable().Model(model).WithForeignKeys().Exec(ctx); err != nil {
 				return err
 			}
 		}
-		for _, index := range SchemaModule().Indexes[len(SchemaModule().Indexes)-2:] {
+		for _, index := range full.Indexes[indexes:] {
 			query := tx.NewCreateIndex().Model(index.Model).Index(index.Name)
 			if index.Expr != "" {
 				query = query.ColumnExpr(index.Expr)

@@ -164,9 +164,9 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 		},
 		Ready: ready,
 	}
-	// 原生Web业务扩展：保存“两输入+明确授权”任务记录、HTTP Flow证据及候选验证。
-	if err := webapi.PrepareVerificationSchema(filepath.Join(stateDir, "hub.sqlite")); err != nil {
-		return fmt.Errorf("准备 webapi 独立验证表: %w", err)
+	// 原生Web业务扩展：保存“两输入+明确授权”任务记录、HTTP Flow证据、候选验证及报告。
+	if err := webapi.PrepareWebAPISchema(filepath.Join(stateDir, "hub.sqlite")); err != nil {
+		return fmt.Errorf("准备 webapi 验证与报告表: %w", err)
 	}
 	webapiCapability, err := webapi.NewCapability(filepath.Join(stateDir, "hub.sqlite"))
 	if err != nil {

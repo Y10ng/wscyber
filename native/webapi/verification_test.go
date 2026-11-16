@@ -320,7 +320,7 @@ func TestWebAPIVerificationLegacyPreparation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareVerificationSchema(database); err != nil {
+	if err := PrepareWebAPISchema(database); err != nil {
 		t.Fatalf("prepare legacy: %v", err)
 	}
 	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
@@ -343,10 +343,10 @@ func TestWebAPIVerificationLegacyPreparation(t *testing.T) {
 	if err != nil || preservedEvidence == nil || preservedEvidence.Fingerprint != "old-fingerprint" {
 		t.Fatalf("old evidence lost: %+v %v", preservedEvidence, err)
 	}
-	if err := PrepareVerificationSchema(database); err != nil {
+	if err := PrepareWebAPISchema(database); err != nil {
 		t.Fatalf("complete schema not accepted: %v", err)
 	}
-	if err := PrepareVerificationSchema(t.TempDir() + "/empty.sqlite"); err != nil {
+	if err := PrepareWebAPISchema(t.TempDir() + "/empty.sqlite"); err != nil {
 		t.Fatalf("empty database should remain native-created: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestWebAPIVerificationLegacyPreparation(t *testing.T) {
 	if err := partialStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareVerificationSchema(partialDatabase); err == nil {
+	if err := PrepareWebAPISchema(partialDatabase); err == nil {
 		t.Fatal("unknown extra table accepted")
 	}
 	// 再用明确半成库检查缺第二张验证表的拒绝。
@@ -391,7 +391,7 @@ func TestWebAPIVerificationLegacyPreparation(t *testing.T) {
 	if err := halfStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareVerificationSchema(halfPath); err == nil {
+	if err := PrepareWebAPISchema(halfPath); err == nil {
 		t.Fatal("partial verification schema accepted")
 	}
 }
