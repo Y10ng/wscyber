@@ -18,8 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIRST = ("按 {task} 执行本片。headless 运行，没人能实时回答：有歧义就写进 {result} 的“问题”段并停止。"
          "工作区可能已有本片之前中断留下的改动（看 git status/diff），在其基础上继续。"
          "先用3-5行复述理解，再开工；完成后写 {result} 并结束。")
-AGAIN = ("上一轮被中断了。先看 git status/diff 和 {task} 确认进度，接着做，不要从头重来；"
-         "全部完成后写 {result} 并结束。")
+AGAIN = "继续"
 
 
 def show(line: str, log) -> None:
