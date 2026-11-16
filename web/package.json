@@ -1,0 +1,43 @@
+{
+  "name": "wscyber-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "dev:react": "vite --config vite.react.config.ts --host 127.0.0.1",
+    "typecheck:react": "tsc -p tsconfig.react.json --noEmit",
+    "build:react": "tsc -p tsconfig.react.json --noEmit && vite build --config vite.react.config.ts",
+    "preview:react": "vite preview --config vite.react.config.ts --host 127.0.0.1",
+    "test:react": "esbuild src/react/__tests__/core.test.ts --bundle --platform=node --format=cjs --jsx=automatic --outfile=node_modules/.cache/wscyber-react-test.cjs && node node_modules/.cache/wscyber-react-test.cjs",
+    "dev:design": "vite --config vite.design.config.ts --host 127.0.0.1",
+    "typecheck:design": "tsc -p tsconfig.design.json --noEmit",
+    "build:design": "tsc -p tsconfig.design.json --noEmit && vite build --config vite.design.config.ts",
+    "preview:design": "vite preview --config vite.design.config.ts --host 127.0.0.1",
+    "dev:components": "vite --config vite.components.config.ts --host 127.0.0.1",
+    "typecheck:components": "tsc -p tsconfig.components.json --noEmit",
+    "build:components": "tsc -p tsconfig.components.json --noEmit && vite build --config vite.components.config.ts",
+    "preview:components": "vite preview --config vite.components.config.ts --host 127.0.0.1",
+    "test:components": "node src/ui/check-ui.mjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "6.3.4",
+    "antd": "6.7.0",
+    "lucide-vue-next": "^0.468.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "esbuild": "0.28.2",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12",
+    "vue-tsc": "^3.1.1"
+  }
+}

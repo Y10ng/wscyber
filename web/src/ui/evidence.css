@@ -1,0 +1,11 @@
+.evidence-bytes { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; width: 100%; min-width: 0; max-width: 100%; }
+.evidence-row, .evidence-row-title, .evidence-copy-action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.evidence-row { justify-content: space-between; }
+.evidence-copy-action { color: var(--muted); font-size: 14px; }
+.evidence-row-title, .evidence-copy-action > .ant-typography { overflow-wrap: anywhere; }
+.evidence-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.evidence-modes .ant-radio-button-wrapper { display: inline-flex; align-items: center; min-height: 36px; height: auto; padding: 4px 12px; border: 0; border-radius: 12px; font-size: 14px; white-space: normal; }
+.evidence-modes .ant-radio-button-wrapper::before { display: none; }
+.evidence-preview { margin: 0; padding: 12px 14px; width: 100%; min-width: 0; max-width: 100%; max-height: 360px; min-height: 48px; overflow: auto; overscroll-behavior: contain; background: var(--inset); color: var(--ink); border-radius: 12px; font-family: var(--mono); font-size: 14px; line-height: 1.5; white-space: pre; }
+.evidence-bytes .ant-alert-title, .evidence-bytes .ant-alert-description { font-size: 14px; overflow-wrap: anywhere; }
+.evidence-bytes .ant-btn { max-width: 100%; height: auto; min-height: 36px; white-space: normal; }

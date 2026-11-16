@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "root": {
+    "repository": "https://github.com/chainreactors/cyber-harness",
+    "commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+    "url": "https://codeload.github.com/chainreactors/cyber-harness/tar.gz/f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+    "selected_paths": [
+      "LICENSE",
+      ".gitmodules",
+      "web/frontend",
+      "web/static/.gitkeep"
+    ],
+    "selected_tree_sha256": "5cd23fdf264d2cc339d1a2156be92cffb6243be78a76915e5d246207ad733226",
+    "license_sha256": "8d56b405468aad11f87ab5763f901e276e08d9646ff5c8481b1762b6b789e9ed"
+  },
+  "cyber_ui": {
+    "repository": "https://github.com/chainreactors/cyber-ui",
+    "commit": "147423bd42b665aab361409c57258d9370f75bb0",
+    "url": "https://codeload.github.com/chainreactors/cyber-ui/tar.gz/147423bd42b665aab361409c57258d9370f75bb0",
+    "archive_sha256": "c5cede262e9d48089cc771cd591436b454dec2b5c74e7a91a4afcf6a5afab78a",
+    "tree_sha256": "cf965424091650643b5e94d1c037b8f94cc4b62c2510fdeb7579aa737d16a235",
+    "license": "UNKNOWN: no license file/declaration found in audited fixed archive"
+  },
+  "package_lock_sha256": "23da6a44f3f816986cf2768c454ea9071b0078654a688274797825c10bf48ea0",
+  "toolchain": {
+    "node": "v24.16.0",
+    "npm": "11.16.0"
+  },
+  "lock_packages": 466,
+  "lock_license_declarations": {
+    "UNKNOWN": 2,
+    "MIT": 412,
+    "(Apache-2.0 AND BSD-3-Clause)": 1,
+    "Apache-2.0": 13,
+    "ISC": 29,
+    "CC-BY-4.0": 1,
+    "(BSD-3-Clause AND Apache-2.0)": 1,
+    "BSD-3-Clause": 4,
+    "CC0-1.0": 1,
+    "0BSD": 1,
+    "MIT AND ISC": 1
+  },
+  "install_script_packages": [
+    {
+      "path": "node_modules/esbuild",
+      "version": "0.25.12"
+    },
+    {
+      "path": "node_modules/fsevents",
+      "version": "2.3.3"
+    },
+    {
+      "path": "node_modules/playwright/node_modules/fsevents",
+      "version": "2.3.2"
+    }
+  ],
+  "wasm": {
+    "path": "packages/cstx/src/wasm/cstx_wasm_bg.wasm",
+    "sha256": "a49fd04df8d2f827e422ec03efa0079e146f8542e143a97b9c0276dbeb5ad163",
+    "bytes": 3684685
+  }
+}

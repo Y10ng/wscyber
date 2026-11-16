@@ -1,0 +1,21 @@
+name: wscyber
+services:
+  postgres:
+    image: wscyber/postgres:16
+    pull_policy: never
+    environment:
+      POSTGRES_USER: wscyber
+      POSTGRES_DB: wscyber
+      POSTGRES_PASSWORD: ${WSCYBER_DB_PASSWORD:?请先生成本项目 .env}
+    ports:
+      - "127.0.0.1:${WSCYBER_DB_PORT:-15432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wscyber -d wscyber"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+volumes:
+  postgres-data:

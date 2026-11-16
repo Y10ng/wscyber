@@ -1,0 +1,10 @@
+--- a/pkg/web/service/store_sqlite.go
++++ b/pkg/web/service/store_sqlite.go
+@@ -30,7 +30,7 @@
+
+ func NewSQLiteStore(dbPath string, modules ...SchemaModule) (*SQLiteStore, error) {
+-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_pragma=foreign_keys(1)")
++	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_txlock=immediate&_pragma=foreign_keys(1)")
+ 	if err != nil {
+ 		return nil, fmt.Errorf("open sqlite: %w", err)
+ 	}

@@ -1,0 +1,281 @@
+{
+  "scope": "2026-11-13 Linux/amd64 H2-B cmd/wscyber-hub 实际可达增量",
+  "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+  "reachable_module_count": 93,
+  "new_module_count": 12,
+  "baseline": {
+    "files": [
+      {
+        "file": "dependency-licenses.json",
+        "sha256": "650f1217cbb16def18397753d04dc5df32685fc53a49797bd760fe369465668a"
+      },
+      {
+        "file": "hub-dependency-licenses.json",
+        "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+      }
+    ],
+    "same_version_modules": [
+      "connectrpc.com/connect",
+      "dario.cat/mergo",
+      "github.com/alecthomas/chroma/v2",
+      "github.com/aymanbagabas/go-osc52/v2",
+      "github.com/aymanbagabas/go-pty",
+      "github.com/aymerick/douceur",
+      "github.com/bahlo/generic-list-go",
+      "github.com/buger/jsonparser",
+      "github.com/chainreactors/cyber",
+      "github.com/chainreactors/cyber/aop",
+      "github.com/chainreactors/logs",
+      "github.com/chainreactors/proxyclient",
+      "github.com/chainreactors/utils",
+      "github.com/chainreactors/utils/parsers",
+      "github.com/chainreactors/utils/proc",
+      "github.com/charmbracelet/colorprofile",
+      "github.com/charmbracelet/glamour",
+      "github.com/charmbracelet/lipgloss",
+      "github.com/charmbracelet/x/ansi",
+      "github.com/charmbracelet/x/cellbuf",
+      "github.com/charmbracelet/x/exp/slice",
+      "github.com/charmbracelet/x/term",
+      "github.com/clipperhouse/displaywidth",
+      "github.com/clipperhouse/uax29/v2",
+      "github.com/creack/pty",
+      "github.com/dlclark/regexp2/v2",
+      "github.com/dop251/goja",
+      "github.com/dustin/go-humanize",
+      "github.com/facebookincubator/nvdtools",
+      "github.com/go-dedup/megophone",
+      "github.com/go-dedup/simhash",
+      "github.com/go-dedup/text",
+      "github.com/go-sourcemap/sourcemap",
+      "github.com/go-viper/mapstructure/v2",
+      "github.com/goccy/go-yaml",
+      "github.com/google/pprof",
+      "github.com/google/uuid",
+      "github.com/gookit/config/v2",
+      "github.com/gookit/goutil",
+      "github.com/gorilla/css",
+      "github.com/gorilla/websocket",
+      "github.com/invopop/jsonschema",
+      "github.com/jessevdk/go-flags",
+      "github.com/jinzhu/inflection",
+      "github.com/lucasb-eyer/go-colorful",
+      "github.com/mattn/go-isatty",
+      "github.com/mattn/go-runewidth",
+      "github.com/microcosm-cc/bluemonday",
+      "github.com/muesli/reflow",
+      "github.com/muesli/termenv",
+      "github.com/pb33f/ordered-map/v2",
+      "github.com/puzpuzpuz/xsync/v3",
+      "github.com/remyoudompheng/bigfft",
+      "github.com/rivo/uniseg",
+      "github.com/santhosh-tekuri/jsonschema/v6",
+      "github.com/spf13/cobra",
+      "github.com/spf13/pflag",
+      "github.com/tmthrgd/go-hex",
+      "github.com/twmb/murmur3",
+      "github.com/u-root/u-root",
+      "github.com/uptrace/bun",
+      "github.com/uptrace/bun/dialect/sqlitedialect",
+      "github.com/vmihailenco/msgpack/v5",
+      "github.com/vmihailenco/tagparser/v2",
+      "github.com/xo/terminfo",
+      "github.com/yuin/goldmark",
+      "github.com/yuin/goldmark-emoji",
+      "go.yaml.in/yaml/v4",
+      "golang.org/x/crypto",
+      "golang.org/x/net",
+      "golang.org/x/sync",
+      "golang.org/x/sys",
+      "golang.org/x/term",
+      "golang.org/x/text",
+      "google.golang.org/protobuf",
+      "gopkg.in/yaml.v3",
+      "modernc.org/libc",
+      "modernc.org/mathutil",
+      "modernc.org/memory",
+      "modernc.org/sqlite",
+      "mvdan.cc/sh/v3"
+    ]
+  },
+  "modules": [
+    {
+      "module": "github.com/atotto/clipboard",
+      "version": "v0.1.4",
+      "source": "https://pkg.go.dev/github.com/atotto/clipboard@v0.1.4",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause root text",
+          "sha256": "2c4bac8e2a97180d6e7758c37de85d1cda1859aaf85b56da15d935d2d9a5564f"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/carapace-sh/carapace",
+      "version": "v1.16.3",
+      "source": "https://pkg.go.dev/github.com/carapace-sh/carapace@v1.16.3",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE.appendix",
+          "license_text": "UNKNOWN / additional reservation: Uid, Query, Trace reserved for Tabdance",
+          "sha256": "31ce4444fde49684c714a6df78360d6095a833370004226d99278c28718e30a3"
+        },
+        {
+          "file": "LICENSE.txt",
+          "license_text": "Apache-2.0 root text",
+          "sha256": "5e3400b93bbb099e83e52bab885e7441750673c21f97988ca3f1240639b63283"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/carapace-sh/carapace-shlex",
+      "version": "v1.1.1",
+      "source": "https://pkg.go.dev/github.com/carapace-sh/carapace-shlex@v1.1.1",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE.txt",
+          "license_text": "Apache-2.0 root text",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/chainreactors/tui/console",
+      "version": "v0.0.0-20260712082522-2ba36ad7841f",
+      "source": "https://pkg.go.dev/github.com/chainreactors/tui/console@v0.0.0-20260712082522-2ba36ad7841f",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0 root text",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/chainreactors/tui/readline",
+      "version": "v0.0.0-20261010062516-bb32632d1a4e",
+      "source": "https://pkg.go.dev/github.com/chainreactors/tui/readline@v0.0.0-20261010062516-bb32632d1a4e",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0 root text",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/charmbracelet/bubbles",
+      "version": "v1.0.0",
+      "source": "https://pkg.go.dev/github.com/charmbracelet/bubbles@v1.0.0",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "69793670485e4ae8bf28fcbe5639141f604256d5bb6c1862571f3a32823fa221"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/charmbracelet/bubbletea",
+      "version": "v1.3.10",
+      "source": "https://pkg.go.dev/github.com/charmbracelet/bubbletea@v1.3.10",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "69793670485e4ae8bf28fcbe5639141f604256d5bb6c1862571f3a32823fa221"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/kballard/go-shellquote",
+      "version": "v0.0.0-20180428030007-95032a82bc51",
+      "source": "https://pkg.go.dev/github.com/kballard/go-shellquote@v0.0.0-20180428030007-95032a82bc51",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "3c0dbd7f2068b713b6784788ffde16a5b91baa86a61a1357e43beb97475a90b3"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/muesli/ansi",
+      "version": "v0.0.0-20230316100256-276c6243b2f6",
+      "source": "https://pkg.go.dev/github.com/muesli/ansi@v0.0.0-20230316100256-276c6243b2f6",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "43f65e00e8919fa43c5f45bb2ae578b6d3ee823eb99aa14c85c9ecd06e0350b5"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/muesli/cancelreader",
+      "version": "v0.2.2",
+      "source": "https://pkg.go.dev/github.com/muesli/cancelreader@v0.2.2",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "8c139dbbc83b4fb055b4100b6b9402f7de3dd6bbca05015bdfcc4b392c8cfd5f"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/sahilm/fuzzy",
+      "version": "v0.1.1",
+      "source": "https://pkg.go.dev/github.com/sahilm/fuzzy@v0.1.1",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT root text",
+          "sha256": "079761b785aaf03158eeb4e9256b9f081ab23d0f63b62794ae92cddb41f39780"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "golang.org/x/exp",
+      "version": "v0.0.0-20260529124908-c761662dc8c9",
+      "source": "https://pkg.go.dev/golang.org/x/exp@v0.0.0-20260529124908-c761662dc8c9",
+      "purpose": "原生 pkg/node → persistent console/readline/completion 的可达依赖；未启动完整 TUI/浏览器或读取剪贴板",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause root text",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ],
+      "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+    }
+  ],
+  "limitations": [
+    "Cyber/AOP固定版本不变；已有AGPL/GPL和四个UNKNOWN仍未解决。",
+    "carapace v1.16.3既有Apache-2.0根文本，又有LICENSE.appendix额外预留特性声明；保留含义/适用范围UNKNOWN，不宣称纯Apache-2.0或分发部署已获许可。",
+    "根文本审查不覆盖完整嵌套/资产/商标或所有可选功能；未部署或分发。"
+  ]
+}

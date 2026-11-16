@@ -1,0 +1,21 @@
+/* 对象导航与正文属于同一工作面，不再叠加大卡片。共享主题负责浅暗颜色。 */
+.workspace-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-width: 0; align-items: start; gap: 0; border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); border-radius: 12px; background: var(--plane); overflow: clip; }
+.workspace-split[data-detail-open='false'] { grid-template-columns: minmax(0, 1fr); }
+.workspace-navigation { min-width: 0; padding: 16px 12px; background: var(--plane); }
+.workspace-split[data-detail-open='true'] > .workspace-navigation { border-inline-end: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); }
+.workspace-detail { min-width: 0; padding: 24px 28px; min-height: 460px; }
+.workspace-mobile-navigation { display: none; }
+.workspace-nav-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 12px; }
+.workspace-nav-heading h2 { font-size: 14px; font-weight: var(--strong) !important; }
+.workspace-nav-heading span { color: var(--muted); }
+.workspace-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 0; }
+.workspace-reading { max-width: 960px; min-width: 0; }
+@media (min-width: 1800px) { .workspace-split { grid-template-columns: 320px minmax(0, 1fr); } .workspace-detail { padding: 28px 36px; } }
+@media (max-width: 1000px) {
+  .workspace-split { grid-template-columns: minmax(0, 1fr); }
+  .workspace-detail { padding: 20px; min-height: 320px; }
+  .workspace-split[data-detail-open='true'] > .workspace-navigation { display: none; }
+  .workspace-mobile-navigation { display: block; padding: 12px 16px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); }
+  .workspace-mobile-navigation .ant-select { width: 100%; }
+}
+@media (max-width: 600px) { .workspace-detail { padding: 16px 12px; } .workspace-navigation { padding: 12px 8px; } .workspace-toolbar { margin-bottom: 16px; } }

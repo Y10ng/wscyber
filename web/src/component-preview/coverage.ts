@@ -1,0 +1,68 @@
+export type CoverageStatus = '可复用' | '仅展示' | '待补' | '本期不适用'
+export interface CoverageItem { key: string; category: string; name: string; status: CoverageStatus; path: string; example: string; boundary: string }
+// 规划矩阵逐项维护；官方控件直接在统一Provider下使用，不机械包装API。
+const groups: [string, [string, CoverageStatus, string, string][]][] = [
+  ['基础', [
+    ['浅暗主题、文字/数字/图标', '可复用', 'ui/UIProvider.tsx、surface.ts', '唯一token与中文portal；全局单Provider'],
+    ['Button / 链接', '可复用', 'antd + examples.tsx', '默认/主操作/禁用/加载；链接只在明确点击后跳转'],
+    ['Tag / Badge', '可复用', 'antd + examples.tsx', '文字表达状态，不只依赖颜色'],
+    ['Tooltip / Popover', '可复用', 'antd + examples.tsx', '鼠标与键盘触发；浅暗portal'],
+    ['复制反馈', '可复用', 'ui/SurfaceControls.tsx、clipboard.ts', '成功/失败/2500ms复位/旧完成失效'],
+  ]],
+  ['布局', [
+    ['应用外壳、左导航/折叠、顶栏', '可复用', 'ui/AppShell.tsx', '路由和能力由入口提供，不内建业务状态'],
+    ['Breadcrumb / Tabs', '可复用', 'antd + examples.tsx', '可点击导航与键盘页签'],
+    ['Grid折叠 / 局部滚动', '可复用', 'ui/SurfaceControls.tsx、styles.css', 'inert隔离收起内容焦点'],
+    ['分栏 / 拖动与键盘分隔', '仅展示', 'design-preview/TrafficWorkspace.tsx', '已有设计入口行为；通用共享提取待补'],
+    ['短新增文字动效', '可复用', 'ui/SurfaceControls.tsx', '只用于新短文字，不把历史或HTTP原件伪装成流式'],
+  ]],
+  ['表单', [
+    ['秘密键值条目编辑', '可复用', 'ui/SecretEntriesEditor.tsx、secretEntries.ts + SecretEntriesExamples.tsx', '只编辑当前输入；已存值不回显；增删/键盘/错误/长值/禁用/浅暗，JSON原文保留；无API'],
+    ['Input / TextArea / Password / InputNumber', '可复用', 'antd + FormExamples.tsx', '关联标签/禁用/错误/长输入'],
+    ['Select / 搜索选择 / 多选', '可复用', 'antd + FormExamples.tsx', '长选项换行；只在本地示例选项内搜索'],
+    ['Checkbox / Radio / Switch', '可复用', 'antd + FormExamples.tsx', '选中/禁用与受控值'],
+    ['DatePicker / TimePicker', '可复用', 'antd + FormExamples.tsx', '日期时间仅演示输入，不授予执行时窗'],
+    ['Upload / 本地文件选择', '可复用', 'antd + FormExamples.tsx', 'beforeUpload=false；不读取文件内容、不自动外发'],
+    ['Form校验 / 错误定位', '可复用', 'antd + FormExamples.tsx', '必填、字段错误与聚焦'],
+    ['授权范围 / 高级配置', '仅展示', 'design-preview/TaskPanels.tsx', '真实授权校验仍属接口层；不从UI扩大授权'],
+    ['提交中 / 待核对', '仅展示', 'ModalExamples.tsx', '手动切换状态样例；无网络、不自动重放'],
+  ]],
+  ['数据', [
+    ['日用量趋势 / 精确表格', '可复用', 'ui/DailyUsageChart.tsx、exactDecimal.ts + DailyUsageExamples.tsx', '双系列单轴、固定形状/图例、键盘/hover、未知缺口不归零、BigInt有界比例；无请求'],
+    ['Table / 搜索 / 筛选 / 排序 / 分页', '可复用', 'antd + examples.tsx', '仅本地示例行；筛选不改变服务端真相'],
+    ['List', '可复用', 'antd + examples.tsx', '列表结构；空态用Empty'],
+    ['Tree / 文件夹导航', '可复用', 'antd + examples.tsx', '选择本地示例节点；不读取宿主文件系统'],
+    ['Descriptions / 状态', '可复用', 'antd + examples.tsx', '显式文本状态，不从颜色或模型自然语言推断'],
+    ['Steps / Timeline', '可复用', 'antd + examples.tsx', '仅示例事件，不是实际研究进度'],
+    ['长文本 / 代码 / 结构化内容', '仅展示', 'examples.tsx', '纯文本样例；通用结构化内容查看器仍待补'],
+    ['已保存字节查看 / 当前预览复制', '可复用', 'ui/EvidenceBytesViewer.tsx、evidenceBytes.ts + EvidenceExamples.tsx', '字节原件下载；复制仅当前预览；空/缺失/非法分开，不代表完整请求响应或重放'],
+  ]],
+  ['反馈', [
+    ['任务Modal / 长表单 / 焦点', '可复用', 'ui/TaskModal.tsx', '局部滚动、正反Tab、Escape；草稿由调用方持有'],
+    ['串行切换 / 关闭保留草稿', '仅展示', 'ModalExamples.tsx、design-preview/TaskPanels.tsx', 'afterClose切换；不是通用业务提交状态机'],
+    ['确认 / 危险操作', '可复用', 'antd Popconfirm + ModalExamples.tsx', '只清空本地样例草稿；无实际危险请求'],
+    ['通知 / 局部反馈', '可复用', 'ui/UIProvider.tsx + examples.tsx', '短通知直接显隐；不重复报成功'],
+    ['Skeleton / Spin / Empty / Alert / Result', '可复用', 'antd + examples.tsx', '加载/空/错误/无权限有独立用例'],
+    ['重试 / 禁用 / 无权限', '仅展示', 'examples.tsx、ModalExamples.tsx', '手动样例状态；写入unknown没有重试按钮'],
+  ]],
+  ['研究组合', [
+    ['上下文装配 / 未读范围 / 来源引用', '可复用', 'ui/ContextAssembly.tsx + ContextAssemblyExamples.tsx', '纯受控有界20条分页、装配与发送分离、未记录/错误/加载；正文不读取，归属与生命周期由业务层负责'],
+    ['研究控制 / 人工补充 / 调用事实', '可复用', 'ui/ResearchControls.tsx、researchControls.ts、SkillRecords.tsx + ResearchControlsExamples.tsx', '真实暂停意图、三操作分离、默认不分享、UTF-8有界纯文本、禁用/加载/空/错误；请求和可靠提交归业务入口'],
+    ['身份说明与业务前提 / 固定分享意图', '可复用', 'ui/ResearchBrief.tsx、researchBrief.ts + ResearchBriefExamples.tsx', '非秘密受控0–8身份/规则/前提、显式分享默认关、字节/Unicode校验、错误/禁用/焦点/纯文本；无网络鉴权提交，不代表认证或已发送'],
+    ['对象导航 / 主从工作区', '可复用', 'ui/WorkspaceSplit.tsx + FindingExamples.tsx', '桌面主从、窄屏选择器或返回列表；纯布局，无业务请求/状态推断，正式研究与候选共用'],
+    ['项目 / 方向条目', '仅展示', 'design-preview/ResearchWorkspace.tsx', '共享主从布局已提取；方向业务条目仍由正式页面负责'],
+    ['活动 / 证据关联', '仅展示', 'design-preview/ResearchWorkspace.tsx', '项目内检查器已有演示，正式接入待补'],
+    ['请求响应 / 遮蔽 / 搜索 / 复制', '仅展示', 'design-preview/TrafficDetail.tsx、MessageViewer.tsx', '已有模板验收；不宣称完整流量捕获或可重放'],
+    ['模型记录 / 未记录态', '仅展示', 'design-preview/ResearchWorkspace.tsx', '正式记录开关、持久化和权限契约未实现'],
+    ['资料浏览 / 多选 / 纯文本查看 / 有界导入', '可复用', 'ui/MaterialLibrary.tsx、materials.ts + MaterialExamples.tsx', '受控文件夹/分页/选择、加载/空/错误/禁用/长文本；UTF-8 .md/.txt≤32768字节；不自动网络或执行；请求归业务层'],
+    ['Skill分类 / 成功加载 / 活动与调用事实', '可复用', 'ui/MaterialLibrary.tsx、SkillRecords.tsx + SkillExamples.tsx', '显式分类、受控有界列表/详情/分页、空/错误/加载；纯文本无脚本外链；次数不代表执行指导；鉴权/请求归业务层'],
+    ['发现三段正文', '可复用', 'ui/Findings.tsx + FindingExamples.tsx', '纯受控候选列表/三段正文/证据分类/保存历史，空/加载/失败/长内容；不确认、不执行，实际归属和读取由业务入口负责'],
+    ['候选证据 / 保存时间线', '可复用', 'ui/Findings.tsx + FindingExamples.tsx', '稳定引用/支持反证/时点限制/历史按需，分页不读取全量；不代表独立验证或复测'],
+    ['独立验证 / 结果 / 新证据', '可复用', 'ui/Verifications.tsx + VerificationExamples.tsx', '纯受控发起摘要/分页记录/结果与证据回调，执行与模型判读分离；无自动确认/复测/API'],
+    ['验证 / 历史 / 复测记录', '仅展示', 'design-preview/ResearchWorkspace.tsx', '模板已有；真实证据和复测执行待补'],
+    ['探索关系图', '待补', 'docs/frontend-design.md', '接口/组件选型待冻结；本轮不增加图表依赖'],
+    ['报告导出 / 外部SDL投递', '待补', 'docs/findings-and-reporting.md', '需真实契约与单独授权，当前不提供按钮'],
+    ['多租户 / 权限管理组合', '本期不适用', 'docs/architecture.md', '当前受控内部单管理员；不做假权限编辑器'],
+  ]],
+]
+export const coverage: CoverageItem[] = groups.flatMap(([category, rows], group) => rows.map(([name, status, path, boundary], index) => ({ key: `${group}-${index}`, category, name, status, path, example: category === '研究组合' || name.startsWith('分栏') || name.startsWith('授权范围') ? 'design-preview' : category, boundary })))

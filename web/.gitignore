@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-react/
+dist-design/
+.npm-cache/
+*.tsbuildinfo

@@ -1,0 +1,1865 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import i18n from '../i18n'
+import {
+  AlertTriangle,
+  Box,
+  Bug,
+  CheckCircle2,
+  ChevronDown,
+  ExternalLink,
+  FileText,
+  Fingerprint,
+  GitBranch,
+  Layers,
+  Link2,
+  Loader2,
+  MessageSquare,
+  Network,
+  Shield,
+  Sparkles,
+  Target,
+  User,
+  Terminal,
+  Wrench,
+  X,
+} from 'lucide-react'
+import { cn } from '@cyber/theme'
+import { Button, Callout, DisclosureCard, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
+import BrandMark from './brand/BrandMark'
+import BrandLogo from './brand/BrandLogo'
+import { CodeBlock, MarkdownContent } from '@/markdown'
+import {
+  AssistantResponse,
+  ChatPanel as ViewerChatPanel,
+  ChatThinking,
+  MessageBubble as ChatMessageBubble,
+  createAOPTimelineReducer,
+  summarizeArgs,
+  type ChatAttachment,
+  type CommandHint,
+  type ComposerHelpContent,
+  type ExtensionTimelineItem,
+  type Mentionable,
+  type ChatInputProps,
+  type CyberTimelineItem,
+  type ViewerTimelineItem,
+  type AOPEvent,
+} from '@/viewer'
+import { fetchSessionCommands, uploadChatFile, type ChatSendOptions } from '../api'
+import { BudgetWarningSchema, CommandDetailSchema, CompactDetailSchema, DelegationDetailSchema, EvalDetailSchema, WebMessageMetadataSchema } from '../cyber-proto'
+import { anyUnpack } from '@bufbuild/protobuf/wkt'
+import type { AgentListMetadata, CommandSpec } from '../api'
+import type { ChatMessage, TimelineItem } from '../hooks/useChatSession'
+import { ToolResultsProvider, ToolCallResult } from './chat/ToolCallResult'
+import { ObservedEvent } from './ObservabilityPanel'
+import { observation } from '@/viewer'
+import SubagentRunCard from './chat/SubagentRunCard'
+import { GuardrailReviewCard } from './GuardrailReviews'
+import { groupGuardrailTurns, guardrailTimelineEvents, isGuardrailBoundary, withGuardrailReviews } from '../lib/guardrail-view'
+import { withRecaps } from '../lib/recap-view'
+import { modelTimelineEvents } from '../lib/model-timeline'
+import { isJEVBoundary, jevTimelineEvents, projectJEV, runtimeEvents, withJEV } from '../lib/jev-view'
+import { withWorkflows, type WorkflowTurn } from '../lib/workflow-view'
+import { Workflow } from './chat/Workflow'
+import { TokenUsageBadge } from './chat/TokenUsageBadge'
+import { emptyExtensionResolver, type ExtensionResolver } from '../runtime/conversation'
+import { ContributionBoundary } from '../runtime/contribution-boundary'
+import { ReviewState, type Review } from '../cyber-proto'
+import type { IOAConsoleTarget } from '../lib/ioa-navigation'
+
+const webUserAgent = 'cyber.web'
+
+// Agent and evaluator prompts also use role=user in AOP, but they are internal
+// execution inputs, not operator-authored chat messages. The hub is the sole
+// author of user messages on this surface, so keep only its canonical copy.
+function isInternalUserEvent(event: AOPEvent): boolean {
+  return event.payload.case === 'message'
+    && event.emitter !== webUserAgent
+    && event.payload.value.role === 'user'
+}
+
+function eventText(event: AOPEvent): string {
+  if (event.payload.case !== 'message') return ''
+  return event.payload.value.content
+    .filter((part) => part.value.case === 'text')
+    .map((part) => part.value.case === 'text' ? part.value.value.text : '')
+    .join('\n')
+}
+
+function eventTimestamp(event: AOPEvent): number {
+  if (!event.emittedAt) return 0
+  return Number(event.emittedAt.seconds) * 1000 + event.emittedAt.nanos / 1_000_000
+}
+
+// Evaluator/compaction/budget banners ride on `status` events with a typed
+// detail in the Any extension. The detail schemas are app-owned (cmd/gen routes
+// types/agent.proto to this side only), so the shared reducer cannot decode
+// them — it drops `status` outright and would otherwise leave EvalNote and
+// friends unreachable. Translate the events here, where the schemas live, into
+// the same extension timeline items the renderers already expect.
+function statusTimelineItem(event: AOPEvent, index: number): ExtensionTimelineItem | null {
+  if (event.payload.case !== 'status') return null
+  const state = event.payload.value.state
+  const base = {
+    id: `${event.id || index}:${state}`,
+    kind: 'extension' as const,
+    timestamp: eventTimestamp(event),
+    actorName: event.emitter,
+  }
+  switch (state) {
+    case 'eval_end':
+    case 'eval_error': {
+      const value = event.extensions.map((extension) => anyUnpack(extension, EvalDetailSchema))
+        .find((candidate) => candidate !== undefined)
+      if (!value) return null
+      return {
+        ...base,
+        extensionType: 'eval',
+        data: {
+          round: value.round,
+          pass: state === 'eval_end' && value.pass,
+          reason: state === 'eval_error' ? value.error : value.reason,
+        },
+      }
+    }
+    case 'compact_end': {
+      const value = event.extensions.map((extension) => anyUnpack(extension, CompactDetailSchema))
+        .find((candidate) => candidate !== undefined)
+      if (!value) return null
+      return {
+        ...base,
+        extensionType: 'compact',
+        data: {
+          tokens_before: value.tokensBefore,
+          tokens_after: value.tokensAfter,
+          kept_messages: value.keptMessages,
+        },
+      }
+    }
+    case 'token_budget_warning': {
+      const value = event.extensions.map((extension) => anyUnpack(extension, BudgetWarningSchema))
+        .find((candidate) => candidate !== undefined)
+      if (!value) return null
+      return {
+        ...base,
+        extensionType: 'token_budget',
+        data: { context_tokens: value.contextTokens, token_budget: value.tokenBudget },
+      }
+    }
+    default:
+      return null
+  }
+}
+
+// The shared AOP reducer renders a system message from its text alone and never
+// decodes the cyber.web extension, so the hub's translatable code never reaches
+// SystemMessageContent and every backend notice falls back to English. Decode
+// the extensions here, where the schema lives, and hand the codes back by
+// message id so the reducer's items can be annotated in place.
+function systemMetadataByMessageID(events: AOPEvent[]): Map<string, Record<string, unknown>> {
+  const byMessageID = new Map<string, Record<string, unknown>>()
+  for (const event of events) {
+    if (event.payload.case !== 'message') continue
+    const messageID = event.payload.value.id
+    if (!messageID) continue
+    for (const extension of event.extensions) {
+      const decoded = anyUnpack(extension, WebMessageMetadataSchema)
+      if (!decoded) continue
+      byMessageID.set(messageID, {
+        code: decoded.code,
+        params: decoded.params,
+        agentList: decoded.agentList,
+        commands: decoded.commands,
+      })
+      break
+    }
+  }
+  return byMessageID
+}
+
+function statusTimelineItems(events: AOPEvent[]): ViewerTimelineItem[] {
+  return events
+    .map((event, index) => statusTimelineItem(event, index))
+    .filter((item): item is ExtensionTimelineItem => item !== null)
+}
+
+// A command result is the output of an operator slash command, identified by its
+// CommandDetail extension. It carries no turn id, so the shared reducer folds
+// every one of them into the single turn-less assistant card at the position of
+// the first result — and because that card is keyed by message id, any id the
+// node reuses collapses two results into one. CommandDetail is an app-owned
+// schema, so render these here, one item each, and keep them out of the reducer.
+function commandResultItem(event: AOPEvent, index: number): ViewerTimelineItem | null {
+  if (event.payload.case !== 'message' || event.payload.value.role !== 'assistant') return null
+  const detail = event.extensions
+    .map((extension) => anyUnpack(extension, CommandDetailSchema))
+    .find((candidate) => candidate !== undefined)
+  if (!detail) return null
+  return {
+    id: event.id || `command:${event.seq ?? index}`,
+    kind: 'message',
+    timestamp: eventTimestamp(event),
+    actorName: event.emitter,
+    role: 'assistant',
+    content: eventText(event),
+    streaming: false,
+    metadata: { commandLine: detail.line, presentation: detail.presentation },
+  }
+}
+
+// Split command results out of the event stream the reducer consumes. Their
+// order is preserved on both sides, so each result still renders at the point it
+// was emitted, right after the operator's command.
+function splitCommandResults(events: AOPEvent[]): {
+  messages: AOPEvent[]
+  commands: ViewerTimelineItem[]
+} {
+  const messages: AOPEvent[] = []
+  const commands: ViewerTimelineItem[] = []
+  events.forEach((event, index) => {
+    const item = commandResultItem(event, index)
+    if (item) commands.push(item)
+    else messages.push(event)
+  })
+  return { messages, commands }
+}
+
+// mergeTimelineItems walks `extra` in ascending time order, so a set assembled
+// from two sources has to be re-sorted before it is woven back in.
+function orderedTimelineItems(...groups: ViewerTimelineItem[][]): ViewerTimelineItem[] {
+  return groups.flat().sort((left, right) => left.timestamp - right.timestamp)
+}
+
+// A failed turn is published twice: once as a bare `error` event and again as
+// the `turnEnded.error` of the same turn. The shared reducer renders an error
+// divider for each, back to back, so every LLM failure shows up as the same
+// warning line twice. Drop a divider that repeats the one before it.
+function collapseRepeatedDividers(items: ViewerTimelineItem[]): ViewerTimelineItem[] {
+  const collapsed: ViewerTimelineItem[] = []
+  for (const item of items) {
+    const previous = collapsed[collapsed.length - 1]
+    if (item.kind === 'divider' && previous?.kind === 'divider' && previous.label === item.label) continue
+    collapsed.push(item)
+  }
+  return collapsed
+}
+
+// Weave the status items back into the reduced timeline at their emitted
+// position, leaving the existing items in their relative order.
+function mergeTimelineItems(base: ViewerTimelineItem[], extra: ViewerTimelineItem[]): ViewerTimelineItem[] {
+  if (!extra.length) return base
+  const merged: ViewerTimelineItem[] = []
+  let next = 0
+  for (const item of base) {
+    while (next < extra.length && extra[next].timestamp <= item.timestamp) merged.push(extra[next++])
+    merged.push(item)
+  }
+  return merged.concat(extra.slice(next))
+}
+
+function reduceConversationAOP(
+  events: AOPEvent[],
+  sourceEvents: AOPEvent[],
+  streaming: boolean,
+  reducers: Map<string, ReturnType<typeof createAOPTimelineReducer>>,
+): ViewerTimelineItem[] {
+  const reduce = (key: string, batch: AOPEvent[], live: boolean) => {
+    let reducer = reducers.get(key)
+    if (!reducer) {
+      reducer = createAOPTimelineReducer({
+        lifecycle: 'errors',
+        responseBoundary: event => isGuardrailBoundary(event) || isJEVBoundary(event) || (event.payload.case === 'status'
+          && ['llm_request', 'eval_start', 'compact_start'].includes(event.payload.value.state)),
+      })
+      reducers.set(key, reducer)
+    }
+    return reducer(modelTimelineEvents(jevTimelineEvents(guardrailTimelineEvents(batch))), live) as ViewerTimelineItem[]
+  }
+  const childStarts = new Map<string, AOPEvent>()
+  const bySession = new Map<string, AOPEvent[]>()
+  const endBySession = new Map<string, AOPEvent>()
+  const promptBySession = new Map<string, AOPEvent>()
+  for (const event of events) {
+    let group = bySession.get(event.sessionId)
+    if (!group) bySession.set(event.sessionId, group = [])
+    group.push(event)
+    if (event.payload.case === 'sessionEnded') endBySession.set(event.sessionId, event)
+  }
+  for (const event of sourceEvents) {
+    if (isInternalUserEvent(event) && !promptBySession.has(event.sessionId)) promptBySession.set(event.sessionId, event)
+  }
+  for (const event of events) {
+    if (event.payload.case !== 'sessionStarted') continue
+    const data = event.payload.value
+    const delegated = !!data.parentToolCallId || event.extensions.some(extension => anyUnpack(extension, DelegationDetailSchema))
+    // The root agent also points at the platform chat session, which is not an
+    // AOP stream. Only fold a run when its parent is another visible AOP session.
+    if (delegated && data.parentSessionId && bySession.has(data.parentSessionId)) {
+      childStarts.set(event.sessionId, event)
+    }
+  }
+
+  const childIDs = new Set(childStarts.keys())
+  const topLevelEvents = events.filter((event) => !childIDs.has(event.sessionId))
+  const topLevelSplit = splitCommandResults(topLevelEvents)
+  const topLevel = collapseRepeatedDividers(mergeTimelineItems(
+    reduce('', topLevelSplit.messages, streaming),
+    orderedTimelineItems(statusTimelineItems(topLevelSplit.messages), topLevelSplit.commands),
+  ))
+
+  const childRuns: ViewerTimelineItem[] = []
+  for (const [sessionID, start] of childStarts) {
+    const childEvents = bySession.get(sessionID) || []
+    const end = endBySession.get(sessionID)
+    const endReason = end?.payload.case === 'sessionEnded' ? end.payload.value.reason : undefined
+    const delegation = start.extensions.map(extension => anyUnpack(extension, DelegationDetailSchema)).find(Boolean)
+    const promptEvent = promptBySession.get(sessionID)
+    const stop = endReason
+    const status = !end
+      ? 'running'
+      : stop === 'error'
+        ? 'failed'
+        : stop === 'canceled' || stop === 'terminated' || stop === 'stopped'
+          ? 'canceled'
+          : 'completed'
+    const timestamp = eventTimestamp(start)
+    const childSplit = splitCommandResults(childEvents)
+    const items = collapseRepeatedDividers(mergeTimelineItems(
+      reduce(sessionID, childSplit.messages, streaming && !end)
+        .filter((item) => item.kind !== 'divider' || item.variant === 'warning'),
+      orderedTimelineItems(statusTimelineItems(childSplit.messages), childSplit.commands),
+    ))
+
+    childRuns.push({
+      id: `subagent:${sessionID}`,
+      kind: 'subagent_run',
+      timestamp: Number.isFinite(timestamp) ? timestamp : 0,
+      actorName: start.emitter,
+      name: delegation?.agentName || start.emitter || 'Sub-agent',
+      prompt: delegation?.task || (promptEvent ? eventText(promptEvent) : ''),
+      mode: delegation?.runMode || undefined,
+      sessionID,
+      status,
+      items,
+    })
+  }
+
+  return [...topLevel, ...childRuns].sort(
+    (left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id),
+  )
+}
+
+function isUserMessageItem(
+  item: ViewerTimelineItem,
+): item is Extract<CyberTimelineItem, { kind: 'message' }> {
+  return item.kind === 'message' && item.role === 'user'
+}
+
+function toViewerTimelineItem(
+  item: TimelineItem,
+): ViewerTimelineItem | null {
+  switch (item.kind) {
+    case 'message': {
+      const message = item.message
+      if (!message) return null
+      if (message.role === 'user' && message.agent_name && message.agent_name !== webUserAgent) return null
+      const role = message.role === 'user' || message.role === 'assistant'
+        ? message.role
+        : 'system'
+      const parsed = new Date(message.created_at).getTime()
+      return {
+        id: item.id,
+        kind: 'message',
+        timestamp: Number.isNaN(parsed) ? item.timestamp : parsed,
+        actorName: message.agent_name,
+        role,
+        content: message.content,
+        metadata: message.metadata,
+      }
+    }
+    case 'thinking':
+      return {
+        id: item.id,
+        kind: 'message',
+        timestamp: item.timestamp,
+        actorName: item.agentName,
+        role: 'thinking',
+        content: item.content || '',
+      }
+    case 'scan_complete':
+      return {
+        id: item.id,
+        kind: 'extension',
+        timestamp: item.timestamp,
+        extensionType: 'scan_complete',
+        data: { scanID: item.scanID || '' },
+      }
+    default:
+      return null
+  }
+}
+
+const workspaceClass = 'mx-auto w-full max-w-[96rem] px-4 sm:px-5 lg:px-6'
+const contentOffsetClass = 'xl:ml-[8.75rem] 2xl:ml-[10.75rem]'
+const threadOffsetClass = 'lg:mr-[10.75rem] xl:mr-[11.75rem] 2xl:mr-[14.75rem]'
+
+interface Props {
+  resolveExtension?: ExtensionResolver
+  extensionRevision?: number
+  timeline: TimelineItem[]
+  aopEvents?: AOPEvent[]
+  guardrailUnavailable?: boolean
+  guardrailReviews: Review[]
+  onResolveGuardrail: (review: Review, approve: boolean) => Promise<void>
+  isThinking: boolean
+  isBusy: boolean
+  canPause: boolean
+  error: string
+  hasActiveSession: boolean
+  activeSessionID: string | null
+  mentionables?: Mentionable[]
+  renderMentionPopup?: ChatInputProps['renderMentionPopup']
+  injectText?: { text: string; nonce: number }
+  agentOffline?: boolean
+  agentName?: string
+  agents?: { nodeID: string; name?: string }[]
+  onCreateSession?: (nodeID: string) => void
+  onOpenTerminal?: (nodeID: string) => void
+  onOpenIOA?: (target?: IOAConsoleTarget) => void
+  onSend: (content: string, opts?: ChatSendOptions & { sessionID?: string }) => Promise<boolean>
+  ensureSession: () => Promise<string | null>
+  onPause: () => void
+  onClearError: () => void
+  localModelActive?: boolean
+}
+
+export default function ChatPanel({
+  resolveExtension = emptyExtensionResolver,
+  extensionRevision = 0,
+  timeline,
+  aopEvents = [],
+  guardrailReviews,
+  guardrailUnavailable = false,
+  onResolveGuardrail,
+  isThinking,
+  isBusy,
+  canPause,
+  error,
+  activeSessionID,
+  hasActiveSession,
+  mentionables,
+  renderMentionPopup,
+  injectText,
+  agentOffline,
+  agentName,
+  agents = [],
+  onOpenIOA,
+  onSend,
+  ensureSession,
+  onPause,
+  onClearError,
+  localModelActive = false,
+}: Props) {
+  const { t, i18n } = useTranslation('chat')
+  const aopReducers = useMemo(() => new Map<string, ReturnType<typeof createAOPTimelineReducer>>(), [activeSessionID])
+  const [attachmentError, setAttachmentError] = useState('')
+  const agentEvents = useMemo(
+    () => runtimeEvents(aopEvents).filter((event) => !isInternalUserEvent(event)),
+    [aopEvents],
+  )
+  const liveThinkingItem = useMemo<TimelineItem | null>(() => {
+    if (!isThinking) return null
+    return { id: 'thinking-live', kind: 'thinking', timestamp: Date.now() }
+  }, [isThinking])
+  const viewerTimeline = useMemo<ViewerTimelineItem[]>(() => {
+    const source = liveThinkingItem && agentEvents.length === 0 ? [...timeline, liveThinkingItem] : timeline
+    const platformItems = source
+      .map((item) => toViewerTimelineItem(item))
+      .filter((item): item is ViewerTimelineItem => item !== null)
+      .filter((item) => agentEvents.length === 0
+        || item.kind === 'extension'
+        || (item.kind === 'message' && item.role === 'user'))
+    const aopItems = reduceConversationAOP(agentEvents, aopEvents, isBusy, aopReducers)
+    const systemMetadata = systemMetadataByMessageID(agentEvents)
+    for (const item of aopItems) {
+      if (item.kind !== 'message' || item.role !== 'system') continue
+      const metadata = systemMetadata.get(item.id)
+      if (metadata) item.metadata = metadata
+    }
+
+    // Match the pending bubble to its canonical message ID and server clock.
+    const matchedEchoes = new Set<ViewerTimelineItem>()
+    const userMessages = new Map(aopItems.filter(isUserMessageItem).map(item => [item.id, item]))
+    for (const platform of platformItems) {
+      if (!isUserMessageItem(platform)) continue
+      const echo = userMessages.get(platform.id)
+      if (echo) {
+        platform.timestamp = echo.timestamp
+        matchedEchoes.add(echo)
+      }
+    }
+    const visibleAopItems = aopItems.filter((item) => !matchedEchoes.has(item))
+
+    return withWorkflows(withRecaps(withJEV(groupGuardrailTurns(withGuardrailReviews([...platformItems, ...visibleAopItems].sort(
+      (left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id),
+    ), guardrailReviews, aopEvents, !guardrailUnavailable)), projectJEV(aopEvents)), aopEvents), aopEvents, resolveExtension)
+  }, [agentEvents, aopEvents, aopReducers, isBusy, liveThinkingItem, timeline, guardrailReviews, guardrailUnavailable, resolveExtension, extensionRevision])
+  // Keep the transcript geometry stable as IOA messages arrive. The right rail
+  // is part of the desktop workspace even when the current session has no IOA
+  // activity, so the conversation and composer never jump horizontally.
+  const hasIOARail = useMemo(
+    () => viewerTimeline.some((item) => describeIOAThreadItem(item, t) !== null),
+    [t, viewerTimeline],
+  )
+  const inputFormClass = cn(contentOffsetClass, hasIOARail && threadOffsetClass)
+  const composerRootRef = useRef<HTMLDivElement>(null)
+  const [persist, setPersist] = useState(false)
+  const activeSessionRef = useRef(activeSessionID)
+  useEffect(() => { activeSessionRef.current = activeSessionID }, [activeSessionID])
+  // Screen-reader turn status. Streamed replies mutate the DOM silently, so
+  // mirror the coarse turn phase into a polite live region below. It announces
+  // transitions (thinking → responding → done), never the token stream itself
+  // (a live region on the growing text would restart the reader on every delta).
+  const [livePhase, setLivePhase] = useState<'thinking' | 'done' | null>(null)
+  const wasActiveRef = useRef(false)
+
+  function sendOpts(content: string) {
+    if (!persist) return undefined
+    const criteria = content.trim()
+    if (criteria) return { persist: true, evalCriteria: criteria }
+    return undefined
+  }
+
+  // A Goal is a one-shot kickoff; the next message starts in plain-chat mode.
+  function resetGoal() {
+    setPersist(false)
+  }
+
+  // The "/" and "!" menus come from SessionService/ListCommands: hub-scope
+  // commands merged with the bound node's reported runtime, skill, and registry
+  // commands, so both menus mirror what that Cyber node can actually run.
+  // Descriptions prefer the local i18n string (keyed cmd<Name>) and fall back to
+  // the server's (used for dynamic skill commands that have no i18n key).
+  const [chatCommands, setChatCommands] = useState<CommandHint[]>([])
+  const [toolCommands, setToolCommands] = useState<CommandHint[]>([])
+  const composerHelp = useMemo<ComposerHelpContent>(() => ({
+    label: t('composerHelpLabel'),
+    closeLabel: t('composerHelpCloseLabel'),
+    title: t('composerHelpTitle'),
+    hint: t('composerHelpHint'),
+    items: [
+      {
+        prefix: '@',
+        title: t('composerHelpMentionTitle'),
+        description: t('composerHelpMentionDescription'),
+        meta: t('composerHelpMentionMeta'),
+      },
+      {
+        prefix: '/',
+        title: t('composerHelpCommandTitle'),
+        description: t('composerHelpCommandDescription'),
+        meta: t('composerHelpAvailable', { count: chatCommands.length }),
+        disabled: chatCommands.length === 0,
+      },
+      {
+        prefix: '!',
+        title: t('composerHelpToolTitle'),
+        description: t('composerHelpToolDescription'),
+        meta: t('composerHelpAvailable', { count: toolCommands.length }),
+        disabled: toolCommands.length === 0,
+      },
+    ],
+  }), [chatCommands.length, t, toolCommands.length])
+  useEffect(() => {
+    if (!activeSessionID || localModelActive) {
+      setChatCommands([])
+      setToolCommands([])
+      return
+    }
+    let cancelled = false
+    const toHint = (spec: CommandSpec): CommandHint => ({
+      cmd: spec.name,
+      desc: commandDescription(t, spec.name, spec.description || ''),
+      usage: spec.usage,
+    })
+    fetchSessionCommands(activeSessionID)
+      .then((specs) => {
+        if (cancelled) return
+        const hints = specs.map(toHint)
+        setChatCommands(hints.filter((hint) => hint.cmd.startsWith('/')))
+        setToolCommands(hints.filter((hint) => hint.cmd.startsWith('!')))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChatCommands([])
+          setToolCommands([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSessionID, localModelActive, i18n.language, t])
+
+  useEffect(() => {
+    // Goal mode is per-session intent; ChatPanel stays mounted on session switch.
+    setPersist(false)
+  }, [activeSessionID])
+
+  // Derive the polite screen-reader status from the turn phase. `isBusy` keeps
+  // the "working" state across tool-execution gaps (thinking false, no stream)
+  // so the "done" cue fires once when the whole turn actually settles, not on
+  // every pause between tool calls.
+  useEffect(() => {
+    const active = isBusy || isThinking
+    if (active) setLivePhase('thinking')
+    else if (wasActiveRef.current) setLivePhase('done')
+    wasActiveRef.current = active
+  }, [isBusy, isThinking])
+
+  const activeThinkingResponseID = useMemo(
+    () => isThinking ? latestStreamingResponseID(viewerTimeline) : null,
+    [isThinking, viewerTimeline],
+  )
+
+  async function handleSendWithAttachments(content: string, attachments?: ChatAttachment[]) {
+    const sessionID = await ensureSession()
+    if (!sessionID) return false
+    const opts: ChatSendOptions = sendOpts(content) || {}
+    setAttachmentError('')
+    const contextParts: string[] = []
+    try {
+      for (const a of attachments || []) {
+        if (a.file.type.startsWith('image/')) {
+          if (a.file.size > 20 * 1024 * 1024) throw new Error('Image exceeds 20 MiB limit')
+          opts.images ??= []
+          opts.images.push({ data: new Uint8Array(await a.file.arrayBuffer()), mediaType: a.file.type, filename: a.file.name })
+        } else if (a.mode === 'context') {
+          const text = await a.file.text()
+          contextParts.push(`<file name="${a.file.name}">\n${text}\n</file>`)
+        } else if (a.mode === 'upload') {
+          const uploaded = await uploadChatFile(sessionID, a.file)
+          contextParts.push(`Uploaded file: ${uploaded.path}`)
+        }
+      }
+    } catch (err) {
+      if (!activeSessionRef.current || sessionID === activeSessionRef.current) setAttachmentError(err instanceof Error ? err.message : 'Failed to read attachment')
+      return false
+    }
+    if (activeSessionRef.current && sessionID !== activeSessionRef.current) return false
+    const fullContent = contextParts.length > 0
+      ? `${FILE_CONTEXT_PREAMBLE}\n${contextParts.join('\n')}\n\n${content}`
+      : content
+    const accepted = await onSend(fullContent.trim(), { ...opts, sessionID })
+    if (accepted && persist) resetGoal()
+    return accepted
+  }
+
+  const renderViewerItem = useCallback(
+    (item: ViewerTimelineItem) => item.kind === 'extension' && item.extensionType === 'guardrail'
+      ? <div className="flex w-full gap-3" data-guardrail-timeline-entry>
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" aria-hidden="true"><Shield className="h-3.5 w-3.5" /></div>
+          <div className="min-w-0 flex-1"><GuardrailReviewCard review={item.data.review as Review} unavailable={item.data.unavailable === true} intercepted={item.data.intercepted === true} outcome={item.data.outcome as string | undefined} actionable={item.data.actionable === true}
+            reviewedAt={item.data.reviewedAt as number | undefined} onResolve={onResolveGuardrail} /></div>
+        </div>
+      : timelineContent(item, activeThinkingResponseID, onResolveGuardrail, resolveExtension),
+    [activeThinkingResponseID, onResolveGuardrail, resolveExtension, extensionRevision],
+  )
+  const renderViewerMark = useCallback(
+    (item: ViewerTimelineItem) => <ContributionBoundary id={item.id} resetKey={extensionRevision}><TimelineMark item={item} resolveExtension={resolveExtension} /></ContributionBoundary>,
+    [resolveExtension, extensionRevision],
+  )
+  const ioaRailItems = useMemo(() => {
+    const entries = viewerTimeline.map((item) => ({ item, note: describeIOAThreadItem(item, t) }))
+    const messageIndexes = new Map<string, number>()
+    const relations = entries.map(({ item, note }) => ({
+      item,
+      note,
+      before: false,
+      after: false,
+    }))
+
+    entries.forEach(({ note }, index) => {
+      const messageID = note?.target?.messageID
+      if (messageID) messageIndexes.set(messageID, index)
+    })
+    entries.forEach(({ note }, targetIndex) => {
+      for (const ref of note?.refs ?? []) {
+        const sourceIndex = messageIndexes.get(ref)
+        if (sourceIndex === undefined || sourceIndex >= targetIndex) continue
+        for (let index = sourceIndex; index <= targetIndex; index++) {
+          if (index > sourceIndex) relations[index].before = true
+          if (index < targetIndex) relations[index].after = true
+        }
+      }
+    })
+
+    return new Map(relations.map(relation => [relation.item.id, relation]))
+  }, [t, viewerTimeline])
+  const renderViewerSideNote = useCallback(
+    (item: ViewerTimelineItem) => {
+      const relation = ioaRailItems.get(item.id)
+      return (
+        <IOAThreadNote
+          note={relation?.note}
+          relationBefore={relation?.before}
+          relationAfter={relation?.after}
+          onOpen={onOpenIOA}
+        />
+      )
+    },
+    [ioaRailItems, onOpenIOA],
+  )
+
+  const emptyState = !isThinking ? (
+    <div className={cn(workspaceClass, 'flex min-h-full flex-col justify-center py-4')}>
+      <div className={inputFormClass}>
+        <ChatGreeting />
+        {!hasActiveSession && agents.length === 0 && (
+          <p className="px-1 py-3 text-sm text-muted-foreground">{t('connectNodeHint')}</p>
+        )}
+      </div>
+    </div>
+  ) : null
+
+  return (
+    <ToolResultsProvider sessionID={activeSessionID}>
+    <ViewerChatPanel
+      timeline={viewerTimeline as unknown as CyberTimelineItem[]}
+      className="min-w-0 bg-transparent"
+    >
+      {(error || attachmentError) && (
+        <ViewerChatPanel.ErrorBar>
+          <div
+            role="alert"
+            className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 break-words">{error || attachmentError}</span>
+            <button type="button" aria-label={t('dismiss')} onClick={() => { setAttachmentError(''); onClearError() }} className="rounded p-0.5 hover:bg-destructive/10">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </ViewerChatPanel.ErrorBar>
+      )}
+      <div className="sr-only" role="status" aria-live="polite">
+        {livePhase ? t(livePhase === 'thinking' ? 'a11yThinking' : 'a11yTurnDone') : ''}
+      </div>
+      <ViewerChatPanel.Timeline
+        data-testid="conversation-timeline"
+        className="overscroll-contain !px-0 !py-0"
+        contentClassName={cn(workspaceClass, 'py-4')}
+        railLayoutClassName={hasIOARail
+          ? 'grid-cols-[0_minmax(0,1fr)_0] gap-x-0 lg:grid-cols-[0_minmax(0,1fr)_10rem] lg:gap-x-3 xl:grid-cols-[8rem_minmax(0,1fr)_11rem] 2xl:grid-cols-[10rem_minmax(0,1fr)_14rem]'
+          : 'grid-cols-[0_minmax(0,1fr)_0] gap-x-0 xl:grid-cols-[8rem_minmax(0,1fr)_0] xl:gap-x-3 2xl:grid-cols-[10rem_minmax(0,1fr)_0]'}
+        emptyState={emptyState}
+        renderItem={renderViewerItem}
+        renderMark={renderViewerMark}
+        renderSideNote={renderViewerSideNote}
+        stickyScroll
+        memoItems
+        scrollBehavior="instant"
+        scrollResetKey={activeSessionID}
+      />
+
+      {(
+        <div className="bg-background/95 pb-safe backdrop-blur-sm">
+            {agentOffline && (
+              <div className={cn(workspaceClass, 'pt-2')}>
+                <div className={inputFormClass}>
+                  <Callout
+                    tone="warning"
+                    icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                    className="rounded-lg animate-in fade-in slide-in-from-bottom-1 duration-200"
+                  >
+                    {agentName ? t('agentOfflineBannerNamed', { name: agentName }) : t('agentOfflineBanner')}
+                  </Callout>
+                </div>
+              </div>
+            )}
+            <div className={workspaceClass}>
+              <div className={inputFormClass} ref={composerRootRef} data-session-id={activeSessionID || ''}>
+                <ViewerChatPanel.Input
+                  key={activeSessionID || 'new-session'}
+                  className="!border-t-0 !bg-transparent !backdrop-blur-none"
+                  leading={
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        {/* Ghost chip — lives *inside* the composer capsule, so no
+                            border of its own (that would be a pill-in-pill). */}
+                        <Button
+                          variant="ghost"
+                          active={persist}
+                          aria-label={t('persistMode')}
+                          aria-pressed={persist}
+                          disabled={localModelActive}
+                          onClick={() => {
+                            if (localModelActive) return
+                            setPersist((v) => !v)
+                            composerRootRef.current?.querySelector('textarea')?.focus()
+                          }}
+                          className={cn('h-9 w-9 shrink-0 rounded-full p-0 md:h-10 md:w-10', !persist && 'text-muted-foreground')}
+                        >
+                          <Target className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{localModelActive ? t('localModelEvalUnsupported') : t('persistHint')}</TooltipContent>
+                    </Tooltip>
+                  }
+                  onSend={handleSendWithAttachments}
+                  onPause={onPause}
+                  busy={canPause}
+                  disabled={isBusy && !canPause}
+                  commands={chatCommands}
+                  toolCommands={toolCommands}
+                  composerHelp={composerHelp}
+                  mentionables={mentionables}
+                  renderMentionPopup={renderMentionPopup}
+                  injectText={injectText}
+                  placeholder={t('typeMessageWithCommands')}
+                  labels={{
+                    dropFiles: t('dropFiles'),
+                    attachFiles: t('attachFiles'),
+                    sendMessage: t('sendMessage'),
+                    pauseResponse: t('pauseResponse'),
+                    injectAsContext: t('injectAsContext'),
+                    uploadToRemote: t('uploadToRemote'),
+                  }}
+                  enableAttachments
+                />
+              </div>
+            </div>
+        </div>
+      )}
+    </ViewerChatPanel>
+    </ToolResultsProvider>
+  )
+}
+
+function timelineContent(
+  item: ViewerTimelineItem,
+  activeThinkingResponseID: string | null,
+  onResolveGuardrail: (review: Review, approve: boolean) => Promise<void>,
+  resolveExtension: ExtensionResolver,
+): ReactNode {
+  switch (item.kind) {
+    case 'message': {
+      if (item.role === 'thinking') {
+        return (
+          <ChatThinking actorName={item.actorName}>
+            {item.content.trim() ? <MarkdownContent content={trimDisplayContent(item.content)} compact muted /> : null}
+          </ChatThinking>
+        )
+      }
+      return (
+        <ChatMessageBubble
+          role={item.role}
+          actorName={item.actorName}
+          timestamp={new Date(item.timestamp).toISOString()}
+          timeLabel={formatRailTime(item)}
+          headerClassName="xl:hidden"
+        >
+          {item.role === 'system' && systemCode(item.metadata) ? (
+            <SystemMessageContent metadata={item.metadata!} fallback={item.content} />
+          ) : item.content && isPreformattedCommand(item) ? (
+            <CodeBlock code={item.content} copyable />
+          ) : item.content ? (
+            <MessageBody content={item.content} compact={item.role !== 'system'} />
+          ) : null}
+        </ChatMessageBubble>
+      )
+    }
+
+    case 'assistant_response':
+      return <AssistantResponseEntry response={item} resolveExtension={resolveExtension} activeThinking={item.id === activeThinkingResponseID} onResolveGuardrail={onResolveGuardrail} />
+
+    case 'tool_call':
+      return (
+        <ToolCallResult
+          id={item.toolCall.id}
+          toolName={item.toolCall.toolName}
+          toolArgs={item.toolCall.toolArgs}
+          result={item.toolCall.result}
+          pending={item.toolCall.pending}
+          error={item.toolCall.error}
+          toolResult={item.toolCall.toolResult}
+          resultEventId={item.toolCall.resultEventId}
+          observations={item.toolCall.observations}
+        />
+      )
+
+    case 'subagent_run':
+      return (
+        <SubagentRunCard run={item}>
+          {item.items.map((child) => (
+            <div key={child.id}>{timelineContent(child, activeThinkingResponseID, onResolveGuardrail, resolveExtension)}</div>
+          ))}
+        </SubagentRunCard>
+      )
+
+    case 'extension': {
+      if (item.extensionType === 'workflow') return <Workflow workflow={item.data.workflow as WorkflowTurn}
+        renderItem={node => node.kind === 'assistant_response'
+          ? <div data-testid="assistant-response">
+              {node.thinking?.trim() && <div role="region" aria-label={i18n.t('chat:thinkingLabel')} tabIndex={0}
+                className="max-h-64 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <MarkdownContent content={trimDisplayContent(node.thinking)} compact muted />
+              </div>}
+              {node.response?.content.trim() && <div data-testid="assistant-response-content"><MarkdownContent content={trimDisplayContent(node.response.content)} compact /></div>}
+              {typeof node.response?.metadata?.recap === 'string' && <div data-testid="assistant-response-footer" className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground"><span data-testid="task-recap">{node.response.metadata.recap}</span></div>}
+              <TokenUsageBadge usage={node.response?.metadata?.usage} />
+            </div>
+          : node.kind === 'extension' && node.extensionType === 'guardrail'
+          ? <GuardrailReviewCard review={node.data.review as Review} unavailable={node.data.unavailable === true} intercepted={node.data.intercepted === true}
+              outcome={node.data.outcome as string | undefined} actionable={node.data.actionable === true} reviewedAt={node.data.reviewedAt as number | undefined} onResolve={onResolveGuardrail} />
+          : timelineContent(node, activeThinkingResponseID, onResolveGuardrail, resolveExtension)} />
+      if (item.event && observation(item.event)) return <ObservedEvent event={item.event} />
+      if (item.extensionType === 'eval') {
+        return (
+          <EvalNote
+            pass={item.data.pass === true}
+            round={typeof item.data.round === 'number' ? item.data.round : undefined}
+            reason={typeof item.data.reason === 'string' ? item.data.reason : undefined}
+          />
+        )
+      }
+      if (item.extensionType === 'compact') {
+        return (
+          <CompactNote
+            before={numOrUndefined(item.data.tokens_before)}
+            after={numOrUndefined(item.data.tokens_after)}
+            kept={numOrUndefined(item.data.kept_messages)}
+          />
+        )
+      }
+      if (item.extensionType === 'token_budget') {
+        return (
+          <TokenBudgetNote
+            context={numOrUndefined(item.data.context_tokens)}
+            budget={numOrUndefined(item.data.token_budget)}
+          />
+        )
+      }
+      const config = resolveExtension(item.extensionType)
+      if (!config) return <div data-unknown-extension={item.extensionType} className="text-xs text-muted-foreground">{item.extensionType}</div>
+      const Renderer = config.renderer
+      return <ContributionBoundary id={item.extensionType} resetKey={config}><Renderer item={item} context={{}} /></ContributionBoundary>
+    }
+
+    case 'divider':
+      if (item.variant !== 'warning') return false
+      return (
+        <Callout tone="destructive" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
+          {item.label}
+        </Callout>
+      )
+
+    default:
+      return null
+  }
+}
+
+// Backend system messages carry a stable i18n code (+ params) in metadata; the
+// English text in `content` is only a fallback. Localize by code so the message
+// reads in the user's language on both the live path and after a reload.
+function systemCode(metadata?: Record<string, unknown>): string {
+  return typeof metadata?.code === 'string' ? metadata.code : ''
+}
+
+// Command output is a terminal dump, so markdown would collapse its line
+// structure into one paragraph. CommandDetail.presentation marks the dumps.
+function isPreformattedCommand(item: ViewerTimelineItem): boolean {
+  if (item.kind !== 'message') return false
+  const presentation = item.metadata?.presentation
+  return typeof presentation === 'string' && presentation === 'preformatted'
+}
+
+function systemParams(metadata: Record<string, unknown>): Record<string, unknown> {
+  const p = metadata.params
+  if (p && typeof p === 'object') return p as Record<string, unknown>
+
+  const ext = metadata.ext
+  if (!ext || typeof ext !== 'object') return {}
+  const webExt = (ext as Record<string, unknown>)[webUserAgent]
+  if (!webExt || typeof webExt !== 'object') return {}
+  const params = (webExt as Record<string, unknown>).params
+  return params && typeof params === 'object' ? params as Record<string, unknown> : {}
+}
+
+// A command's description arrives in the server's own language, so the catalog
+// is the only place it can be translated. Keyed by the command name, the way
+// the composer menu already resolves its own entries; dynamic agent-reported
+// commands (skills) have no key and keep the server's text.
+function commandDescription(t: TFunction<'chat'>, name: string, description: string): string {
+  const base = name.startsWith('/') ? name.slice(1) : ''
+  const key = base ? `cmd${base.charAt(0).toUpperCase()}${base.slice(1)}` : ''
+  const localized = key ? t(key, { defaultValue: '' }) : ''
+  return localized || description
+}
+
+function SystemMessageContent({ metadata, fallback }: { metadata: Record<string, unknown>; fallback: string }) {
+  const { t } = useTranslation('chat')
+  const code = systemCode(metadata)
+  const params = systemParams(metadata)
+  if (code === 'agents_list') return <AgentsListContent agentList={metadata.agentList as AgentListMetadata | undefined} fallback={fallback} />
+  if (code === 'help') return <HelpContent commands={metadata.commands} fallback={fallback} />
+  const text = t(`sys.${code}`, { ...params, defaultValue: fallback })
+  return <MarkdownContent content={trimDisplayContent(text)} />
+}
+
+// The server sends the session menu alongside a `help` code and leaves the body
+// untranslated, so the catalog here is what makes /help read in the user's
+// language. Fall back to the server's body when the catalog is absent (an older
+// server) or empty.
+function HelpContent({ commands, fallback }: { commands: unknown; fallback: string }) {
+  const { t } = useTranslation('chat')
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return <MarkdownContent content={trimDisplayContent(fallback)} />
+  }
+  const lines = [`**${t('sys.help_commands')}**`]
+  for (const entry of commands) {
+    if (!entry || typeof entry !== 'object') continue
+    const spec = entry as CommandSpec
+    if (!spec.name) continue
+    const usage = spec.usage || spec.name
+    const description = commandDescription(t, spec.name, spec.description ?? '')
+    lines.push(description ? `- \`${usage}\` — ${description}` : `- \`${usage}\``)
+  }
+  lines.push('', t('sys.help_hint'))
+  return <MarkdownContent content={trimDisplayContent(lines.join('\n'))} />
+}
+
+function AgentsListContent({ agentList, fallback }: { agentList?: AgentListMetadata; fallback: string }) {
+  const { t } = useTranslation('chat')
+  const agents = agentList?.agents
+  if (!agents) return <MarkdownContent content={trimDisplayContent(fallback)} />
+  const lines = [t('sys.agents_connected', { n: agents.length })]
+  for (const a of agents) {
+    const status = a.busy ? t('sys.agent_status_busy') : t('sys.agent_status_idle')
+    let line = `- **${a.name}** (${a.nodeId}) — ${status}`
+    if (a.model) line += ` — ${a.provider}/${a.model}`
+    lines.push(line)
+  }
+  return <MarkdownContent content={lines.join('\n')} />
+}
+
+function EvalNote({ pass, round, reason }: { pass: boolean; round?: number; reason?: string }) {
+  const { t } = useTranslation('chat')
+  return (
+    <Callout
+      tone={pass ? 'success' : 'ai'}
+      icon={pass ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+      className="rounded-lg"
+    >
+      <span className="font-medium">
+        {t('evalRound', { round: round ?? 1 })} · {pass ? t('evalPass') : t('evalFail')}
+      </span>
+      {reason ? <p className="mt-0.5 break-words text-muted-foreground">{reason}</p> : null}
+    </Callout>
+  )
+}
+
+function numOrUndefined(value: unknown): number | undefined {
+  // Protobuf uint64 counters decode as bigint (compaction and token budgets).
+  if (typeof value === 'bigint') {
+    const number = Number(value)
+    return Number.isSafeInteger(number) ? number : undefined
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function CompactNote({ before, after, kept }: { before?: number; after?: number; kept?: number }) {
+  const { t } = useTranslation('chat')
+  return (
+    <Callout tone="info" icon={<Layers className="h-3.5 w-3.5" />} className="rounded-lg">
+      <span className="font-medium">{t('compactLabel')}</span>
+      <p className="mt-0.5 break-words text-muted-foreground">
+        {t('compactDetail', { before: before ?? '?', after: after ?? '?', kept: kept ?? '?' })}
+      </p>
+    </Callout>
+  )
+}
+
+function TokenBudgetNote({ context, budget }: { context?: number; budget?: number }) {
+  const { t } = useTranslation('chat')
+  return (
+    <Callout tone="warning" icon={<AlertTriangle className="h-3.5 w-3.5" />} className="rounded-lg">
+      <span className="font-medium">{t('tokenBudgetLabel')}</span>
+      <p className="mt-0.5 break-words text-muted-foreground">
+        {t('tokenBudgetDetail', { contextTokens: context ?? '?', budget: budget ?? '?' })}
+      </p>
+    </Callout>
+  )
+}
+
+function AssistantResponseEntry({
+  response,
+  activeThinking,
+  embedded = false,
+  onResolveGuardrail,
+  resolveExtension,
+}: {
+  resolveExtension: ExtensionResolver
+  response: Extract<ViewerTimelineItem, { kind: 'assistant_response' }>
+  activeThinking: boolean
+  embedded?: boolean
+  onResolveGuardrail: (review: Review, approve: boolean) => Promise<void>
+}) {
+  const { t } = useTranslation('chat')
+  const message = response.response
+  const { t: ta } = useTranslation('app')
+  const reviews = response.steps?.filter(step => step.kind === 'extension' && step.extensionType === 'guardrail') ?? []
+  const pendingReviews = reviews.filter(step => step.kind === 'extension' && (step.data.awaiting === true || step.data.actionable === true)).length
+  const hasThinking = !!response.thinking?.trim()
+  const hasResponse = !!message?.content.trim()
+  const [thinkingExpanded, setThinkingExpanded] = useState(activeThinking && hasThinking)
+  const wasThinkingRef = useRef(activeThinking)
+  useEffect(() => {
+    if (activeThinking && hasThinking) setThinkingExpanded(true)
+    else if (wasThinkingRef.current && !activeThinking) setThinkingExpanded(false)
+    wasThinkingRef.current = activeThinking
+  }, [activeThinking, hasThinking])
+  // Fold the whole turn's tool calls under one disclosure so a long scan run
+  // doesn't sprawl the transcript. The header keeps a collapsed group legible:
+  // the tool count, plus a spinner while any call is still running.
+  const toolCount = response.tools.length
+  const toolsRunning = response.tools.some((tool) => tool.pending)
+  const toolsLabel = (
+    <span className="inline-flex items-center gap-1.5">
+      <span>{toolCount} {toolCount === 1 ? t('tool') : t('tools')}</span>
+      {toolsRunning && <Loader2 className="h-3 w-3 animate-spin text-warning" />}
+    </span>
+  )
+
+  return (
+    <AssistantResponse
+      embedded={embedded}
+      actorName={response.actorName}
+      timestamp={new Date(response.timestamp).toISOString()}
+      streaming={response.streaming}
+      thinking={hasThinking ? (
+        <MarkdownContent content={trimDisplayContent(response.thinking || '')} compact muted />
+      ) : undefined}
+      thinkingExpanded={thinkingExpanded}
+      onThinkingToggle={setThinkingExpanded}
+      tools={toolCount > 0 ? (
+        <div className="space-y-2">
+          {response.tools.map((tool) => (
+            <ToolCallResult
+              key={tool.id}
+              id={tool.id}
+              toolName={tool.toolName}
+              toolArgs={tool.toolArgs}
+              result={tool.result}
+              pending={tool.pending}
+              error={tool.error}
+              toolResult={tool.toolResult}
+              resultEventId={tool.resultEventId}
+              observations={tool.observations}
+            />
+          ))}
+        </div>
+      ) : undefined}
+      response={hasResponse ? <MarkdownContent content={trimDisplayContent(message?.content || '')} compact /> : undefined}
+      footer={message?.metadata?.usage || !embedded && typeof message?.metadata?.recap === 'string'
+        ? <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            {!embedded && typeof message?.metadata?.recap === 'string' && <span data-testid="task-recap">{message.metadata.recap}</span>}
+            <TokenUsageBadge usage={message?.metadata?.usage} />
+          </div> : undefined}
+      labels={{ tools: toolsLabel, thinking: t('thinkingLabel'), response: t('responseLabel') }}
+      headerClassName="xl:hidden"
+      timeLabel={formatRailTime(response)}
+      showResponseLabel={false}
+    >
+      {response.steps && <div data-guardrail-turn={response.id}>
+        <div className="flex justify-end border-b border-border px-3 py-2">
+          <button type="button" data-guardrail-turn-summary
+            aria-label={ta(pendingReviews ? 'guardrailGoToPending' : 'guardrailGoToRecord')}
+            onClick={event => {
+              const turn = event.currentTarget.closest('[data-guardrail-turn]')
+              const target = turn?.querySelector<HTMLElement>(pendingReviews ? '[data-guardrail-state="pending"]' : '[data-guardrail-review]')
+              target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              target?.focus({ preventScroll: true })
+            }} data-guardrail-count={reviews.length} data-guardrail-pending-count={pendingReviews}
+            aria-live="polite" aria-atomic="true"
+            className={cn('inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]', pendingReviews ? 'bg-warning/10 text-warning' : 'bg-muted/60 text-muted-foreground')}>
+            <Shield className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {ta('guardrailTurnCount', { count: reviews.length })}
+            {pendingReviews > 0 && <span>· {ta('guardrailTurnPending', { count: pendingReviews })}</span>}
+          </button>
+        </div>
+        <div data-guardrail-turn-steps className="divide-y divide-border">
+        {response.steps.map(step => step.kind === 'assistant_response'
+          ? <AssistantResponseEntry key={step.id} response={step} embedded
+              activeThinking={activeThinking && step.id === latestStreamingResponseID(response.steps!)} onResolveGuardrail={onResolveGuardrail} resolveExtension={resolveExtension} />
+          : step.kind === 'extension' && step.extensionType === 'guardrail'
+            ? <div key={step.id} className="px-3 py-2" data-guardrail-turn-step>
+                <GuardrailReviewCard review={step.data.review as Review} unavailable={step.data.unavailable === true} intercepted={step.data.intercepted === true} outcome={step.data.outcome as string | undefined} actionable={step.data.actionable === true}
+                  reviewedAt={step.data.reviewedAt as number | undefined} onResolve={onResolveGuardrail} embedded />
+              </div>
+            : <div key={step.id} className="px-3 py-2" data-guardrail-turn-step>
+                {timelineContent(step, null, onResolveGuardrail, resolveExtension)}
+              </div>)}
+        </div>
+      </div>}
+    </AssistantResponse>
+  )
+}
+
+function latestStreamingResponseID(items: ViewerTimelineItem[]): string | null {
+  let latestID: string | null = null
+  let latestTimestamp = Number.NEGATIVE_INFINITY
+  const visit = (item: ViewerTimelineItem) => {
+    if (item.kind === 'assistant_response' && item.streaming && item.thinking?.trim()) {
+      if (item.timestamp >= latestTimestamp) {
+        latestID = item.id
+        latestTimestamp = item.timestamp
+      }
+      return
+    }
+    if (item.kind === 'subagent_run') item.items.forEach(visit)
+  }
+  items.forEach(visit)
+  return latestID
+}
+
+function TimelineMark({ item, resolveExtension }: { item: ViewerTimelineItem; resolveExtension: ExtensionResolver }) {
+  const { t } = useTranslation('chat')
+  const descriptor = describeTimelineItem(item, t, resolveExtension)
+  if (!descriptor) return <div className="hidden w-full xl:block" />
+
+  return (
+    <div className="hidden w-full pr-2 pt-1 xl:block" data-guardrail-timeline-mark={item.kind === 'extension' && item.extensionType === 'guardrail' ? item.id : undefined}>
+      <div className="relative min-h-8 border-r border-border/70 pr-3 text-right">
+        <span
+          className={cn(
+            'absolute -right-[5px] top-1 flex h-2.5 w-2.5 items-center justify-center rounded-full border bg-background',
+            descriptor.dotClass,
+          )}
+        />
+        <div className="flex min-w-0 items-center justify-end gap-1.5 text-[11px] font-medium text-foreground">
+          <span className="truncate">{descriptor.label}</span>
+          {descriptor.icon}
+        </div>
+        <div className="mt-0.5 font-mono text-[10px] leading-4 text-muted-foreground">{descriptor.time}</div>
+      </div>
+    </div>
+  )
+}
+
+interface IOAThreadNoteProps {
+  note?: IOAThreadDescriptor | null
+  relationBefore?: boolean
+  relationAfter?: boolean
+  onOpen?: (target?: IOAConsoleTarget) => void
+}
+
+function IOAThreadNote({ note, relationBefore, relationAfter, onOpen }: IOAThreadNoteProps) {
+  const { t } = useTranslation('chat')
+  const [expanded, setExpanded] = useState(false)
+  if (!note) {
+    if (!relationBefore && !relationAfter) return null
+    return (
+      <div className="relative hidden min-h-6 w-full self-stretch lg:block" aria-hidden="true">
+        <span className="absolute -bottom-3 -top-3 left-1 border-l border-dashed border-primary/40" />
+      </div>
+    )
+  }
+  const refs = note.refs ?? []
+
+  return (
+    <div className="relative hidden w-full self-stretch py-1 pl-3 lg:block">
+      {relationBefore && (
+        <span className="absolute -top-3 left-1 h-8 border-l border-dashed border-primary/40" aria-hidden="true" />
+      )}
+      {relationAfter && (
+        <span className="absolute -bottom-3 left-1 top-5 border-l border-dashed border-primary/40" aria-hidden="true" />
+      )}
+      {(relationBefore || relationAfter) && (
+        <>
+          <span className="absolute left-0 top-[17px] h-2 w-2 rounded-full border border-primary/50 bg-background" aria-hidden="true" />
+          <span className="absolute left-1 top-5 w-2 border-t border-dashed border-primary/40" aria-hidden="true" />
+        </>
+      )}
+      <div className="w-full rounded-lg border border-primary/25 bg-card shadow-sm">
+        <div className="flex min-w-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5">
+          <GitBranch className="h-3 w-3 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-primary">
+            {note.kind || note.label}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => onOpen?.(note.target)}
+                disabled={!onOpen}
+                aria-label={t('ioaOpenConsole')}
+                className="-mr-1 h-6 w-6 shrink-0 text-muted-foreground hover:text-primary"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{t('ioaOpenConsole')}</TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="px-2.5 py-2">
+          {note.title && (
+            <h3 className={cn(
+              'break-words text-[11px] font-semibold leading-4 text-foreground',
+              (refs.length > 0 || note.content) && 'mb-1.5',
+            )}>{note.title}</h3>
+          )}
+          {refs.length > 0 && (
+            <div className="flex flex-wrap gap-1 border-t border-border/60 pt-1.5">
+              {refs.map(ref => (
+                <Tooltip key={ref}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => onOpen?.({ spaceID: note.target?.spaceID, messageID: ref })}
+                      disabled={!onOpen}
+                      aria-label={t('ioaOpenReference', { id: ref })}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-dashed border-primary/55 bg-primary/10 px-2 py-1 font-mono text-[10px] leading-3 text-primary transition-colors hover:border-primary/80 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      <Link2 className="h-3 w-3 shrink-0" />
+                      <span className="font-sans text-[8px] font-semibold uppercase tracking-wide">ref</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="truncate">{compactReference(ref)}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">{ref}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+          {note.content && (
+            <>
+              {expanded && (
+                <div className="mt-1.5 break-words border-t border-border/60 pt-1.5 text-[11px] leading-4">
+                  <MarkdownContent content={note.content} compact className="text-[11px]" />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setExpanded(value => !value)}
+                aria-expanded={expanded}
+                className="mt-1.5 flex w-full items-center justify-between rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <span>{expanded ? t('ioaCollapseMarkdown') : t('ioaExpandMarkdown')}</span>
+                <ChevronDown className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')} />
+              </button>
+            </>
+          )}
+          {!note.title && !note.content && (
+            <p className="text-[11px] leading-4 text-muted-foreground">{note.label}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface IOAMessagePayload {
+  title?: string
+  content?: string
+  kind?: string
+}
+
+function ioaMessagePayload(value: unknown): IOAMessagePayload {
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return {}
+    const parsed = serializedRecord(text)
+    return parsed ? ioaMessagePayload(parsed) : { content: text }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+
+  const record = value as Record<string, unknown>
+  const nested = record.content && typeof record.content === 'object' && !Array.isArray(record.content)
+    ? record.content as Record<string, unknown>
+    : undefined
+  const payload = nested ?? record
+  const directContent = typeof record.content === 'string' ? record.content.trim() : undefined
+
+  return {
+    title: firstString(payload, ['title', 'subject', 'name']) || firstString(record, ['title', 'subject', 'name']),
+    content: firstString(payload, ['content', 'message', 'body', 'text', 'markdown']) || directContent,
+    kind: firstString(payload, ['type', 'kind', 'content_type']) || firstString(record, ['type', 'kind', 'content_type']),
+  }
+}
+
+function ioaPayloadFromToolArgs(toolArgs: string): IOAMessagePayload {
+  const args = serializedRecord(toolArgs)
+  const direct = ioaMessagePayload(args?.content)
+  if (direct.title || direct.content || direct.kind) return direct
+
+  const command = firstString(args, ['command']) || toolArgs
+  const match = command.match(/--content\s+(['"])(\{[\s\S]*\})\1/)
+  return match ? ioaMessagePayload(match[2]) : {}
+}
+
+function mergeIOAPayload(primary: IOAMessagePayload, fallback: IOAMessagePayload): IOAMessagePayload {
+  return {
+    title: primary.title || fallback.title,
+    content: primary.content || fallback.content,
+    kind: primary.kind || fallback.kind,
+  }
+}
+
+const mockVulnerabilityKeys = [
+  'idleFindingCVELog4j',
+  'idleFindingCVEPanOS',
+  'idleFindingOWASPAccess',
+  'idleFindingOWASPInjection',
+  'idleFindingIDOR',
+  'idleFindingSQLi',
+  'idleFindingXSS',
+  'idleFindingSSRF',
+] as const
+
+function ChatGreeting() {
+  const { t } = useTranslation('chat')
+  const [findingIndex, setFindingIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let revealTimer: ReturnType<typeof setTimeout>
+    let hideTimer: ReturnType<typeof setTimeout>
+    let lastIndex = -1
+
+    const reveal = () => {
+      revealTimer = setTimeout(() => {
+        lastIndex = lastIndex < 0
+          ? Math.floor(Math.random() * mockVulnerabilityKeys.length)
+          : (lastIndex + 1 + Math.floor(Math.random() * (mockVulnerabilityKeys.length - 1))) % mockVulnerabilityKeys.length
+        setFindingIndex(lastIndex)
+        hideTimer = setTimeout(() => {
+          setFindingIndex(null)
+          reveal()
+        }, 1800)
+      }, 500 + Math.random() * 1300)
+    }
+
+    const updateMotion = () => {
+      clearTimeout(revealTimer)
+      clearTimeout(hideTimer)
+      setFindingIndex(reducedMotion.matches ? 0 : null)
+      if (!reducedMotion.matches) reveal()
+    }
+
+    updateMotion()
+    reducedMotion.addEventListener('change', updateMotion)
+    return () => {
+      reducedMotion.removeEventListener('change', updateMotion)
+      clearTimeout(revealTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [])
+
+  return (
+    <div className="cyber-intro flex flex-col items-center px-1 py-5 text-center">
+      <div className="cyber-intro-visual" aria-hidden="true">
+        <span className="cyber-intro-axis cyber-intro-axis-horizontal" />
+        <span className="cyber-intro-axis cyber-intro-axis-vertical" />
+        <span className="cyber-intro-ring cyber-intro-ring-outer" />
+        <span className="cyber-intro-ring cyber-intro-ring-middle" />
+        <span className="cyber-intro-ring cyber-intro-ring-inner" />
+        <span className="cyber-intro-sweep" />
+        <span className="cyber-intro-detection cyber-intro-detection-asset">
+          <Box size={12} />{t('idleAsset')}
+        </span>
+        <span className="cyber-intro-detection cyber-intro-detection-port">
+          <Network size={12} />{t('idlePort')}
+        </span>
+        <span className="cyber-intro-detection cyber-intro-detection-fingerprint">
+          <Fingerprint size={12} />{t('idleFingerprint')}
+        </span>
+        {findingIndex !== null && (
+          <span className="cyber-intro-detection cyber-intro-detection-finding">
+            <Bug size={12} />{t(mockVulnerabilityKeys[findingIndex])}
+          </span>
+        )}
+        <span className="cyber-intro-core">
+          <BrandLogo size={60} animated={false} />
+        </span>
+      </div>
+      <h2 className="mt-5 font-display text-2xl font-semibold text-foreground">Cyber</h2>
+      <p className="mt-1.5 text-sm text-muted-foreground">{t('idlePrompt')}</p>
+    </div>
+  )
+}
+
+interface TimelineDescriptor {
+  label: string
+  time: string
+  icon: ReactNode
+  dotClass: string
+}
+
+function describeTimelineItem(item: ViewerTimelineItem, t: (key: string) => string, resolveExtension: ExtensionResolver): TimelineDescriptor | null {
+  const time = formatRailTime(item)
+
+  switch (item.kind) {
+    case 'message': {
+      if (item.role === 'user') {
+        return {
+          label: t('you'),
+          time,
+          icon: <User className="h-3 w-3 text-primary" />,
+          dotClass: 'border-primary bg-primary',
+        }
+      }
+      if (item.role === 'assistant') {
+        return {
+          label: item.actorName || t('assistant'),
+          time,
+          icon: <BrandMark size={12} className="text-ai" />,
+          dotClass: 'border-ai bg-ai',
+        }
+      }
+      if (item.role === 'thinking') {
+        return {
+          label: item.actorName || t('thinking'),
+          time,
+          icon: <Loader2 className="h-3 w-3 animate-spin text-primary" />,
+          dotClass: 'border-primary bg-background',
+        }
+      }
+      return {
+        label: t('system'),
+        time,
+        icon: <MessageSquare className="h-3 w-3 text-muted-foreground" />,
+        dotClass: 'border-border bg-muted-foreground/60',
+      }
+    }
+
+    case 'assistant_response':
+      return {
+        label: item.actorName || t('assistant'),
+        time,
+        icon: <BrandMark size={12} className="text-ai" />,
+        dotClass: item.streaming
+          ? 'border-primary bg-background animate-pulse'
+          : 'border-ai bg-ai',
+      }
+
+    case 'tool_call':
+      return {
+        label: item.toolCall.toolName || t('tool'),
+        time,
+        icon: <Wrench className="h-3 w-3 text-warning" />,
+        dotClass: item.toolCall.pending ? 'border-warning bg-warning animate-pulse' : 'border-primary bg-primary',
+      }
+
+    case 'subagent_run':
+      return {
+        label: item.name,
+        time,
+        icon: <GitBranch className={cn('h-3 w-3', item.status === 'running' || item.status === 'starting' ? 'text-blue-500' : 'text-success')} />,
+        dotClass: item.status === 'running' || item.status === 'starting'
+          ? 'border-blue-500 bg-background animate-pulse'
+          : item.status === 'failed' || item.status === 'canceled'
+            ? 'border-destructive bg-destructive'
+            : 'border-success bg-success',
+      }
+
+    case 'extension': {
+      if (item.extensionType === 'guardrail') {
+        const state = (item.data.review as Review).state
+        return {
+          label: i18n.t('app:guardrailTimelineLabel'),
+          time,
+          icon: <Shield className="h-3 w-3 text-muted-foreground" />,
+          dotClass: item.data.actionable === true ? 'border-warning bg-warning'
+            : state === ReviewState.APPROVED ? 'border-success bg-success'
+              : state === ReviewState.REJECTED ? 'border-destructive bg-destructive'
+                : 'border-border bg-muted-foreground/60',
+        }
+      }
+      if (item.extensionType === 'eval') {
+        return {
+          label: t('evalLabel'),
+          time,
+          icon: <Sparkles className="h-3 w-3 text-ai" />,
+          dotClass: item.data.pass === true ? 'border-success bg-success' : 'border-ai bg-ai',
+        }
+      }
+      if (item.extensionType === 'compact') {
+        return {
+          label: t('compactLabel'),
+          time,
+          icon: <Layers className="h-3 w-3 text-info" />,
+          dotClass: 'border-info bg-info',
+        }
+      }
+      if (item.extensionType === 'token_budget') {
+        return {
+          label: t('tokenBudgetLabel'),
+          time,
+          icon: <AlertTriangle className="h-3 w-3 text-warning" />,
+          dotClass: 'border-warning bg-warning',
+        }
+      }
+      const config = resolveExtension(item.extensionType)
+      if (config?.mark) {
+        const markLabel = typeof config.mark.label === 'function'
+          ? config.mark.label(item) : (config.mark.label || item.extensionType)
+        const MarkIcon = config.mark.icon
+        return {
+          label: markLabel,
+          time,
+          icon: MarkIcon ? <MarkIcon className="h-3 w-3" /> : null,
+          dotClass: config.mark.dotClass || 'border-border bg-muted-foreground/60',
+        }
+      }
+      return null
+    }
+
+    case 'divider':
+      return null
+
+    default:
+      return null
+  }
+}
+
+interface IOAThreadDescriptor {
+  label: string
+  title?: string
+  content?: string
+  kind?: string
+  refs: string[]
+  target?: IOAConsoleTarget
+}
+
+function describeIOAThreadItem(item: ViewerTimelineItem, t: (key: string) => string): IOAThreadDescriptor | null {
+  if (item.kind === 'assistant_response') {
+    const ioaTools = item.tools.filter((tool) => isIOATool(tool.toolName, tool.toolArgs))
+    const ioaTool = [...ioaTools].reverse().find(
+      (tool) => ioaTargetFromTool(tool.toolArgs, tool.result) !== undefined,
+    ) ?? ioaTools[ioaTools.length - 1]
+    if (ioaTool) {
+      return describeIOATool(ioaTool.toolName, ioaTool.toolArgs, ioaTool.result)
+    }
+  }
+
+  if (item.kind === 'tool_call' && isIOATool(item.toolCall.toolName, item.toolCall.toolArgs)) {
+    return describeIOATool(item.toolCall.toolName, item.toolCall.toolArgs, item.toolCall.result)
+  }
+
+  if (item.kind === 'message') {
+    const metadata = item.metadata || {}
+    const thread = metadata.ioa_thread || metadata.ioa_message || metadata.thread
+    if (thread) {
+      const payload = ioaMessagePayload(thread)
+      return {
+        label: t('ioaMessage'),
+        title: payload.title,
+        content: payload.content || (typeof thread === 'string' ? thread : undefined),
+        kind: payload.kind,
+        refs: ioaMessageRefs(thread, metadata),
+        target: ioaTargetFromMetadata(metadata, thread),
+      }
+    }
+  }
+
+  return null
+}
+
+function describeIOATool(toolName: string, toolArgs: string, result?: string): IOAThreadDescriptor {
+  const resultRecord = serializedRecord(result)
+  const payload = mergeIOAPayload(ioaMessagePayload(resultRecord), ioaPayloadFromToolArgs(toolArgs))
+  return {
+    label: ioaOperationName(toolName, toolArgs),
+    title: payload.title,
+    content: payload.content || (!payload.title ? result || summarizeArgs(toolArgs) : undefined),
+    kind: payload.kind,
+    refs: ioaMessageRefs(resultRecord),
+    target: ioaTargetFromTool(toolArgs, result),
+  }
+}
+
+function ioaMessageRefs(...values: unknown[]): string[] {
+  const refs: string[] = []
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const record = value as Record<string, unknown>
+    const refRecord = record.refs && typeof record.refs === 'object' && !Array.isArray(record.refs)
+      ? record.refs as Record<string, unknown>
+      : undefined
+    const messages = refRecord?.messages
+    if (!Array.isArray(messages)) continue
+    for (const message of messages) {
+      if (typeof message === 'string' && message.trim() && !refs.includes(message.trim())) refs.push(message.trim())
+    }
+  }
+  return refs
+}
+
+function compactReference(value: string): string {
+  if (value.length <= 18) return value
+  return `${value.slice(0, 8)}…${value.slice(-5)}`
+}
+
+function ioaOperationName(toolName: string, toolArgs: string): string {
+  const normalized = toolName.toLowerCase()
+  if (normalized === 'ioa' || normalized.startsWith('ioa_') || normalized.startsWith('ioa.')) return toolName
+  const args = serializedRecord(toolArgs)
+  const command = firstString(args, ['command']) || toolArgs
+  return command.match(/\b(ioa_(?:space|send|read))\b/i)?.[1] || toolName || 'server'
+}
+
+function ioaTargetFromTool(toolArgs: string, result?: string): IOAConsoleTarget | undefined {
+  const args = serializedRecord(toolArgs)
+  const resultRecord = serializedRecord(result)
+  const spaceID = firstString(args, ['space_id', 'spaceId', 'space'])
+    || firstString(resultRecord, ['space_id', 'spaceId', 'space'])
+  const messageID = firstString(resultRecord, ['message_id', 'messageId', 'id', 'thread_id', 'threadId'])
+    || plainIdentifier(result)
+  return spaceID || messageID ? { spaceID, messageID } : undefined
+}
+
+function ioaTargetFromMetadata(metadata: Record<string, unknown>, thread: unknown): IOAConsoleTarget | undefined {
+  const record = thread && typeof thread === 'object' ? thread as Record<string, unknown> : undefined
+  const spaceID = firstString(metadata, ['ioa_space_id', 'space_id', 'spaceId', 'space'])
+    || firstString(record, ['space_id', 'spaceId', 'space'])
+  const messageID = firstString(metadata, ['ioa_message_id', 'message_id', 'messageId'])
+    || firstString(record, ['message_id', 'messageId', 'id', 'thread_id', 'threadId'])
+    || (typeof thread === 'string' ? plainIdentifier(thread) : undefined)
+  return spaceID || messageID ? { spaceID, messageID } : undefined
+}
+
+function serializedRecord(value?: string): Record<string, unknown> | undefined {
+  if (!value?.trim()) return undefined
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function firstString(record: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!record) return undefined
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
+function plainIdentifier(value?: string): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed.length > 160 || /[\s{}\[\]"]/u.test(trimmed)) return undefined
+  return trimmed
+}
+
+function isIOATool(toolName: string, toolArgs: string): boolean {
+  const name = toolName.toLowerCase()
+  if (name === 'ioa' || name.startsWith('ioa_') || name.startsWith('ioa.')) return true
+  return /\bioa_(space|send|read)\b/i.test(toolArgs)
+}
+
+function formatRailTime(item: ViewerTimelineItem): string {
+  const date = new Date(item.timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
+}
+
+function trimDisplayContent(value: string): string {
+  return value.replace(/[ \t\r\n]+$/g, '')
+}
+
+// Prepended (agent-facing) to any outgoing message that carries `context`
+// attachments. Without it the model reads the <file name="X"> block as a pointer
+// to a file on disk, calls read/glob/find hunting for X, comes up empty, and
+// reports the file "missing" — even though its full text is right there inline.
+// parseMessageSegments strips this line back off before render so it never shows
+// in the user's own bubble.
+const FILE_CONTEXT_PREAMBLE =
+  '[附件内容已内联，无需读取磁盘] 下方 <file> 块内是用户随本条消息附带文件的完整内容，已直接提供给你。请仅基于这些内容作答；该文件并未落盘，也不在工作目录，切勿用 read / glob / find 等工具去查找或打开它。'
+
+// A "context" attachment is inlined into the outgoing message as
+// `<file name="X">\n…contents…\n</file>` so the agent sees the file text. That
+// wrapper is plumbing, not something to dump raw into the bubble — split it out
+// and render each file as a collapsed card, with the surrounding prose as
+// markdown. Messages without a <file> block fall straight through to markdown.
+type MessageSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'file'; name: string; body: string }
+
+const FILE_BLOCK_RE = /<file name="([^"]*)">\n([\s\S]*?)\n<\/file>/g
+
+function parseMessageSegments(content: string): MessageSegment[] {
+  // Drop the agent-facing preamble the composer prepends to context attachments;
+  // it's guidance for the model, not part of what the user actually typed.
+  if (content.startsWith(FILE_CONTEXT_PREAMBLE)) {
+    content = content.slice(FILE_CONTEXT_PREAMBLE.length).replace(/^\n+/, '')
+  }
+  const segments: MessageSegment[] = []
+  let last = 0
+  FILE_BLOCK_RE.lastIndex = 0
+  for (let m = FILE_BLOCK_RE.exec(content); m; m = FILE_BLOCK_RE.exec(content)) {
+    const lead = content.slice(last, m.index)
+    if (lead.trim()) segments.push({ kind: 'text', text: lead })
+    segments.push({ kind: 'file', name: m[1], body: m[2] })
+    last = FILE_BLOCK_RE.lastIndex
+  }
+  const tail = content.slice(last)
+  if (tail.trim()) segments.push({ kind: 'text', text: tail })
+  return segments
+}
+
+function MessageBody({ content, compact }: { content: string; compact: boolean }) {
+  const segments = useMemo(() => parseMessageSegments(content), [content])
+  const hasFile = segments.some((s) => s.kind === 'file')
+  if (!hasFile) {
+    return <MarkdownContent content={trimDisplayContent(content)} compact={compact} />
+  }
+  return (
+    <div className="space-y-2">
+      {segments.map((seg, i) =>
+        seg.kind === 'file' ? (
+          <AttachmentCard key={i} name={seg.name} body={seg.body} />
+        ) : (
+          <MarkdownContent key={i} content={trimDisplayContent(seg.text)} compact={compact} />
+        ),
+      )}
+    </div>
+  )
+}
+
+function AttachmentCard({ name, body }: { name: string; body: string }) {
+  const [open, setOpen] = useState(false)
+  const bytes = useMemo(() => new Blob([body]).size, [body])
+  return (
+    <DisclosureCard
+      expanded={open}
+      onToggle={setOpen}
+      className="w-[min(28rem,100%)] border-border/70 bg-background/50"
+      headerClassName="px-2.5 py-1.5 hover:bg-accent/40"
+      header={
+        <>
+          <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{name}</span>
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{formatBytes(bytes)}</span>
+        </>
+      }
+    >
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-border/60 bg-card/40 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+        {body}
+      </pre>
+    </DisclosureCard>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}

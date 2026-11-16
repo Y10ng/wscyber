@@ -1,0 +1,844 @@
+import type { SCONode } from '@cyber/cstx-easm';
+import { Code, ConnectError } from '@connectrpc/connect'
+import { requireAuth, requireConnection, aopClient } from './runtime/api-bridge'
+import { AuthError } from './runtime/auth'
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
+import { anyPack } from '@bufbuild/protobuf/wkt'
+import {
+  newID as newRPCID,
+  AOPProtocolMessageSchema,
+  FileProtocolMessageSchema,
+  type AOPPayload,
+  type AOPProtocolMessage,
+  type Event as AOPEvent,
+  type EventDelivery,
+  type FileResult,
+  type Session,
+  type TurnReceipt,
+} from '@cyber/aop';
+import {
+  CommandProtocolMessageSchema,
+  GuardrailProtocolMessageSchema,
+  JEVProtocolMessageSchema,
+  type JEVProtocolMessage,
+  type JEVLibrary,
+  type GuardrailProtocolMessage,
+  type Review,
+  DistributeConfigSchema,
+  LLMProbeRequestSchema,
+  ReloadProtocolMessageSchema,
+  AgentRunOptionsSchema,
+  ScanStatus,
+  SessionBindingSchema,
+  type AgentView,
+  type AgentListMetadata,
+  type CommandProtocolMessage,
+  type CommandSpec,
+  type ConfigView,
+  type DistributeConfig,
+  type LLMProbeRequest,
+  type LLMProbeResult,
+  type ListModelsResult,
+  type TestConnectionResponse,
+  type ConnectionCheck,
+  type LLMProviderView,
+  type Scan,
+  type ScanOptions,
+  type SessionRecord,
+  type SystemStatus as ServerStatus,
+} from './cyber-proto'
+
+export type { SCONode };
+export type { AOPEvent };
+
+// Generated proto types are the single source of truth for the API surface.
+// Re-exported here so views keep a single import site for API types.
+export type { AgentListMetadata, AgentView, CommandSpec, ConfigView, DistributeConfig, EventDelivery, LLMProviderView, LLMProbeRequest, LLMProbeResult, ListModelsResult, TestConnectionResponse, ConnectionCheck, Scan, ScanOptions, SessionRecord, ServerStatus, TurnReceipt };
+export type { Session as AOPSession } from '@cyber/aop';
+export { ScanStatus };
+
+// Binary framing, matching the AOP channel. The events these services return
+// carry google.protobuf.Any extensions whose type set is open — SessionHistory,
+// SessionScanEvent, the observe payloads, and whatever a future agent attaches.
+// JSON framing expands an Any by looking its type up in a client-side registry,
+// so one unregistered extension makes the entire response undecodable; binary
+// framing leaves the Any as {typeUrl, value} for the caller's own anyUnpack.
+// Resolve clients at call time. Only the authenticated Cordis Hub owns them.
+const cyberRPC = new Proxy({} as import('./runtime/connection').ConnectionService['rpc'], {
+  get: (_target, name) => requireConnection().rpc[name as keyof import('./runtime/connection').ConnectionService['rpc']],
+})
+
+export const CONFIG_CHANGED_EVENT = 'cyber:config-changed'
+
+export class APIError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message)
+    this.name = 'APIError'
+  }
+}
+
+export async function getAuthSession(): Promise<boolean> { return requireAuth().check() }
+export async function login(token: string): Promise<void> {
+  try { await requireAuth().login(token) }
+  catch (error) { if (error instanceof AuthError) throw new APIError(error.message, error.status); throw error }
+}
+export async function logout(): Promise<void> { await requireAuth().logout() }
+
+export async function getAgentConnectToken(): Promise<string> {
+  const body = await apiJSON<{ token?: string }>(
+    '/api/auth/agent-token',
+    'Failed to configure the agent token',
+    { cache: 'no-store' },
+  )
+  return body.token ?? ''
+}
+
+export interface IOAIdentityBinding {
+  namespace: string
+  subject: string
+  claims?: Record<string, unknown>
+}
+
+export interface IOANode {
+  id: string
+  name: string
+  description?: string
+  meta?: Record<string, unknown>
+  identities?: IOAIdentityBinding[]
+}
+
+export interface IOASpace {
+  id: string
+  name: string
+  tags?: string[]
+  nodes?: IOANode[]
+  message_count: number
+}
+
+export interface IOARef {
+  messages?: string[]
+  nodes?: string[]
+}
+
+export interface IOAMessage {
+  id: string
+  space_id: string
+  sender: string
+  created_at: string
+  content_type?: string
+  content: Record<string, unknown>
+  refs?: IOARef
+  meta?: Record<string, unknown>
+  content_schema?: Record<string, unknown>
+}
+
+export interface IOAOverview {
+  nodes: IOANode[]
+  spaces: IOASpace[]
+  messages: IOAMessage[]
+}
+
+export async function getStatus(): Promise<ServerStatus> {
+  try {
+    const response = await cyberRPC.system.getStatus({})
+    if (!response.status) throw new Error('Status is unavailable')
+    return response.status
+  } catch (error) {
+    throw connectFailure(error, 'Failed to load status')
+  }
+}
+
+export async function listAgents(): Promise<AgentView[]> {
+  try {
+    const response = await cyberRPC.agents.listAgents({})
+    return response.agents
+  } catch (error) {
+    throw connectFailure(error, 'Failed to list agents')
+  }
+}
+
+// The Hub may intentionally have no local provider client: in the profile-
+// neutral deployment the connected scan/audit node owns the provider. The
+// status endpoint still exposes the saved provider/model, so configuration is
+// present when a model and provider are available even if `llm_available` is
+// false on the Hub itself.
+export function llmConfigured(status: ServerStatus | null | undefined): boolean {
+  return !!(
+    status?.llmModel?.trim() &&
+    (status.llmAvailable || status.llmApiKeyConfigured || status.llmProvider?.trim())
+  )
+}
+
+export async function getConfigStatus(): Promise<ConfigView> {
+  try {
+    const response = await cyberRPC.config.getConfig({})
+    if (!response.config) throw new Error('Config is unavailable')
+    return response.config
+  } catch (error) {
+    throw connectFailure(error, 'Failed to load config')
+  }
+}
+
+export async function saveConfig(config: DistributeConfig): Promise<ConfigView> {
+  try {
+    const response = await cyberRPC.config.updateConfig({ config })
+    if (!response.config) throw new Error('Config update returned no view')
+    window.dispatchEvent(new Event(CONFIG_CHANGED_EVENT))
+    return response.config
+  } catch (error) {
+    throw connectFailure(error, 'Failed to save config')
+  }
+}
+
+export async function activateLLMProfile(id: string): Promise<ConfigView> {
+  try {
+    const response = await cyberRPC.config.activateProfile({ profileId: id })
+    if (!response.config) throw new Error('Profile activation returned no view')
+    return response.config
+  } catch (error) {
+    throw connectFailure(error, 'Failed to switch LLM profile')
+  }
+}
+
+// Keep the installed policy warm: interaction-mode edits do not reload agents.
+export async function setGuardrailMode(mode: 'safe' | 'auto'): Promise<ConfigView> {
+  const current = await getConfigStatus()
+  return saveConfig(create(DistributeConfigSchema, {
+    extensions: {
+      guardrail: { ...current.extensions.guardrail?.values, mode },
+    },
+  }))
+}
+
+// Blank api_key asks the server to reuse the stored secret.
+export async function testLLM(req: MessageInitShape<typeof LLMProbeRequestSchema>): Promise<LLMProbeResult> {
+  return cyberRPC.config.testLLM(req)
+}
+
+export async function listLLMModels(req: MessageInitShape<typeof LLMProbeRequestSchema>): Promise<ListModelsResult> {
+  return cyberRPC.config.listModels(req)
+}
+
+// testConn probes the external dependencies of a settings section
+// (cyberhub | recon | search | ioa.client). The current form is
+// sent so edits are tested; blank secrets fall back to stored values server-side.
+export async function testConn(section: string, config: DistributeConfig): Promise<TestConnectionResponse> {
+  return cyberRPC.config.testConnection({ section, config })
+}
+
+// --- IOA overview ---
+
+export async function getIOAOverview(): Promise<IOAOverview> {
+  const signal = AbortSignal.timeout(10_000)
+  const [nodes, spaces, messages] = await Promise.all([
+    apiJSON<IOANode[]>('/ioa/nodes', 'Failed to load IOA nodes', { signal }),
+    apiJSON<IOASpace[]>('/ioa/spaces', 'Failed to load IOA spaces', { signal }),
+    apiJSON<IOAMessage[]>('/ioa/messages', 'Failed to load IOA messages', { signal }),
+  ])
+  return { nodes, spaces, messages }
+}
+
+// --- Chat session API ---
+
+export async function createChatSession(nodeID: string, title?: string, scanID?: string, opts?: { sessionID: string; requestID: string }): Promise<Session> {
+  try {
+	const extensions = scanID
+		? [anyPack(SessionBindingSchema, create(SessionBindingSchema, { scanId: scanID }))]
+		: []
+	const response = await requestCore(create(AOPProtocolMessageSchema, { message: { case: 'openSessionRequest', value: { sessionId: opts?.sessionID || newRPCID(), nodeId: nodeID, title: title || '', extensions } } }), 'openSessionResponse', opts?.requestID)
+    if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to create session')
+    return response.outcome.value
+  } catch (error) {
+    throw connectFailure(error, 'Failed to create session')
+  }
+}
+
+export type SessionFilters = { search: string; nodeId: string; archived: boolean }
+export async function listChatSessions(filters?: Partial<SessionFilters>): Promise<SessionRecord[]> {
+  const sessions: SessionRecord[] = []
+  let afterCursor = ''
+  do {
+    const response = await cyberRPC.sessions.listSessions({ ...filters, afterCursor, limit: 100, includeClosed: true })
+    sessions.push(...response.sessions)
+    afterCursor = response.nextCursor
+  } while (afterCursor)
+  return [...new Map(sessions.map((record) => [record.session?.id, record])).values()]
+}
+
+export async function updateChatSession(sessionId: string, patch: { title?: string; archived?: boolean }): Promise<SessionRecord> {
+  const response = await cyberRPC.sessions.updateSession({ requestId: newRPCID(), sessionId, ...patch })
+  if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to update session')
+  return response.outcome.value
+}
+
+export async function getChatSession(id: string): Promise<SessionRecord> {
+  try {
+    const response = await cyberRPC.sessions.getSession({ sessionId: id })
+    if (!response.session) throw new Error('Session not found')
+    return response.session
+  } catch (error) {
+    throw connectFailure(error, 'Session not found')
+  }
+}
+
+// 只读核对（不重试/不写）：真正 Code.NotFound 才视为会话不存在；其它错误在 connectFailure
+// 抹掉 ConnectError.code 之前原样抛出。record 存在但缺原生快照属于「存在但暂不能核对」，
+// 不当作不存在。
+export async function lookupChatSession(id: string): Promise<Session | null> {
+  try {
+    const response = await cyberRPC.sessions.getSession({ sessionId: id })
+    const record = response.session
+    if (!record || !record.session) throw new Error('Session exists but native snapshot is missing')
+    return record.session
+  } catch (error) {
+    if (ConnectError.from(error).code === Code.NotFound) return null
+    throw error
+  }
+}
+
+export async function deleteChatSession(id: string): Promise<void> {
+  try {
+    const response = await cyberRPC.sessions.deleteSession({ requestId: newRPCID(), sessionId: id })
+    if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to delete session')
+  } catch (error) {
+    throw connectFailure(error, 'Failed to delete session')
+  }
+}
+
+export async function resetChatSession(id: string): Promise<SessionRecord> {
+  try {
+    const response = await cyberRPC.sessions.resetSession({ requestId: newRPCID(), sessionId: id })
+    if (response.outcome.case !== 'accepted' || !response.outcome.value.current) {
+      throw rejectionError(response.outcome.case === 'rejected' ? response.outcome.value : undefined, 'Failed to reset session')
+    }
+    return response.outcome.value.current
+  } catch (error) {
+    throw connectFailure(error, 'Failed to reset session')
+  }
+}
+
+// The web "/" menu is built from the cyber.chat.CommandSpec list returned by
+// SessionService/ListCommands (hub-scope commands merged with the bound
+// agent's reported commands), so it always reflects the real command set
+// instead of a hardcoded list.
+export async function fetchSessionCommands(sessionID: string): Promise<CommandSpec[]> {
+  try {
+    const response = await cyberRPC.sessions.listCommands({ sessionId: sessionID })
+    return response.commands
+  } catch (error) {
+    throw connectFailure(error, 'Failed to load commands')
+  }
+}
+
+export type ChatSendOptions = {
+  persist?: boolean
+  evalCriteria?: string
+  evalRounds?: string
+  images?: { data: Uint8Array; mediaType: string; filename: string }[]
+  // Optional turn budget forwarded verbatim to the native RunTurn field. Leave
+  // unset for non-local nodes to preserve the existing protobuf default (0).
+  maxTurns?: number
+}
+
+export async function sendChatMessage(
+  sessionID: string,
+  content: string,
+  opts?: ChatSendOptions & {
+    messageID?: string
+    turnID?: string
+    requestID?: string
+    continueSession?: boolean
+  },
+): Promise<TurnReceipt> {
+  const messageID = opts?.messageID || newRPCID()
+  const turnID = opts?.turnID || newRPCID()
+  const extensions = []
+  const criteria = opts?.persist ? opts.evalCriteria?.trim() : ''
+  if (criteria) {
+    const value = create(AgentRunOptionsSchema, { evalCriteria: criteria, evalRounds: opts?.evalRounds?.trim() || '' })
+    extensions.push(anyPack(AgentRunOptionsSchema, value))
+  }
+  try {
+	const request = create(AOPProtocolMessageSchema, { message: { case: 'runTurnRequest', value: {
+	  sessionId: sessionID, turnId: turnID, continueSession: opts?.continueSession === true,
+	  maxTurns: opts?.maxTurns ?? 0,
+	  input: { id: messageID, role: 'user', content: opts?.continueSession ? [] : [
+      ...(content ? [{ value: { case: 'text' as const, value: { text: content } } }] : []),
+      ...(opts?.images || []).map(image => ({ value: { case: 'media' as const, value: {
+        kind: 'image', resource: { mediaType: image.mediaType, filename: image.filename, source: { case: 'data' as const, value: image.data } },
+      } } })),
+    ] }, extensions,
+	} } })
+	const response = await requestCore(request, 'runTurnResponse', opts?.requestID)
+    if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to send message')
+    return response.outcome.value
+  } catch (error) {
+    throw connectFailure(error, 'Failed to send message')
+  }
+}
+
+export async function executeChatCommand(sessionID: string, line: string, requestID?: string): Promise<void> {
+  try {
+	const request = create(CommandProtocolMessageSchema, { message: { case: 'request', value: { sessionId: sessionID, line } } })
+	const response = await aopClient.request(CommandProtocolMessageSchema, request, { id: requestID })
+	if (response.$typeName === 'aop.ProtocolMessage') {
+		const core = response as AOPProtocolMessage
+		if (core.message.case === 'protocolError') throw new Error(core.message.value.message)
+	}
+  } catch (error) {
+	throw error instanceof Error ? error : new Error('Failed to execute command')
+  }
+}
+
+async function requestGuardrail(request: GuardrailProtocolMessage): Promise<GuardrailProtocolMessage> {
+  const response = await aopClient.request(GuardrailProtocolMessageSchema, request, { timeoutMs: 12_000, requireConnected: request.message.case === 'resolve' })
+  if (response.$typeName === 'aop.ProtocolMessage') {
+    const core = response as AOPProtocolMessage
+    if (core.message.case === 'protocolError') throw new Error(core.message.value.message)
+  }
+  if (response.$typeName !== 'cyber.guardrail.ProtocolMessage') throw new Error('Unexpected guardrail response')
+  return response as GuardrailProtocolMessage
+}
+
+export async function pendingGuardrailReviews(sessionId: string): Promise<Review[]> {
+  const response = await requestGuardrail(create(GuardrailProtocolMessageSchema, { message: { case: 'pending', value: { sessionId } } }))
+  if (response.message.case !== 'pendingResult') throw new Error('Expected pending guardrail reviews')
+  return response.message.value.reviews
+}
+
+export async function getJEVLibrary(sessionId: string): Promise<JEVLibrary> {
+  const response = await aopClient.request(JEVProtocolMessageSchema,
+    create(JEVProtocolMessageSchema, { message: { case: 'request', value: { sessionId } } }), { timeoutMs: 12_000 })
+  if (response.$typeName === 'aop.ProtocolMessage') {
+    const core = response as AOPProtocolMessage
+    if (core.message.case === 'protocolError') throw new Error(core.message.value.message)
+  }
+  if (response.$typeName !== 'cyber.jev.ProtocolMessage') throw new Error('Unexpected JEV response')
+  const value = response as JEVProtocolMessage
+  if (value.message.case !== 'library') throw new Error('Expected JEV library')
+  return value.message.value
+}
+
+export async function resolveGuardrailReview(sessionId: string, operationId: string, approve: boolean): Promise<void> {
+  const response = await requestGuardrail(create(GuardrailProtocolMessageSchema, { message: { case: 'resolve', value: { sessionId, operationId, approve } } }))
+  if (response.message.case !== 'resolved') throw new Error('Expected guardrail resolution')
+}
+
+export async function cancelChatSession(sessionID: string, turnID: string): Promise<void> {
+  if (!turnID) throw new Error('No active turn')
+  try {
+	const response = await requestCore(create(AOPProtocolMessageSchema, { message: { case: 'cancelTurnRequest', value: { sessionId: sessionID, turnId: turnID, reason: 'user_requested' } } }), 'cancelTurnResponse')
+    if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to pause response')
+  } catch (error) {
+    throw connectFailure(error, 'Failed to pause response')
+  }
+}
+
+export async function closeChatSession(sessionID: string): Promise<void> {
+  try {
+	const response = await requestCore(create(AOPProtocolMessageSchema, { message: { case: 'closeSessionRequest', value: { sessionId: sessionID, reason: 'completed' } } }), 'closeSessionResponse')
+    if (response.outcome.case !== 'accepted') throw rejectionError(response.outcome.value, 'Failed to close session')
+  } catch (error) {
+    throw connectFailure(error, 'Failed to close session')
+  }
+}
+
+export type FileUploadResult = FileResult
+
+export async function uploadChatFile(sessionID: string, file: File): Promise<FileUploadResult> {
+  try {
+	const request = create(FileProtocolMessageSchema, { message: { case: 'uploadRequest', value: { sessionId: sessionID, filename: file.name, mediaType: file.type || 'application/octet-stream', data: new Uint8Array(await file.arrayBuffer()) } } })
+	const payload = await aopClient.request(FileProtocolMessageSchema, request)
+	if (payload.$typeName === 'aop.file.ProtocolMessage') {
+		const filePayload = payload as import('@cyber/aop').FileProtocolMessage
+		if (filePayload.message.case === 'result') return filePayload.message.value
+	}
+	if (payload.$typeName === 'aop.ProtocolMessage') {
+		const core = payload as AOPProtocolMessage
+		if (core.message.case === 'protocolError') throw new Error(core.message.value.message)
+	}
+	throw new Error('Upload returned an unexpected response')
+  } catch (error) {
+    throw connectFailure(error, 'Upload failed')
+  }
+}
+
+// Chat history is the raw AOP event log; views project EventDelivery records
+// directly into the existing AOP reducer.
+export async function listChatEvents(sessionID: string, afterCursor = ''): Promise<EventDelivery[]> {
+  try {
+    const events: EventDelivery[] = []
+    do {
+      const response = await cyberRPC.sessions.listEvents({ sessionId: sessionID, limit: 500, afterCursor })
+      events.push(...response.events)
+      if (response.nextCursor === afterCursor && afterCursor) throw new Error('History cursor did not advance')
+      afterCursor = response.nextCursor
+    } while (afterCursor)
+    return events
+  } catch (error) {
+    throw connectFailure(error, 'Failed to list messages')
+  }
+}
+
+export function subscribeAOPEvents(
+  sessionID: string,
+  onEvent: (event: AOPEvent, cursor: string) => void,
+  afterCursor = '',
+): () => void {
+	const watch = (cursor: string) => create(AOPProtocolMessageSchema, { message: { case: 'watchEventsRequest', value: { sessionId: sessionID, afterCursor: cursor } } })
+	return aopClient.subscribe(AOPProtocolMessageSchema, watch(afterCursor), (payload, envelope) => {
+		if (payload.$typeName !== 'aop.ProtocolMessage') return
+		const core = payload as AOPProtocolMessage
+		if (core.message.case === 'event') onEvent(core.message.value, envelope.deliveryCursor)
+	}, { durable: true, resume: (cursor) => watch(cursor || afterCursor) })
+}
+
+function rejectionError(value: { code?: string; message?: string } | undefined, fallback: string): Error {
+  return Object.assign(new Error(value?.message || value?.code || fallback), { rejected: true, code: value?.code })
+}
+
+function connectFailure(error: unknown, fallback: string): Error {
+  if ((error as { rejected?: boolean })?.rejected && error instanceof Error) return error
+  const failure = ConnectError.from(error)
+  return new Error(failure.rawMessage || failure.message || fallback)
+}
+
+type CoreMessage = AOPProtocolMessage['message']
+type CoreCase = Exclude<CoreMessage['case'], undefined>
+type CoreValue<C extends CoreCase> = Extract<CoreMessage, { case: C }>['value']
+
+async function requestCore<C extends CoreCase>(request: AOPProtocolMessage, expected: C, id?: string): Promise<CoreValue<C>> {
+	const payload = await aopClient.request(AOPProtocolMessageSchema, request, { id })
+	if (payload.$typeName !== 'aop.ProtocolMessage') throw new Error(`Unexpected AOP response ${payload.$typeName}`)
+	const core = payload as AOPProtocolMessage
+	if (core.message.case === 'protocolError') throw new Error(core.message.value.message)
+	if (core.message.case !== expected) throw new Error(`Expected ${expected}, received ${core.message.case || 'empty'}`)
+	return core.message.value as CoreValue<C>
+}
+
+export { aopClient }
+
+export async function syncArtifactEvents(afterCursor = '', artifacts: AOPEvent[] = []): Promise<EventDelivery[]> {
+  try {
+    const response = await cyberRPC.artifacts.syncArtifacts({ afterCursor, artifacts })
+    return response.artifacts
+  } catch (error) {
+    throw connectFailure(error, 'Failed to sync artifacts')
+  }
+}
+
+async function apiJSON<T>(path: string, fallbackMessage: string, init?: RequestInit): Promise<T> {
+  const res = await authenticatedFetch(path, init)
+  if (!res.ok) {
+    throw new APIError(await errorMessage(res, fallbackMessage), res.status)
+  }
+  return res.json();
+}
+
+async function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return requireConnection().fetch(input, init)
+}
+
+
+async function errorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json();
+    return body?.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function getScan(id: string): Promise<Scan> {
+  const response = await cyberRPC.scans.getScan({ scanId: id })
+  if (!response.scan) throw new Error('Scan not found')
+  return response.scan
+}
+
+// --- Web/API 任务与流量原件（原生 webapi capability 的冻结业务接口） ---
+// 保存/读取走同源原生鉴权内的 apiJSON，仅声明后端已冻结的 JSON 形状；
+// Flow 原件在展示组件中用 @cyber/aop 生成类型解码，不在本层猜字段。
+
+export interface WebApiTask {
+  id: string
+  known_info: string
+  objective: string
+  origins: string[]
+  initial_session_id: string
+  created_at: string
+}
+
+export interface WebApiSaveResult {
+  task: WebApiTask
+  conflict: boolean
+  created: boolean
+  idempotent: boolean
+}
+
+export interface WebApiEvidence {
+  evidence_id: string
+  task_id: string
+  session_id: string
+  turn_id: string
+  call_id: string
+  request_fingerprint: string
+  method: string
+  url: string
+  status: string
+  reason: string
+  sent: boolean | null
+  http_status?: number
+  preview_truncated: boolean
+  capture_truncated: boolean
+  created_at: string
+  completed_at?: string
+}
+
+export interface WebApiEvidenceList {
+  task_id: string
+  items: WebApiEvidence[]
+  limit: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface WebApiEvidenceDetail {
+  metadata: WebApiEvidence
+  preview: string
+  flow_protobuf_base64: string
+  flow: unknown
+  capture: {
+    request: string
+    response_body_limit: number
+    preview_limit: number
+    capture_truncated: boolean
+    preview_truncated: boolean
+    auto_decompressed: boolean
+  }
+}
+
+// 相同 ID 同规范内容由后端幂等返回同一 task；不同内容 409 会以 APIError 抛出，
+// 前端不自行覆盖授权。客户端只生成一次 ID，重试复用同一 ID。
+export async function saveWebApiTask(id: string, knownInfo: string, objective: string, origins: string[]): Promise<WebApiSaveResult> {
+  return apiJSON<WebApiSaveResult>(`/api/webapi/tasks/${encodeURIComponent(id)}`, 'Failed to save task', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ known_info: knownInfo, objective, authorization: { confirmed: true, origins } }),
+  })
+}
+
+export async function getWebApiTask(id: string): Promise<WebApiTask> {
+  return apiJSON<WebApiTask>(`/api/webapi/tasks/${encodeURIComponent(id)}`, 'Failed to load task')
+}
+
+// 选中/刷新会话后按原生 session 恢复业务 Task；不根据聊天文本/标题猜 TaskID。
+export async function getWebApiTaskBySession(sessionId: string): Promise<WebApiTask> {
+  return apiJSON<WebApiTask>(`/api/webapi/tasks?session_id=${encodeURIComponent(sessionId)}`, 'Failed to load task')
+}
+
+export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: string): Promise<WebApiEvidenceList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiEvidenceList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence?${query.toString()}`, 'Failed to load traffic')
+}
+
+export async function getWebApiEvidence(taskId: string, evidenceId: string): Promise<WebApiEvidenceDetail> {
+  return apiJSON<WebApiEvidenceDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}`, 'Failed to load evidence')
+}
+
+// --- Web/API 候选（finding）只读接口 ---
+// 全部只读；候选是未确认主张，前端不提供确认/编辑/报告/复测入口。
+
+export interface WebApiFindingSummary {
+  finding_id: string
+  number: string
+  title: string
+  status: string
+  revision: number
+  revision_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface WebApiFindingSource {
+  session_id: string
+  turn_id: string
+  call_id: string
+}
+
+export interface WebApiFindingStep {
+  text: string
+  evidence_indices: number[]
+}
+
+export interface WebApiFindingEvidenceInput {
+  evidence_id: string
+  relation: string
+}
+
+export interface WebApiFindingContent {
+  title: string
+  description: string
+  steps: WebApiFindingStep[]
+  remediation?: string
+  limitations?: string
+  evidence: WebApiFindingEvidenceInput[]
+}
+
+export interface WebApiFindingEvidenceSnapshot {
+  evidence_id: string
+  relation: string
+  session_id: string
+  turn_id: string
+  call_id: string
+  method: string
+  url: string
+  request_fingerprint: string
+  status: string
+  reason: string
+  sent: boolean | null
+  http_status?: number
+  preview_truncated: boolean
+  capture_truncated: boolean
+  created_at: string
+  completed_at?: string
+  flow_sha256?: string
+}
+
+export interface WebApiFindingDetail {
+  finding_id: string
+  task_id: string
+  number: string
+  status: string
+  revision: number
+  revision_id: string
+  revision_created_at: string
+  created_at?: string
+  updated_at?: string
+  content: WebApiFindingContent
+  evidence: WebApiFindingEvidenceSnapshot[]
+  source: WebApiFindingSource
+}
+
+export interface WebApiFindingList {
+  task_id: string
+  items: WebApiFindingSummary[]
+  limit: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+// limit/cursor 分页同 evidence；finding 默认 limit 为 25、上限 50。
+export async function listWebApiFindings(taskId: string, limit = 25, cursor?: string): Promise<WebApiFindingList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiFindingList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/findings?${query.toString()}`, 'Failed to load findings')
+}
+
+export async function getWebApiFinding(taskId: string, findingId: string): Promise<WebApiFindingDetail> {
+  return apiJSON<WebApiFindingDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/findings/${encodeURIComponent(findingId)}`, 'Failed to load finding')
+}
+
+// --- Web/API 独立验证（候选的模型判读，不确认候选、不覆盖原候选） ---
+// 保存只写本地状态；后续 Open/Run 仍由原生 SessionService 驱动。摘要 verdict 可空，
+// 结果为空不代表执行失败，也不等于尚未启动 —— 执行状态只用原生 session/事件。
+
+export interface WebApiVerificationSummary {
+  verification_id: string
+  task_id: string
+  finding_id: string
+  source_revision_id: string
+  session_id: string
+  created_at: string
+  verdict?: string
+}
+
+export interface WebApiVerificationEvidenceInput {
+  evidence_id: string
+  relation: string
+}
+
+export interface WebApiVerificationPayload {
+  verdict: string
+  method: string
+  preconditions?: string
+  summary: string
+  limitations?: string
+  evidence?: WebApiVerificationEvidenceInput[]
+}
+
+export interface WebApiVerificationResult {
+  session_id: string
+  turn_id: string
+  call_id: string
+  payload: WebApiVerificationPayload
+  evidence: WebApiFindingEvidenceSnapshot[]
+  created_at: string
+}
+
+export interface WebApiVerificationDetail {
+  verification_id: string
+  task_id: string
+  finding_id: string
+  source_revision_id: string
+  session_id: string
+  created_at: string
+  source: WebApiFindingDetail
+  result: WebApiVerificationResult | null
+}
+
+export interface WebApiVerificationList {
+  task_id: string
+  items: WebApiVerificationSummary[]
+  limit: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface WebApiVerificationSaveResult {
+  verification: WebApiVerificationSummary
+  created: boolean
+  idempotent: boolean
+}
+
+// 同 ID 同来源由后端幂等返回同一验证；异来源 409、错归属 404、新提交过期来源 409。
+// 客户端只生成一次 verification ID，重试复用同一 ID，不自行换 revision/换 ID 提交。
+export async function saveWebApiVerification(taskID: string, findingID: string, verificationID: string, sourceRevisionID: string): Promise<WebApiVerificationSaveResult> {
+  return apiJSON<WebApiVerificationSaveResult>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/verifications/${encodeURIComponent(verificationID)}`,
+    'Failed to save verification',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_revision_id: sourceRevisionID }),
+    },
+  )
+}
+
+export async function getWebApiVerification(taskID: string, findingID: string, verificationID: string): Promise<WebApiVerificationDetail> {
+  return apiJSON<WebApiVerificationDetail>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/verifications/${encodeURIComponent(verificationID)}`,
+    'Failed to load verification',
+  )
+}
+
+export async function listWebApiVerifications(taskID: string, findingID: string, limit = 25, cursor?: string): Promise<WebApiVerificationList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiVerificationList>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/verifications?${query.toString()}`,
+    'Failed to load verifications',
+  )
+}
+
+// 切换/刷新原生验证 session 时恢复其固定来源与结果；不存在 404。声明为冻结接口，
+// 当前前端仍把验证结果放在父任务候选工作面内，不在原生执行页另造验证壳。
+export async function getWebApiVerificationBySession(sessionID: string): Promise<WebApiVerificationDetail> {
+  return apiJSON<WebApiVerificationDetail>(
+    `/api/webapi/verifications?session_id=${encodeURIComponent(sessionID)}`,
+    'Failed to load verification by session',
+  )
+}

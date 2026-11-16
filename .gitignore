@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+var/
+bin/
+node_modules/
+web/dist/
+*.log
+.DS_Store
+__pycache__/
+.artex-source*/
+web/dist-*/

@@ -1,0 +1,437 @@
+{
+  "scope": "2026-11-13 Linux/amd64 H2-A cmd/wscyber-hub 实际 go list -deps 增量；不代表全模块图/扫描发行版/UI",
+  "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+  "reachable_module_count": 81,
+  "new_module_count": 20,
+  "baseline": {
+    "file": "dependency-licenses.json",
+    "sha256": "650f1217cbb16def18397753d04dc5df32685fc53a49797bd760fe369465668a",
+    "same_version_modules": [
+      "dario.cat/mergo",
+      "github.com/alecthomas/chroma/v2",
+      "github.com/aymanbagabas/go-osc52/v2",
+      "github.com/aymanbagabas/go-pty",
+      "github.com/aymerick/douceur",
+      "github.com/bahlo/generic-list-go",
+      "github.com/buger/jsonparser",
+      "github.com/chainreactors/cyber",
+      "github.com/chainreactors/cyber/aop",
+      "github.com/chainreactors/logs",
+      "github.com/chainreactors/proxyclient",
+      "github.com/chainreactors/utils",
+      "github.com/chainreactors/utils/parsers",
+      "github.com/chainreactors/utils/proc",
+      "github.com/charmbracelet/colorprofile",
+      "github.com/charmbracelet/glamour",
+      "github.com/charmbracelet/lipgloss",
+      "github.com/charmbracelet/x/ansi",
+      "github.com/charmbracelet/x/cellbuf",
+      "github.com/charmbracelet/x/exp/slice",
+      "github.com/charmbracelet/x/term",
+      "github.com/clipperhouse/displaywidth",
+      "github.com/clipperhouse/uax29/v2",
+      "github.com/creack/pty",
+      "github.com/dlclark/regexp2/v2",
+      "github.com/facebookincubator/nvdtools",
+      "github.com/go-dedup/megophone",
+      "github.com/go-dedup/simhash",
+      "github.com/go-dedup/text",
+      "github.com/go-viper/mapstructure/v2",
+      "github.com/goccy/go-yaml",
+      "github.com/gookit/config/v2",
+      "github.com/gookit/goutil",
+      "github.com/gorilla/css",
+      "github.com/invopop/jsonschema",
+      "github.com/jessevdk/go-flags",
+      "github.com/lucasb-eyer/go-colorful",
+      "github.com/mattn/go-isatty",
+      "github.com/mattn/go-runewidth",
+      "github.com/microcosm-cc/bluemonday",
+      "github.com/muesli/reflow",
+      "github.com/muesli/termenv",
+      "github.com/pb33f/ordered-map/v2",
+      "github.com/rivo/uniseg",
+      "github.com/spf13/cobra",
+      "github.com/spf13/pflag",
+      "github.com/twmb/murmur3",
+      "github.com/u-root/u-root",
+      "github.com/xo/terminfo",
+      "github.com/yuin/goldmark",
+      "github.com/yuin/goldmark-emoji",
+      "go.yaml.in/yaml/v4",
+      "golang.org/x/crypto",
+      "golang.org/x/net",
+      "golang.org/x/sync",
+      "golang.org/x/sys",
+      "golang.org/x/term",
+      "golang.org/x/text",
+      "google.golang.org/protobuf",
+      "gopkg.in/yaml.v3",
+      "mvdan.cc/sh/v3"
+    ]
+  },
+  "modules": [
+    {
+      "module": "connectrpc.com/connect",
+      "version": "v1.21.1",
+      "source_module": "connectrpc.com/connect",
+      "source_version": "v1.21.1",
+      "source": "https://pkg.go.dev/connectrpc.com/connect@v1.21.1",
+      "purpose": "原生 generated typed RPC 服务及定向测试客户端，不自建协议",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0",
+          "sha256": "595c92e7a9bc933c07da143f527d199e2fc3010e2afd8a8c0654c1f43bfa076c"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/dop251/goja",
+      "version": "v0.0.0-20260930195847-0f92c903ca4a",
+      "source_module": "github.com/dop251/goja",
+      "source_version": "v0.0.0-20260930195847-0f92c903ca4a",
+      "source": "https://pkg.go.dev/github.com/dop251/goja@v0.0.0-20260930195847-0f92c903ca4a",
+      "purpose": "原生 Web Service 经 exts/jev 可达的 JavaScript 解释器；本轮未执行 JEV",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT",
+          "sha256": "8a1266c1dd7d22027455bea83b92087f606c8d5fc701b269a8411f008ed49a99"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "source_module": "github.com/dustin/go-humanize",
+      "source_version": "v1.0.1",
+      "source": "https://pkg.go.dev/github.com/dustin/go-humanize@v1.0.1",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT",
+          "sha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/go-sourcemap/sourcemap",
+      "version": "v2.1.3+incompatible",
+      "source_module": "github.com/go-sourcemap/sourcemap",
+      "source_version": "v2.1.3+incompatible",
+      "source": "https://pkg.go.dev/github.com/go-sourcemap/sourcemap@v2.1.3+incompatible",
+      "purpose": "Goja 的 source map 支持；本轮未执行 JavaScript",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "92e002c4f78b8f80445cf72c4bd33d78e4998371a5eff80886c5648a7974a19f"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/google/pprof",
+      "version": "v0.0.0-20260802141513-ef3492d7dac3",
+      "source_module": "github.com/google/pprof",
+      "source_version": "v0.0.0-20260802141513-ef3492d7dac3",
+      "source": "https://pkg.go.dev/github.com/google/pprof@v0.0.0-20260802141513-ef3492d7dac3",
+      "purpose": "Goja 引用 profile 包；不是本项目新增 profiling 服务",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "source_module": "github.com/google/uuid",
+      "source_version": "v1.6.0",
+      "source": "https://pkg.go.dev/github.com/google/uuid@v1.6.0",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "0a8d61ed3cbfd5312326e8126c31ce9c627a283adc99131b56896d29ada04b2d"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/gorilla/websocket",
+      "version": "v1.5.3",
+      "source_module": "github.com/gorilla/websocket",
+      "source_version": "v1.5.3",
+      "source": "https://pkg.go.dev/github.com/gorilla/websocket@v1.5.3",
+      "purpose": "原生 AOP WebSocket/AgentPool 传输；本轮没有连接 node",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "2be1b548b0387ca8948e1bb9434e709126904d15f622cc2d0d8e7f186e4d122d"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/jinzhu/inflection",
+      "version": "v1.0.0",
+      "source_module": "github.com/jinzhu/inflection",
+      "source_version": "v1.0.0",
+      "source": "https://pkg.go.dev/github.com/jinzhu/inflection@v1.0.0",
+      "purpose": "Bun/SQLiteStore 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT",
+          "sha256": "a2e27d9b06edb292d37f31504b59a9f56f5211db26e21873fa060b1184801129"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/puzpuzpuz/xsync/v3",
+      "version": "v3.5.1",
+      "source_module": "github.com/puzpuzpuz/xsync/v3",
+      "source_version": "v3.5.1",
+      "source": "https://pkg.go.dev/github.com/puzpuzpuz/xsync/v3@v3.5.1",
+      "purpose": "Bun/SQLiteStore 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/remyoudompheng/bigfft",
+      "version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "source_module": "github.com/remyoudompheng/bigfft",
+      "source_version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "source": "https://pkg.go.dev/github.com/remyoudompheng/bigfft@v0.0.0-20230129092748-24d4a6f8daec",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/santhosh-tekuri/jsonschema/v6",
+      "version": "v6.0.3",
+      "source_module": "github.com/santhosh-tekuri/jsonschema/v6",
+      "source_version": "v6.0.3",
+      "source": "https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6@v6.0.3",
+      "purpose": "原生 exts/jev 的 JSON Schema 校验可达依赖；本轮未执行 JEV",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "Apache-2.0",
+          "sha256": "c8858a5a76440bbca484e134cf7df46385d090dd18b2c58e650f939258802e5b"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/tmthrgd/go-hex",
+      "version": "v0.0.0-20190904060850-447a3041c3bc",
+      "source_module": "github.com/tmthrgd/go-hex",
+      "source_version": "v0.0.0-20190904060850-447a3041c3bc",
+      "source": "https://pkg.go.dev/github.com/tmthrgd/go-hex@v0.0.0-20190904060850-447a3041c3bc",
+      "purpose": "Bun/SQLiteStore 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "b3f66a08e2a79cc9bc66b71b7cc79f496da435d52b5f7f985abdd976c3c317ba"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/uptrace/bun",
+      "version": "v1.3.0",
+      "source_module": "github.com/uptrace/bun",
+      "source_version": "v1.3.0",
+      "source": "https://pkg.go.dev/github.com/uptrace/bun@v1.3.0",
+      "purpose": "原生 SQLiteStore 使用的 ORM/原生 schema 初始化，不新建业务表",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "81b7ed24af21a71f26047a28bf15ff9a4aa5d672c7601c7c76e09dd5785e09d6"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/uptrace/bun/dialect/sqlitedialect",
+      "version": "v1.3.0",
+      "source_module": "github.com/uptrace/bun/dialect/sqlitedialect",
+      "source_version": "v1.3.0",
+      "source": "https://pkg.go.dev/github.com/uptrace/bun/dialect/sqlitedialect@v1.3.0",
+      "purpose": "原生 SQLiteStore 的 Bun SQLite 方言",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "81b7ed24af21a71f26047a28bf15ff9a4aa5d672c7601c7c76e09dd5785e09d6"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/vmihailenco/msgpack/v5",
+      "version": "v5.4.1",
+      "source_module": "github.com/vmihailenco/msgpack/v5",
+      "source_version": "v5.4.1",
+      "source": "https://pkg.go.dev/github.com/vmihailenco/msgpack/v5@v5.4.1",
+      "purpose": "Bun/SQLiteStore 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "1530185dd39cdde7cb2f786a7a5fcf8bc34368b6ae73c15e72bafe88fd80b9a2"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "github.com/vmihailenco/tagparser/v2",
+      "version": "v2.0.0",
+      "source_module": "github.com/vmihailenco/tagparser/v2",
+      "source_version": "v2.0.0",
+      "source": "https://pkg.go.dev/github.com/vmihailenco/tagparser/v2@v2.0.0",
+      "purpose": "Bun/SQLiteStore 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "0f02aac22084ef463aa5f42f566feeec6aa4c99653519744a8c25cb079da5b5d"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "modernc.org/libc",
+      "version": "v1.77.1",
+      "source_module": "modernc.org/libc",
+      "source_version": "v1.77.1",
+      "source": "https://pkg.go.dev/modernc.org/libc@v1.77.1",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "95ff867eb55a56935fa7492406cfa953fb7c13ca73f4c0a86ae05756b4605600"
+        },
+        {
+          "file": "LICENSE-3RD-PARTY.md",
+          "license_text": "MIXED: 上游第三方汇总；并非所有列出模块/资产均可达，未完成逐文件组合审查",
+          "sha256": "f597097efe3d97021f89170746bd3a0fb9a8b6fb26b82043ed68a4e0283bee6c"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "modernc.org/mathutil",
+      "version": "v1.7.1",
+      "source_module": "modernc.org/mathutil",
+      "source_version": "v1.7.1",
+      "source": "https://pkg.go.dev/modernc.org/mathutil@v1.7.1",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "bfa9bf72a72ca009fd62a8f84fca3dca67e51d93af96352723646599898b6cf5"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "modernc.org/memory",
+      "version": "v1.12.1",
+      "source_module": "modernc.org/memory",
+      "source_version": "v1.12.1",
+      "source": "https://pkg.go.dev/modernc.org/memory@v1.12.1",
+      "purpose": "原生 SQLite driver 的可达传递依赖",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "59895e669f48f168b6b858358f6005779cdf40a265f7828813061b56af67b496"
+        },
+        {
+          "file": "LICENSE-GO",
+          "license_text": "BSD-3-Clause",
+          "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+        },
+        {
+          "file": "LICENSE-LOGO",
+          "license_text": "UNKNOWN: 仅外部图片归属链接，非许可全文；本入口未使用该 logo",
+          "sha256": "5ae5bee3072a841376451b48d8cfcec7188e10543926d5870828d36c8a750dc5"
+        },
+        {
+          "file": "LICENSE-MMAP-GO",
+          "license_text": "BSD-3-Clause",
+          "sha256": "c2eba69f20d05414538c3a5df7694dde392e065ff70882e1625e90f5d6659fff"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    },
+    {
+      "module": "modernc.org/sqlite",
+      "version": "v1.60.1",
+      "source_module": "modernc.org/sqlite",
+      "source_version": "v1.60.1",
+      "source": "https://pkg.go.dev/modernc.org/sqlite@v1.60.1",
+      "purpose": "原生 SQLiteStore 的纯 Go SQLite driver；仅专属空库",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-3-Clause",
+          "sha256": "c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822"
+        },
+        {
+          "file": "LICENSE-3RD-PARTY.md",
+          "license_text": "MIXED: 上游第三方汇总；并非所有列出模块/资产均可达，未完成逐文件组合审查",
+          "sha256": "b4366b9c27a9364633e015011a231913ed19bf1228f335bf617e50a6f7b168a6"
+        },
+        {
+          "file": "LICENSE-SQLITE",
+          "license_text": "SQLite public-domain dedication",
+          "sha256": "8438c9c89b849131ead81d5435cb97fcf052df5b0b286dda8a2d4c29e6cb3fd0"
+        },
+        {
+          "file": "LICENSE-SQLITE_VEC",
+          "license_text": "MIT",
+          "sha256": "6ce72bbe12d975bd5286e5ab0a064c069693300c47bccbc57bec18485f1621ea"
+        }
+      ],
+      "review": "固定 Go 发布模块根文本/补充通知核对，非完整嵌套/资产/组合分发审查"
+    }
+  ],
+  "limitations": [
+    "H1 的 Cyber/AOP AGPL、proxyclient GPL 与四项缺根许可文本 UNKNOWN 仍然存在，未被新增许可记录覆盖。",
+    "modernc.org/libc 和 sqlite 的 LICENSE-3RD-PARTY.md 含额外嵌套来源/许可；已记录哈希及查看汇总，不声称完成全文件法律审查。",
+    "modernc.org/sqlite 的 SQLite 原件 public-domain、sqlite-vec MIT 与 root BSD-3 文本分别保留；本入口未导入 vec/vfs，不把未链接资产当已采用能力。",
+    "modernc.org/memory/LICENSE-LOGO 仅归属链接，保留 UNKNOWN；本轮没有使用/发布 logo。",
+    "不改变固定版本，不初始化 UI/templates 子模块；仅本机技术验证，未部署/分发。"
+  ]
+}
