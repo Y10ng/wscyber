@@ -36,14 +36,14 @@
 | 前端执行 | `wangsu-glm-latest` | 前端设计与实现（`native/ui/source-overlay`） |
 
 启动执行会话：在项目根目录、新的可见终端中运行
-`claude --dangerously-skip-permissions --model <型号> --name wscyber-<短名> --strict-mcp-config --mcp-config '{"mcpServers":{}}' --disallowedTools Agent Workflow -- '<一句话指向任务包>'`。
+`scripts/claude-exec-loop.py <型号> <短名> var/<片名>`。它以 headless 方式运行 claude（空 MCP、禁用 Agent/Workflow），中断后自动 resume 续跑，直到 `var/<片名>/result.md` 出现；日志在同目录 `exec.log`，需要手动接管时用脚本打印的 `claude --resume <id>`。
 沿用当前 Wangsu 网关环境，不改全局或产品模型配置；型号不可用就报告，不静默换型。网关 ID 已核：`wangsu-kimi-latest`、`wangsu-glm-latest` 可用，`wangsu-anthropic-*` 已下架。
 
 ## 5. 开发流程
 
 1. **一个功能 = 一条完整用户链**（例如“候选 → 发起验证 → 看到判读”），而不是一个文件或一个样式点。主先写任务包，执行者实现，主验收。
 2. **任务包**（`var/<片名>/task.md`，20–40 行）：用户路径与终点、非目标、参考依据（Cyber 图/源码位置）、接口/数据契约、可写文件、必要验证、停止点。不复制 STATUS 历史。
-3. 执行者开工先用 3–5 行复述理解，有歧义问主；不扩范围、不再委派。交回 `result.md`：改了什么、怎么验证的、什么没验。
+3. 执行者开工先用 3–5 行复述理解；有歧义写进 `result.md` 的“问题”段并停止，由主答复后续跑。不扩范围、不再委派。交回 `result.md`：改了什么、怎么验证的、什么没验。
 4. **主只做静态验收**：读关键代码 diff，看定向 Go 测试与 tsc/Vite 构建结果；主不查看运行中实例（Hub/浏览器预览）、不读数据库内容及其导出物、不读攻击性文档资料。页面效果由用户在预览中查看并反馈。不接受自报完成。偏差同一会话直接纠正，连接中断则同型号接着做，不从头重来。需要运行现场的片（真实模型/靶场）由用户授权并安排。
 5. 验证只做与改动相关的：Go 定向测试（临时库 + 中性合成数据）、前端 tsc/Vite 构建。不跑全量套餐，不为每个小改建隔离副本。
 6. 每完成一片：主 `git commit`（显式路径），更新 STATUS 的“当前”段落，然后直接进入下一片，不停下来等用户确认。只有授权、真实目标/真实模型调用、范围变化等需要用户决定的事才停下来问。
