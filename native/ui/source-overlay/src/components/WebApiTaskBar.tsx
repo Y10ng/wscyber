@@ -3,7 +3,7 @@ import { Globe, ShieldCheck } from 'lucide-react'
 import { Button } from '@cyber/ui'
 import type { WebApiTask } from '../api'
 
-export type WebApiView = 'execution' | 'traffic' | 'findings'
+export type WebApiView = 'execution' | 'traffic' | 'findings' | 'reports'
 
 interface Props {
   task: WebApiTask
@@ -31,6 +31,7 @@ export default function WebApiTaskBar({ task, view, onViewChange }: Props) {
         <Button type="button" variant="ghost" size="xs" active={view === 'execution'} onClick={() => onViewChange('execution')} className="h-7 px-2 text-[12px]">{t('webapi.execution')}</Button>
         <Button type="button" variant="ghost" size="xs" active={view === 'traffic'} onClick={() => onViewChange('traffic')} className="h-7 px-2 text-[12px]">{t('webapi.traffic')}</Button>
         <Button type="button" variant="ghost" size="xs" active={view === 'findings'} onClick={() => onViewChange('findings')} className="h-7 px-2 text-[12px]">{t('webapi.findings')}</Button>
+        <Button type="button" variant="ghost" size="xs" active={view === 'reports'} onClick={() => onViewChange('reports')} className="h-7 px-2 text-[12px]">{t('webapi.reports')}</Button>
       </div>
     </div>
   )

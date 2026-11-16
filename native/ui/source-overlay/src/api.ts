@@ -842,3 +842,139 @@ export async function getWebApiVerificationBySession(sessionID: string): Promise
     'Failed to load verification by session',
   )
 }
+
+// --- Web/API 报告（固定若干候选修订 + 可附验证；草稿由报告会话模型写入，不可变） ---
+// 报告 session 不被 taskForSession 解析，只能经 GET /api/webapi/reports?session_id= 反查。
+
+export interface WebApiReportItem {
+  finding_id: string
+  revision_id: string
+  verification_ids: string[]
+}
+
+export interface WebApiReportSummary {
+  report_id: string
+  task_id: string
+  session_id: string
+  created_at: string
+  items: WebApiReportItem[]
+  has_draft: boolean
+  // 后端另片补齐：有草稿=草稿标题，无草稿=空串；旧后端缺省 undefined。
+  title?: string
+}
+
+export interface WebApiReportVerification {
+  verification_id: string
+  task_id: string
+  finding_id: string
+  source_revision_id: string
+  session_id: string
+  created_at: string
+  verdict?: string
+  result: WebApiVerificationResult | null
+}
+
+export interface WebApiReportItemDetail extends WebApiReportItem {
+  revision: WebApiFindingDetail | null
+  verifications: WebApiReportVerification[]
+}
+
+export interface WebApiReportDraftItem {
+  finding_id: string
+  description: string
+  reproduction: string
+  remediation?: string
+  evidence_ids: string[]
+}
+
+export interface WebApiReportDraftPayload {
+  title: string
+  overview: string
+  items: WebApiReportDraftItem[]
+  limitations?: string
+}
+
+export interface WebApiReportDraftView {
+  session_id: string
+  turn_id: string
+  call_id: string
+  payload: WebApiReportDraftPayload
+  created_at: string
+}
+
+export interface WebApiReportDetail {
+  report_id: string
+  task_id: string
+  session_id: string
+  created_at: string
+  has_draft: boolean
+  items: WebApiReportItemDetail[]
+  draft: WebApiReportDraftView | null
+}
+
+export interface WebApiReportSaveResult {
+  report: WebApiReportSummary
+  created: boolean
+  idempotent: boolean
+}
+
+export interface WebApiReportList {
+  task_id: string
+  items: WebApiReportSummary[]
+  limit: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+// 客户端一次生成 report ID，重试复用；同 ID 同 items 后端幂等回放（201/200），
+// 同 ID 异 items 409、新建固定非当前修订 409（区分提示重读），错归属 404。
+// 前端不自行覆盖 items 或换 ID 重提交。
+export async function saveWebApiReport(taskID: string, reportID: string, items: WebApiReportItem[]): Promise<WebApiReportSaveResult> {
+  return apiJSON<WebApiReportSaveResult>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/reports/${encodeURIComponent(reportID)}`,
+    'Failed to save report',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    },
+  )
+}
+
+export async function listWebApiReports(taskID: string, limit = 25, cursor?: string): Promise<WebApiReportList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiReportList>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/reports?${query.toString()}`,
+    'Failed to load reports',
+  )
+}
+
+export async function getWebApiReport(taskID: string, reportID: string): Promise<WebApiReportDetail> {
+  return apiJSON<WebApiReportDetail>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/reports/${encodeURIComponent(reportID)}`,
+    'Failed to load report',
+  )
+}
+
+// 报告 session 反查详情；不存在 404。App 按 session 恢复报告条只用真实 404 判无报告。
+export async function getWebApiReportBySession(sessionID: string): Promise<WebApiReportDetail> {
+  return apiJSON<WebApiReportDetail>(
+    `/api/webapi/reports?session_id=${encodeURIComponent(sessionID)}`,
+    'Failed to load report by session',
+  )
+}
+
+// 导出由已存草稿+固定来源确定性渲染；无草稿 409。取文本由调用方落 Blob 下载。
+export async function exportWebApiReport(taskID: string, reportID: string, format: 'markdown' | 'json'): Promise<string> {
+  const res = await authenticatedFetch(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/reports/${encodeURIComponent(reportID)}/export?format=${format}`,
+  )
+  if (!res.ok) throw new APIError(await errorMessage(res, 'Failed to export report'), res.status)
+  return res.text()
+}
+
+export function webApiReportExportFilename(reportID: string, format: 'markdown' | 'json'): string {
+  return `report-${reportID.slice(0, 8)}.${format === 'markdown' ? 'md' : 'json'}`
+}

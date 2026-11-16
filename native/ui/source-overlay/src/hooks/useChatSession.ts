@@ -13,6 +13,7 @@ import {
   deleteChatSession,
   executeChatCommand,
   getChatSession,
+  getWebApiReport,
   getWebApiVerification,
   listAgents,
   listChatEvents,
@@ -21,12 +22,13 @@ import {
   updateChatSession,
   type SessionFilters,
   resetChatSession,
+  saveWebApiReport,
   saveWebApiTask,
   saveWebApiVerification,
   sendChatMessage,
   subscribeAOPEvents,
 } from '../api'
-import type { AgentView, AOPEvent, AOPSession, ChatSendOptions, SessionRecord, WebApiFindingDetail, WebApiTask, WebApiVerificationDetail, WebApiVerificationSaveResult, WebApiVerificationSummary } from '../api'
+import type { AgentView, AOPEvent, AOPSession, ChatSendOptions, SessionRecord, WebApiFindingDetail, WebApiReportDetail, WebApiReportItem, WebApiReportSaveResult, WebApiReportSummary, WebApiTask, WebApiVerificationDetail, WebApiVerificationSaveResult, WebApiVerificationSummary } from '../api'
 import {
   isRootPath,
   parseRoute,
@@ -34,6 +36,7 @@ import {
   type RouteMode,
 } from '../lib/route'
 import { findAgentByNode, findWebApiHttpNode, isLocalModelAgent } from '../lib/session-agent'
+import { buildWebApiReportFirstMessage } from '../lib/report-message'
 
 function aopExtension(event: AOPEvent): Record<string, unknown> | undefined {
   for (const extension of event.extensions) {
@@ -218,6 +221,85 @@ async function saveWebApiVerificationReconciled(
   return saved
 }
 
+// 报告发起：按 taskID 冻结身份（report ID/固定 items/Open requestID），沿用验证的
+// 幂等 PUT + 失联核对 + 原生 Open/Run 机制。同一任务同时至多一个未决报告发起。
+interface ReportLaunchIdentity {
+  reportID: string
+  items: WebApiReportItem[]
+  openRequestID: string
+  saveUnknown: boolean
+  saveConfirmed: boolean
+  mayHaveOpened: boolean
+}
+
+// 稳定展示层：发起未决/失败时报告视图仍可显示状态入口；关闭/切页由 hook 持有。
+export interface ReportLaunchView {
+  taskKey: string
+  reportID: string
+  items: WebApiReportItem[]
+  sessionID: string | null
+  status: 'pending' | 'error'
+  error: string
+  dismissed?: boolean
+  // 原 ID 确认不存在，且从未进入可能已接收 Open/Run 或未知保存路径。
+  canStartFresh?: boolean
+}
+
+function reportItemsEqual(left: WebApiReportItem[] | undefined, right: WebApiReportItem[]): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right)
+}
+
+function reportSummaryFromDetail(detail: WebApiReportDetail): WebApiReportSummary {
+  return {
+    report_id: detail.report_id,
+    task_id: detail.task_id,
+    session_id: detail.session_id,
+    created_at: detail.created_at,
+    items: detail.items ?? [],
+    has_draft: detail.has_draft,
+  }
+}
+
+class ReportNotSaved extends Error {}
+
+// 核对回执和固定身份：同 report ID 必须同 task、同 items，否则视为结果未知。
+function assertReportIdentity(value: { report_id: string; task_id: string; items: WebApiReportItem[] }, input: { taskID: string }, launch: ReportLaunchIdentity) {
+  if (value.report_id !== launch.reportID || value.task_id !== input.taskID || !reportItemsEqual(value.items, launch.items)) {
+    launch.saveUnknown = true
+    throw new Error('报告回执与原发起身份或固定条目不一致，未启动。')
+  }
+}
+
+async function saveWebApiReportReconciled(
+  input: { taskID: string },
+  launch: ReportLaunchIdentity,
+): Promise<WebApiReportSaveResult> {
+  let saved: WebApiReportSaveResult
+  try {
+    saved = await saveWebApiReport(input.taskID, launch.reportID, launch.items)
+  } catch (err) {
+    // 409/404 均属确定未保存：409 可能是固定非当前修订（需重读候选重建条目）或
+    // 同 ID 异 items（冲突）；其它错误先核对再定性，不当作不存在。
+    const rejected = err instanceof APIError && (err.status === 404 || err.status === 409)
+    if (!rejected) launch.saveUnknown = true
+    let existing: WebApiReportDetail
+    try {
+      existing = await getWebApiReport(input.taskID, launch.reportID)
+    } catch (getErr) {
+      if (rejected && getErr instanceof APIError && getErr.status === 404 && !launch.saveUnknown && !launch.saveConfirmed && !launch.mayHaveOpened) {
+        throw new ReportNotSaved(err instanceof Error ? err.message : String(err))
+      }
+      throw new Error('保存报告结果未知或暂不能核对，请重试；不会盲发新报告。')
+    }
+    assertReportIdentity(existing, input, launch)
+    launch.saveConfirmed = true
+    return { report: reportSummaryFromDetail(existing), created: false, idempotent: true }
+  }
+  assertReportIdentity(saved.report, input, launch)
+  launch.saveConfirmed = true
+  return saved
+}
+
 export function useChatSession() {
   const { t } = useTranslation('chat')
   const [agents, setAgents] = useState<AgentView[]>([])
@@ -251,6 +333,10 @@ export function useChatSession() {
   const verificationLaunchRef = useRef(new Map<string, VerificationLaunchIdentity>())
   const submittingVerifications = useRef(new Set<string>())
   const [verificationLaunch, setVerificationLaunch] = useState<Record<string, VerificationLaunchView>>({})
+  // 报告：按 taskID 冻结未决发起身份；列表/失败状态在报告视图中显示。
+  const reportLaunchRef = useRef(new Map<string, ReportLaunchIdentity>())
+  const submittingReports = useRef(new Set<string>())
+  const [reportLaunch, setReportLaunch] = useState<Record<string, ReportLaunchView>>({})
   const submittingSessions = useRef(new Set<string | null>())
 
   function patchVerificationLaunch(findingKey: string, patch: Partial<VerificationLaunchView>) {
@@ -284,6 +370,39 @@ export function useChatSession() {
     const launch = verificationLaunchRef.current.get(findingKey)
     if (!launch || submittingVerifications.current.has(findingKey) || !verificationLaunch[findingKey]?.canStartFresh || launch.saveUnknown || launch.saveConfirmed || launch.mayHaveOpened) return
     clearVerificationLaunch(findingKey)
+  }
+
+  function patchReportLaunch(taskKey: string, patch: Partial<ReportLaunchView>) {
+    setReportLaunch((prev) => {
+      const launch = reportLaunchRef.current.get(taskKey)
+      if (!launch) return prev
+      const current = prev[taskKey] ?? { taskKey, reportID: launch.reportID, items: launch.items, sessionID: null, status: 'pending' as const, error: '' }
+      return { ...prev, [taskKey]: { ...current, ...patch, taskKey } }
+    })
+  }
+
+  // 关闭/切页只隐藏提示，保留冻结身份（ID/items/Open requestID）；重试仍同一次。
+  function dismissReportLaunch(taskKey: string) {
+    setReportLaunch((prev) => prev[taskKey]
+      ? { ...prev, [taskKey]: { ...prev[taskKey], dismissed: true } }
+      : prev)
+  }
+
+  // 仅本次 accepted 或确定未保存后的显式重读才清除。
+  function clearReportLaunch(taskKey: string) {
+    reportLaunchRef.current.delete(taskKey)
+    setReportLaunch((prev) => {
+      if (!(taskKey in prev)) return prev
+      const next = { ...prev }
+      delete next[taskKey]
+      return next
+    })
+  }
+
+  function resetReportLaunch(taskKey: string) {
+    const launch = reportLaunchRef.current.get(taskKey)
+    if (!launch || submittingReports.current.has(taskKey) || !reportLaunch[taskKey]?.canStartFresh || launch.saveUnknown || launch.saveConfirmed || launch.mayHaveOpened) return
+    clearReportLaunch(taskKey)
   }
   const unsubRef = useRef<(() => void) | null>(null)
   const activationRef = useRef(0)
@@ -915,6 +1034,93 @@ export function useChatSession() {
     }
   }
 
+  // 保存报告（幂等 PUT，同 ID 同 items 回放）→ 以服务端 session_id 创建/复用原生会话
+  // → 后台发送首条消息（不激活/不跳转，「查看执行」显式进入）→ 报告视图轮询草稿进度。
+  // 报告会话不发送网络请求，节点仍须提供 webapi 工具集（webapi_report_draft 与
+  // webapi_http 同在 ToolExtension）。
+  async function startWebApiReport(input: { taskID: string; items: WebApiReportItem[] }): Promise<{ report: WebApiReportSummary; sessionID: string }> {
+    const taskKey = input.taskID
+
+    if (submittingReports.current.has(taskKey)) {
+      throw new Error('报告正在发起，请勿重复提交')
+    }
+    submittingReports.current.add(taskKey)
+    try {
+      // 冻结发起身份：只在此次显式发起时创建；props 变化不替换未决身份。
+      let launch = reportLaunchRef.current.get(taskKey)
+      if (!launch) {
+        launch = {
+          reportID: safeUUID(),
+          items: input.items.map((item) => ({ finding_id: item.finding_id, revision_id: item.revision_id, verification_ids: [...item.verification_ids] })),
+          openRequestID: safeUUID(),
+          saveUnknown: false,
+          saveConfirmed: false,
+          mayHaveOpened: false,
+        }
+        reportLaunchRef.current.set(taskKey, launch)
+      } else {
+        // 防御：未清除的冻结身份仍持有原 items；调用方带不同 items 重入说明选择被
+        // 替换过（例如「新建报告」误开放），立即失败，绝不静默换条目发起。
+        if (!reportItemsEqual(input.items, launch.items)) {
+          throw new Error('已有未完成的报告发起身份且条目不一致；请先在报告视图中重试原发起或重新开始，不会用新条目覆盖。')
+        }
+      }
+      patchReportLaunch(taskKey, { reportID: launch.reportID, items: launch.items, sessionID: null, status: 'pending', error: '', dismissed: false, canStartFresh: false })
+
+      const saved = await saveWebApiReportReconciled({ taskID: input.taskID }, launch)
+
+      const sessionID = saved.report.session_id
+      patchReportLaunch(taskKey, { sessionID, status: 'pending' })
+
+      // 节点须提供 webapi 工具集（含 webapi_report_draft）；与 HTTP 研究同一能力标志。
+      const nodeID = findWebApiHttpNode(agents, selectedNodeID)?.hello?.nodeId
+      if (!nodeID) {
+        throw new Error('当前没有已提供 webapi 工具的可用节点，报告撰写会话需要节点上的 webapi_report_draft 工具。请先连接一个已安装该工具的本机节点。')
+      }
+
+      let session: AOPSession | null
+      try {
+        session = await lookupChatSession(sessionID)
+      } catch {
+        throw new Error('已保存报告但暂不能核对原生会话状态，请重试；不会重复 Open 或盲发新 Run。')
+      }
+
+      // 进入可能接收 Open/Run 的路径后，即使后续重试 PUT 失败也不得换身份。
+      launch.mayHaveOpened = true
+      const boundNodeID = session?.nodeId || nodeID
+      if (!session) {
+        session = await createChatSession(nodeID, undefined, undefined, { sessionID, requestID: launch.openRequestID })
+      }
+      sessionNodeRef.current.set(session.id, boundNodeID)
+      await refreshSessions()
+
+      // 首条消息由保存后的详情（固定修订快照 + 验证结果）拼装；不自动载入研究聊天。
+      // 不自动跳转：报告会话保持在后台发送，由报告视图的「查看执行」显式进入；
+      // 草稿进度由报告视图对详情的只读轮询呈现。
+      let detail: WebApiReportDetail
+      try {
+        detail = await getWebApiReport(input.taskID, launch.reportID)
+      } catch {
+        throw new Error('已保存报告但读取详情失败，请重试；不会重复创建会话或盲发新 Run。')
+      }
+      assertReportIdentity(detail, { taskID: input.taskID }, launch)
+
+      const sent = await handleSendMessage(buildWebApiReportFirstMessage(detail), { sessionID: session.id })
+      if (!sent) throw new Error('已保存报告但启动未完成，请重试；不会重复创建会话或盲发新 Run。')
+
+      // 已 accepted：本次发起结束，清除身份与视图；下一次显式点击生成新报告/session。
+      clearReportLaunch(taskKey)
+      return { report: saved.report, sessionID: session.id }
+    } catch (err) {
+      // 失败必须可见：pending 时用户可能已「关闭」错误条（dismissed=true），
+      // 若不在 catch 中重置，错误条保持隐藏而「新建报告」仍禁用，用户无路可走。
+      patchReportLaunch(taskKey, { status: 'error', error: err instanceof Error ? err.message : String(err), canStartFresh: err instanceof ReportNotSaved, dismissed: false })
+      throw err
+    } finally {
+      submittingReports.current.delete(taskKey)
+    }
+  }
+
   useEffect(() => {
     const applyRoute = () => {
       const route = parseRoute(window.location.pathname)
@@ -969,9 +1175,13 @@ export function useChatSession() {
     batchQuickDispatch,
     startWebApiTask,
     startWebApiVerification,
+    startWebApiReport,
     verificationLaunch,
     dismissVerificationLaunch,
     resetVerificationLaunch,
+    reportLaunch,
+    dismissReportLaunch,
+    resetReportLaunch,
     cancelMessage: handleCancelMessage,
     clearError,
   }
