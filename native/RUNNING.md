@@ -17,7 +17,7 @@ env GOMAXPROCS=2 GOGC=30 GOTOOLCHAIN=local GOPROXY=off \
 复用已准备好的工作区增量构建（刷新 `native/ui/source-overlay` → tsc → Vite）：
 
 ```bash
-python3 -I scripts/cyber-ui-build.py rebuild --workspace "$PWD/var/native-ui-quality.ZzLkZW2L/ui-work"
+python3 -I scripts/cyber-ui-build.py rebuild --workspace "$PWD/var/ui-work"
 # 产物：该工作区下 release/public
 ```
 

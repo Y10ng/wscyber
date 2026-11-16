@@ -9,18 +9,18 @@
 **已在 native 上实现并验证的用户链：**
 建任务（两输入 + 授权 origin）→ 真实模型自主探索 → HTTP 原件可回看 → 候选（编号、修订、证据引用定位、宽屏主从布局、Markdown 草稿导出）→ 发起独立验证（保存/失联核对/原生 Open/Run）。功能状态表见 [product.md §5](product.md#5-功能状态)。
 
-**真实数据：** 一次获准的本地靶场运行（目标 `http://192.168.157.1:8000`，产品模型 `wangsu-ds-flash-latest`）：2 任务 / 11 HTTP / 3 候选 / 0 验证结果。状态库 `var/product-preview.VZ6MR7aB/state`（含两张验证表）。
+**真实数据：** 一次获准的本地靶场运行（目标 `http://192.168.157.1:8000`，产品模型 `wangsu-ds-flash-latest`）：2 任务 / 11 HTTP / 3 候选 / 0 验证结果。状态库 `var/preview/state`（含两张验证表）。
 
 **预览：** 当前没有运行中的 Hub。重开方式（新二进制已于 11-16 构建）：
 
 ```bash
 cd /root/桌面/wscyber
 env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local-hub --model-node \
-  --listen 127.0.0.1:42453 --access-key-file var/product-preview.VZ6MR7aB/access.key \
-  --state-dir var/product-preview.VZ6MR7aB/state --ui-dir var/findings-layout.ypAY1kni/release/public
+  --listen 127.0.0.1:42453 --access-key-file var/preview/access.key \
+  --state-dir var/preview/state --ui-dir var/ui-work/release/public
 ```
 
-前端增量构建工作区：`var/native-ui-quality.ZzLkZW2L/ui-work`（见 `native/RUNNING.md`）。
+前端增量构建工作区：`var/ui-work`（见 `native/RUNNING.md`）。
 
 **已知问题：**
 - 真实模型独立验证尚未跑过，没有非空判读的页面验收。
