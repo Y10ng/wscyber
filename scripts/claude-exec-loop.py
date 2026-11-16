@@ -82,7 +82,7 @@ def main() -> int:
         if os.path.isfile(result) and os.path.getsize(result) > 0:
             print(f"已交回 {result}，结束。", flush=True)
             return 0
-        wait = min(10 * round_no, 60)
+        wait = 10
         print(f"未完成（退出码 {code}），{wait}s 后续跑。", flush=True)
         time.sleep(wait)
     print(f"达到 {args.rounds} 轮上限仍未交回，停止。", flush=True)
