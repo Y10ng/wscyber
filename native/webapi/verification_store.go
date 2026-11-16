@@ -78,16 +78,63 @@ func verificationSummary(model verificationModel) VerificationSummary {
 	return VerificationSummary{VerificationID: model.ID, TaskID: model.TaskID, FindingID: model.FindingID, SourceRevisionID: model.SourceRevisionID, SessionID: model.SessionID, CreatedAt: model.CreatedAt}
 }
 
-func (s *taskStore) verificationForSession(ctx context.Context, sessionID string) (*verificationModel, error) {
-	var model verificationModel
-	err := s.orm.NewSelect().Model(&model).Where("session_id = ?", sessionID).Limit(1).Scan(ctx)
+// findOptional 按条件读取一行固定记录；不存在返回(nil, nil)。验证与复测共用。
+func findOptional[M any](ctx context.Context, db bun.IDB, where string, args ...any) (*M, error) {
+	model := new(M)
+	err := db.NewSelect().Model(model).Where(where, args...).Limit(1).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &model, nil
+	return model, nil
+}
+
+func (s *taskStore) verificationForSession(ctx context.Context, sessionID string) (*verificationModel, error) {
+	return findOptional[verificationModel](ctx, s.orm, "session_id = ?", sessionID)
+}
+
+// pinnedSource 是验证/复测记录固定的候选来源。
+type pinnedSource struct{ TaskID, FindingID, SourceRevisionID string }
+
+// claimPinnedRevision 是验证与复测共用的PUT认领：事务首条SQL即INSERT认领，
+// 同ID回放先于当前revision检查；异来源返回conflict，新建过期revision回滚并返回stale。
+func (s *taskStore) claimPinnedRevision(ctx context.Context, want pinnedSource, insert func(context.Context, bun.Tx) (bool, error), load func(context.Context, bun.Tx) (pinnedSource, error), stale error) (created, conflict bool, err error) {
+	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		inserted, err := insert(ctx, tx)
+		if err != nil {
+			return err
+		}
+		saved, err := load(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if saved.TaskID != want.TaskID || saved.FindingID != want.FindingID {
+			return errFindingNotFound
+		}
+		if saved.SourceRevisionID != want.SourceRevisionID {
+			conflict = true
+			return nil
+		}
+		if !inserted {
+			return nil // 同ID回放先于当前revision检查。
+		}
+		var current findingModel
+		err = tx.NewSelect().Model(&current).Where("task_id = ? AND id = ?", want.TaskID, want.FindingID).Limit(1).Scan(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			return errFindingNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if current.CurrentRevisionID != want.SourceRevisionID {
+			return stale // 回滚刚认领的过期依据。
+		}
+		created = true
+		return nil
+	})
+	return created, conflict, err
 }
 
 func (s *taskStore) saveVerification(ctx context.Context, id, taskID, findingID, sourceRevisionID string) (*VerificationSummary, bool, bool, error) {
@@ -95,46 +142,25 @@ func (s *taskStore) saveVerification(ctx context.Context, id, taskID, findingID,
 		return nil, false, false, fmt.Errorf("verification id非法")
 	}
 	model := &verificationModel{ID: id, TaskID: taskID, FindingID: findingID, SourceRevisionID: sourceRevisionID, SessionID: newSessionID(), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	created := false
-	conflict := false
-	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		result, err := tx.NewInsert().Model(model).On("CONFLICT(id) DO NOTHING").Exec(ctx)
-		if err != nil {
-			return err
-		}
-		inserted, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		var saved verificationModel
-		if err := tx.NewSelect().Model(&saved).Where("id = ?", id).Limit(1).Scan(ctx); err != nil {
-			return err
-		}
-		if saved.TaskID != taskID || saved.FindingID != findingID {
-			return errFindingNotFound
-		}
-		if saved.SourceRevisionID != sourceRevisionID {
-			conflict = true
-			return nil
-		}
-		if inserted == 0 {
-			*model = saved // 同ID回放先于当前revision检查。
-			return nil
-		}
-		var current findingModel
-		err = tx.NewSelect().Model(&current).Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errFindingNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if current.CurrentRevisionID != sourceRevisionID {
-			return errVerificationStale // 回滚刚认领的过期依据。
-		}
-		created = true
-		return nil
-	})
+	created, conflict, err := s.claimPinnedRevision(ctx, pinnedSource{taskID, findingID, sourceRevisionID},
+		func(ctx context.Context, tx bun.Tx) (bool, error) {
+			result, err := tx.NewInsert().Model(model).On("CONFLICT(id) DO NOTHING").Exec(ctx)
+			if err != nil {
+				return false, err
+			}
+			inserted, err := result.RowsAffected()
+			return inserted > 0, err
+		},
+		func(ctx context.Context, tx bun.Tx) (pinnedSource, error) {
+			var saved verificationModel
+			if err := tx.NewSelect().Model(&saved).Where("id = ?", id).Limit(1).Scan(ctx); err != nil {
+				return pinnedSource{}, err
+			}
+			if saved.TaskID == taskID && saved.FindingID == findingID && saved.SourceRevisionID == sourceRevisionID {
+				*model = saved
+			}
+			return pinnedSource{saved.TaskID, saved.FindingID, saved.SourceRevisionID}, nil
+		}, errVerificationStale)
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -143,15 +169,7 @@ func (s *taskStore) saveVerification(ctx context.Context, id, taskID, findingID,
 }
 
 func (s *taskStore) verificationByID(ctx context.Context, taskID, findingID, id string) (*verificationModel, error) {
-	var model verificationModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, id).Limit(1).Scan(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &model, nil
+	return findOptional[verificationModel](ctx, s.orm, "task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, id)
 }
 
 func (s *taskStore) verificationDetail(ctx context.Context, model *verificationModel) (*VerificationDetail, error) {
@@ -173,12 +191,8 @@ func (s *taskStore) verificationDetail(ctx context.Context, model *verificationM
 }
 
 func (s *taskStore) verificationResult(ctx context.Context, id string) (*VerificationResultView, error) {
-	var model verificationResultModel
-	err := s.orm.NewSelect().Model(&model).Where("verification_id = ?", id).Limit(1).Scan(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
+	model, err := findOptional[verificationResultModel](ctx, s.orm, "verification_id = ?", id)
+	if model == nil || err != nil {
 		return nil, err
 	}
 	var stored storedVerificationResult
@@ -188,13 +202,22 @@ func (s *taskStore) verificationResult(ctx context.Context, id string) (*Verific
 	return &VerificationResultView{SessionID: model.SessionID, TurnID: model.TurnID, CallID: model.CallID, Payload: stored.Payload, Evidence: stored.Evidence, CreatedAt: model.CreatedAt}, nil
 }
 
-func (s *taskStore) verificationList(ctx context.Context, taskID, findingID string, limit int, afterCreatedAt, afterID string) ([]VerificationSummary, error) {
-	var models []verificationModel
-	query := s.orm.NewSelect().Model(&models).Where("task_id = ? AND finding_id = ?", taskID, findingID)
+// pinnedPage 按finding内created_at/id倒序分页读取验证或复测固定记录（多读一行判断has_more）。
+func pinnedPage[M any](ctx context.Context, db bun.IDB, taskID, findingID string, limit int, afterCreatedAt, afterID string) ([]M, error) {
+	var models []M
+	query := db.NewSelect().Model(&models).Where("task_id = ? AND finding_id = ?", taskID, findingID)
 	if afterCreatedAt != "" {
 		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", afterCreatedAt, afterCreatedAt, afterID)
 	}
 	if err := query.Order("created_at DESC", "id DESC").Limit(int64(limit + 1)).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
+func (s *taskStore) verificationList(ctx context.Context, taskID, findingID string, limit int, afterCreatedAt, afterID string) ([]VerificationSummary, error) {
+	models, err := pinnedPage[verificationModel](ctx, s.orm, taskID, findingID, limit, afterCreatedAt, afterID)
+	if err != nil {
 		return nil, err
 	}
 	items := make([]VerificationSummary, 0, len(models))
@@ -212,53 +235,91 @@ func (s *taskStore) verificationList(ctx context.Context, taskID, findingID stri
 	return items, nil
 }
 
-func (s *taskStore) saveVerificationResult(ctx context.Context, inv operation.Invocation, verification *verificationModel, canonical []byte, args verificationToolPayload, evidence []requestModel) (*VerificationResultView, error) {
-	snapshots := make([]FindingEvidenceSnapshot, len(evidence))
-	for index := range evidence {
-		snapshots[index] = snapshotFindingEvidence(evidence[index], args.Evidence[index].Relation)
+// resultReceipt 是不可变结果行中用于回读核对的归属与规范载荷。
+type resultReceipt struct {
+	SessionID, TurnID, CallID, PayloadJSON string
+}
+
+func (r *resultReceipt) matches(inv operation.Invocation, canonical []byte) bool {
+	var stored struct {
+		Canonical string `json:"canonical"`
 	}
+	return json.Unmarshal([]byte(r.PayloadJSON), &stored) == nil && r.SessionID == inv.SessionID && r.TurnID == inv.TurnID && r.CallID == inv.CallID && stored.Canonical == string(canonical)
+}
+
+// saveImmutableResult 是验证与复测结果共用的不可变保存：先按不可变记录ID读取，
+// 再检查Invocation，避免另一调用抢写后事务未知时误回放；同Invocation同规范载荷回读(replayed=true)，
+// 其余返回immutable。load不存在时返回(nil, nil)。
+func (s *taskStore) saveImmutableResult(ctx context.Context, inv operation.Invocation, canonical []byte, load func(context.Context) (*resultReceipt, error), insert func(context.Context, bun.Tx) error, immutable error) (bool, error) {
+	existing, err := load(ctx)
+	if err != nil {
+		return false, err
+	}
+	if existing != nil {
+		if !existing.matches(inv, canonical) {
+			return false, immutable
+		}
+		return true, nil
+	}
+	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error { return insert(ctx, tx) })
+	if err != nil {
+		// 回执失联只核对一次，不重新生成结果或重发任何HTTP。
+		existing, lookup := load(ctx)
+		if lookup != nil {
+			return false, errors.Join(err, lookup)
+		}
+		if existing == nil {
+			return false, errors.Join(err, sql.ErrNoRows)
+		}
+		if !existing.matches(inv, canonical) {
+			return false, immutable
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *taskStore) saveVerificationResult(ctx context.Context, inv operation.Invocation, verification *verificationModel, canonical []byte, args verificationToolPayload, evidence []requestModel) (*VerificationResultView, error) {
+	snapshots := snapshotResultEvidence(evidence, args.Evidence)
 	payload, err := json.Marshal(storedVerificationResult{Canonical: string(canonical), Payload: args, Evidence: snapshots})
 	if err != nil {
 		return nil, err
 	}
 	model := &verificationResultModel{VerificationID: verification.ID, SessionID: inv.SessionID, TurnID: inv.TurnID, CallID: inv.CallID, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	// 先按不可变verification_id认领，再检查Invocation，避免另一调用抢写后事务未知时误回放。
-	var existing verificationResultModel
-	err = s.orm.NewSelect().Model(&existing).Where("verification_id = ?", verification.ID).Limit(1).Scan(ctx)
-	if err == nil {
-		var stored storedVerificationResult
-		if json.Unmarshal([]byte(existing.PayloadJSON), &stored) != nil || existing.SessionID != inv.SessionID || existing.TurnID != inv.TurnID || existing.CallID != inv.CallID || stored.Canonical != string(canonical) {
-			return nil, errVerificationResult
-		}
-		return s.verificationResult(ctx, verification.ID)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	replayed, err := s.saveImmutableResult(ctx, inv, canonical,
+		func(ctx context.Context) (*resultReceipt, error) {
+			existing, err := findOptional[verificationResultModel](ctx, s.orm, "verification_id = ?", verification.ID)
+			if existing == nil || err != nil {
+				return nil, err
+			}
+			return &resultReceipt{existing.SessionID, existing.TurnID, existing.CallID, existing.PayloadJSON}, nil
+		},
+		func(ctx context.Context, tx bun.Tx) error {
+			_, err := tx.NewInsert().Model(model).Exec(ctx)
+			return err
+		}, errVerificationResult)
+	if err != nil {
 		return nil, err
 	}
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewInsert().Model(model).Exec(ctx)
-		return err
-	})
-	if err != nil {
-		// 回执失联只核对一次，不重新生成结果或重发任何HTTP。
-		lookup := s.orm.NewSelect().Model(&existing).Where("verification_id = ?", verification.ID).Limit(1).Scan(ctx)
-		if lookup != nil {
-			return nil, errors.Join(err, lookup)
-		}
-		var stored storedVerificationResult
-		if json.Unmarshal([]byte(existing.PayloadJSON), &stored) != nil || existing.SessionID != inv.SessionID || existing.TurnID != inv.TurnID || existing.CallID != inv.CallID || stored.Canonical != string(canonical) {
-			return nil, errVerificationResult
-		}
+	if replayed {
 		return s.verificationResult(ctx, verification.ID)
 	}
 	return &VerificationResultView{SessionID: model.SessionID, TurnID: model.TurnID, CallID: model.CallID, Payload: args, Evidence: snapshots, CreatedAt: model.CreatedAt}, nil
 }
 
-// webapiTableOrder 与SchemaModule().Models顺序一致；已知历史阶段都是其前缀。
-var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts"}
+func snapshotResultEvidence(evidence []requestModel, refs []verificationEvidenceInput) []FindingEvidenceSnapshot {
+	snapshots := make([]FindingEvidenceSnapshot, len(evidence))
+	for index := range evidence {
+		snapshots[index] = snapshotFindingEvidence(evidence[index], refs[index].Relation)
+	}
+	return snapshots
+}
 
-// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表。
-var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}}
+// webapiTableOrder 与SchemaModule().Models顺序一致；已知历史阶段都是其前缀。
+var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts", "webapi_retests", "webapi_retest_results"}
+
+// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表、含报告八表。
+var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}, {8, 10}}
 
 func webapiSchemaStage(models, indexes int) webservice.SchemaModule {
 	module := SchemaModule()

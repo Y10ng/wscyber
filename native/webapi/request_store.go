@@ -38,10 +38,18 @@ func (s *taskStore) taskForSession(ctx context.Context, sessionID string) (*Task
 		return nil, err
 	}
 	verification, verifyErr := s.verificationForSession(ctx, sessionID)
-	if verifyErr != nil || verification == nil {
+	if verifyErr != nil {
 		return nil, verifyErr
 	}
-	return s.Get(ctx, verification.TaskID)
+	if verification != nil {
+		return s.Get(ctx, verification.TaskID)
+	}
+	// 复测session同验证：只映射到父任务，授权仍取父任务origins，unknown保护按父任务指纹生效。
+	retest, retestErr := s.retestForSession(ctx, sessionID)
+	if retestErr != nil || retest == nil {
+		return nil, retestErr
+	}
+	return s.Get(ctx, retest.TaskID)
 }
 
 // claim 在单个先INSERT取得SQLite写锁的事务里回读同call并检查同指纹未决项。
@@ -120,7 +128,7 @@ func (s *taskStore) claim(ctx context.Context, inv operation.Invocation, taskID 
 }
 
 var (
-	errUnknownSession = errors.New("原生 session 未对应已保存任务的首会话或独立验证会话")
+	errUnknownSession = errors.New("原生 session 未对应已保存任务的首会话、独立验证或复测会话")
 	errCallConflict   = errors.New("同一 task/turn/call 已认领不同请求，拒绝重放")
 	errUnknownReplay  = errors.New("相同具体请求已有未解决 unknown，不自动重发")
 )

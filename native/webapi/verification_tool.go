@@ -40,40 +40,89 @@ func (*verificationTool) Definition() *aop.ToolDefinition {
 	return coretool.Def("webapi_verification_result", "保存当前独立验证的模型判读；只引用本会话新HTTP证据，支持/反证须完整响应，状态码不判资格，不修改原候选。", verificationToolPayload{})
 }
 
-func validateVerificationArguments(arguments string) (verificationToolPayload, []byte, error) {
-	var args verificationToolPayload
+// decodeStrictToolPayload 是验证/复测结果共用的strict单对象JSON解码；label为“验证”或“复测”。
+func decodeStrictToolPayload(arguments string, target any, label string) error {
 	if len(arguments) > maxVerificationPayloadBytes {
-		return args, nil, errors.New("验证载荷超过24KiB")
+		return errors.New(label + "载荷超过24KiB")
 	}
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil {
-		return args, nil, errors.New("参数不是strict JSON或含未知字段")
+	if err := decoder.Decode(target); err != nil {
+		return errors.New("参数不是strict JSON或含未知字段")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return args, nil, errors.New("参数只能包含一个JSON对象")
+		return errors.New("参数只能包含一个JSON对象")
+	}
+	return nil
+}
+
+// validateResultBody 校验验证/复测结果共用的正文长度与证据引用形状。
+func validateResultBody(method, preconditions, summary, limitations string, evidence []verificationEvidenceInput, label string) error {
+	if !validFindingText(method, 4096, true) || !validFindingText(preconditions, 4096, false) ||
+		!validFindingText(summary, 4096, true) || !validFindingText(limitations, 4096, false) || len(evidence) > 16 {
+		return errors.New(label + "正文或证据数量不符合限制")
+	}
+	seen := map[string]bool{}
+	for _, item := range evidence {
+		if item.EvidenceID == "" || len(item.EvidenceID) > 128 || seen[item.EvidenceID] ||
+			(item.Relation != "supporting" && item.Relation != "counterevidence" && item.Relation != "limitation") {
+			return errors.New(label + "证据ID重复/非法或relation非法")
+		}
+		seen[item.EvidenceID] = true
+	}
+	return nil
+}
+
+func canonicalToolPayload(args any, label string) ([]byte, error) {
+	canonical, err := json.Marshal(args)
+	if err != nil || len(canonical) > maxVerificationPayloadBytes {
+		return nil, errors.New(label + "规范载荷超过24KiB")
+	}
+	return canonical, nil
+}
+
+func validateVerificationArguments(arguments string) (verificationToolPayload, []byte, error) {
+	var args verificationToolPayload
+	if err := decodeStrictToolPayload(arguments, &args, "验证"); err != nil {
+		return args, nil, err
 	}
 	if args.Verdict != "supported" && args.Verdict != "counterevidence" && args.Verdict != "inconclusive" {
 		return args, nil, errors.New("verdict仅支持supported/counterevidence/inconclusive")
 	}
-	if !validFindingText(args.Method, 4096, true) || !validFindingText(args.Preconditions, 4096, false) ||
-		!validFindingText(args.Summary, 4096, true) || !validFindingText(args.Limitations, 4096, false) || len(args.Evidence) > 16 {
-		return args, nil, errors.New("验证正文或证据数量不符合限制")
+	if err := validateResultBody(args.Method, args.Preconditions, args.Summary, args.Limitations, args.Evidence, "验证"); err != nil {
+		return args, nil, err
 	}
-	seen := map[string]bool{}
-	for _, evidence := range args.Evidence {
-		if evidence.EvidenceID == "" || len(evidence.EvidenceID) > 128 || seen[evidence.EvidenceID] ||
-			(evidence.Relation != "supporting" && evidence.Relation != "counterevidence" && evidence.Relation != "limitation") {
-			return args, nil, errors.New("验证证据ID重复/非法或relation非法")
+	canonical, err := canonicalToolPayload(args, "验证")
+	return args, canonical, err
+}
+
+// sessionResultEvidence 核对结果引用：只接受本session在本任务产生的新HTTP证据；
+// 支持/反证须已发送、completed、有实际响应、Flow完整且未截断，否则只能作为限制。
+// 返回证据行与已满足的有效relation；label为“验证”或“复测”。
+func (s *taskStore) sessionResultEvidence(ctx context.Context, taskID, sessionID string, refs []verificationEvidenceInput, label string) ([]requestModel, map[string]bool, error) {
+	evidence := make([]requestModel, 0, len(refs))
+	qualifies := map[string]bool{}
+	for _, reference := range refs {
+		model, err := s.evidenceByID(ctx, taskID, reference.EvidenceID)
+		if err != nil || model == nil || model.SessionID != sessionID {
+			return nil, nil, errors.New("只接受本" + label + "session在本任务产生的新HTTP证据")
 		}
-		seen[evidence.EvidenceID] = true
+		var flow traffic.Flow
+		if proto.Unmarshal(model.FlowPB, &flow) != nil {
+			return nil, nil, errors.New("HTTP原件无法核对，结果未保存")
+		}
+		complete := model.Status == requestCompleted && model.Sent.Valid && model.Sent.Bool && model.StatusCode.Valid && flow.GetComplete() && !model.CaptureTruncated && flow.GetResponse() != nil
+		if reference.Relation == "limitation" {
+			// 失败、未发送和截断仅作为限制保存；完整响应也可以作为限制引用。
+		} else if !complete {
+			return nil, nil, errors.New("支持/反证引用必须是已发送、收到响应且完整捕获的新HTTP原件")
+		} else {
+			qualifies[reference.Relation] = true
+		}
+		evidence = append(evidence, *model)
 	}
-	canonical, err := json.Marshal(args)
-	if err != nil || len(canonical) > maxVerificationPayloadBytes {
-		return args, nil, errors.New("验证规范载荷超过24KiB")
-	}
-	return args, canonical, nil
+	return evidence, qualifies, nil
 }
 
 func (t *verificationTool) Execute(ctx context.Context, arguments string) (*aop.ToolResult, error) {
@@ -89,26 +138,9 @@ func (t *verificationTool) Execute(ctx context.Context, arguments string) (*aop.
 	if err != nil {
 		return coretool.ErrorResult(err.Error()), nil
 	}
-	evidence := make([]requestModel, 0, len(args.Evidence))
-	qualifies := map[string]bool{}
-	for _, reference := range args.Evidence {
-		model, err := t.store.evidenceByID(ctx, verification.TaskID, reference.EvidenceID)
-		if err != nil || model == nil || model.SessionID != verification.SessionID {
-			return coretool.ErrorResult("只接受本验证session在本任务产生的新HTTP证据"), nil
-		}
-		var flow traffic.Flow
-		if proto.Unmarshal(model.FlowPB, &flow) != nil {
-			return coretool.ErrorResult("HTTP原件无法核对，结果未保存"), nil
-		}
-		complete := model.Status == requestCompleted && model.Sent.Valid && model.Sent.Bool && model.StatusCode.Valid && flow.GetComplete() && !model.CaptureTruncated && flow.GetResponse() != nil
-		if reference.Relation == "limitation" {
-			// 失败、未发送和截断仅作为限制保存；完整响应也可以作为限制引用。
-		} else if !complete {
-			return coretool.ErrorResult("支持/反证引用必须是已发送、收到响应且完整捕获的新HTTP原件"), nil
-		} else {
-			qualifies[reference.Relation] = true
-		}
-		evidence = append(evidence, *model)
+	evidence, qualifies, err := t.store.sessionResultEvidence(ctx, verification.TaskID, verification.SessionID, args.Evidence, "验证")
+	if err != nil {
+		return coretool.ErrorResult(err.Error()), nil
 	}
 	if (args.Verdict == "supported" && !qualifies["supporting"]) || (args.Verdict == "counterevidence" && !qualifies["counterevidence"]) {
 		return coretool.ErrorResult("当前verdict缺少对应relation的完整新HTTP证据；HTTP状态码不决定资格"), nil

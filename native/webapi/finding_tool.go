@@ -129,6 +129,13 @@ func (t *findingTool) Execute(ctx context.Context, arguments string) (*aop.ToolR
 	if verification != nil {
 		return coretool.ErrorResult("独立验证session不能创建或更新原候选"), nil
 	}
+	retest, retestErr := t.store.retestForSession(ctx, inv.SessionID)
+	if retestErr != nil {
+		return coretool.ErrorResult("无法核对session写权限，候选未保存"), nil
+	}
+	if retest != nil {
+		return coretool.ErrorResult("复测session不能创建或更新原候选"), nil
+	}
 	task, err := t.store.taskForSession(ctx, inv.SessionID)
 	if err != nil || task == nil {
 		return coretool.ErrorResult("session无已保存任务，候选未保存"), nil

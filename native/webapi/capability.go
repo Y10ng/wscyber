@@ -277,7 +277,7 @@ func (c *Capability) Manifest() web.Capability {
 	return web.Capability{ID: "webapi", Title: "Web/API 任务输入", APIRoutes: []string{"WebAPITaskService"}}
 }
 
-// SchemaModules 声明本能力任务、证据、候选、验证和报告业务表。
+// SchemaModules 声明本能力任务、证据、候选、验证、报告和复测业务表。
 func (c *Capability) SchemaModules() []webservice.SchemaModule {
 	return []webservice.SchemaModule{SchemaModule()}
 }
@@ -298,6 +298,10 @@ func (c *Capability) Routes(_ *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}/verifications/{verification_id}", Handler: http.HandlerFunc(c.handleVerificationGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}/verifications", Handler: http.HandlerFunc(c.handleVerificationList)},
 		{Pattern: "GET /api/webapi/verifications", Handler: http.HandlerFunc(c.handleVerificationBySession)},
+		{Pattern: "PUT /api/webapi/tasks/{id}/findings/{finding_id}/retests/{retest_id}", Handler: http.HandlerFunc(c.handleRetestPut)},
+		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}/retests/{retest_id}", Handler: http.HandlerFunc(c.handleRetestGet)},
+		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}/retests", Handler: http.HandlerFunc(c.handleRetestList)},
+		{Pattern: "GET /api/webapi/retests", Handler: http.HandlerFunc(c.handleRetestBySession)},
 		{Pattern: "PUT /api/webapi/tasks/{id}/reports/{report_id}", Handler: http.HandlerFunc(c.handleReportPut)},
 		{Pattern: "GET /api/webapi/tasks/{id}/reports", Handler: http.HandlerFunc(c.handleReportList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/reports/{report_id}", Handler: http.HandlerFunc(c.handleReportGet)},
