@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Info, Loader2, RefreshCw, Search } from 'lucide-react'
 import { fromBinary } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, HttpViewPanels, type TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
-import { Button } from '@cyber/ui'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { getWebApiEvidence, listWebApiEvidence, type WebApiEvidence, type WebApiEvidenceDetail, type WebApiTask } from '../api'
 
 interface Props {
@@ -102,10 +103,41 @@ function methodTone(method: string): string {
   return 'text-muted-foreground'
 }
 
-function formatTime(value: string): string {
+// 状态码按段着色：2xx 绿 / 3xx 蓝 / 4xx 琥珀 / 5xx 红（状态色只作强化，文字仍在）。
+function httpStatusTone(code: number): string {
+  if (code < 300) return 'text-emerald-600 dark:text-emerald-400'
+  if (code < 400) return 'text-blue-600 dark:text-blue-400'
+  if (code < 500) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
+function formatClock(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+// Host/路径拆分：解析失败（畸形 URL）时路径列回退整条 URL，不丢信息。
+function splitUrl(url: string): { host: string; path: string } {
+  try {
+    const parsed = new URL(url)
+    return { host: parsed.host, path: `${parsed.pathname}${parsed.search}` || '/' }
+  } catch {
+    return { host: '', path: url }
+  }
+}
+
+type TrafficSegment = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'incomplete'
+
+// 分段归类：未完成 = 非 completed 或无响应（无 http_status 即无响应）。
+function segmentOf(item: WebApiEvidence): TrafficSegment {
+  if (item.status === 'completed' && item.http_status != null) {
+    if (item.http_status < 300) return '2xx'
+    if (item.http_status < 400) return '3xx'
+    if (item.http_status < 500) return '4xx'
+    return '5xx'
+  }
+  return 'incomplete'
 }
 
 export default function WebApiEvidencePanel({ task }: Props) {
@@ -122,6 +154,9 @@ export default function WebApiEvidencePanel({ task }: Props) {
   const [detailError, setDetailError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
+  // 筛选条：搜索（前端过滤当前已加载数据）+ 状态分段。
+  const [query, setQuery] = useState('')
+  const [segment, setSegment] = useState<TrafficSegment>('all')
   const listSeq = useRef(0)
   const detailSeq = useRef(0)
   const copySeq = useRef(0)
@@ -146,7 +181,7 @@ export default function WebApiEvidencePanel({ task }: Props) {
     }
   }, [task.id])
 
-  // 换任务即清空旧原件与选择，并使 list/detail/copy seq 全失效；卸载同样失效。
+  // 换任务即清空旧原件与选择（含筛选态），并使 list/detail/copy seq 全失效；卸载同样失效。
   useEffect(() => {
     listSeq.current++
     detailSeq.current++
@@ -160,6 +195,8 @@ export default function WebApiEvidencePanel({ task }: Props) {
     setDetailError('')
     setCopied(false)
     setCopyError('')
+    setQuery('')
+    setSegment('all')
     void loadList()
   }, [loadList])
 
@@ -235,118 +272,222 @@ export default function WebApiEvidencePanel({ task }: Props) {
   const requestBody = flow?.request?.body
   const responseBody = flow?.response?.body
 
+  // 前端过滤：URL 匹配 + 状态分段，只作用于当前已加载数据。
+  const queryTrim = query.trim().toLowerCase()
+  const filtered = useMemo(() => {
+    if (queryTrim === '' && segment === 'all') return items
+    return items.filter((item) => {
+      if (queryTrim !== '' && !item.url.toLowerCase().includes(queryTrim)) return false
+      if (segment !== 'all' && segmentOf(item) !== segment) return false
+      return true
+    })
+  }, [items, queryTrim, segment])
+
+  const segments: { key: TrafficSegment; label: string }[] = [
+    { key: 'all', label: t('webapi.trafficFilterAll') },
+    { key: '2xx', label: '2xx' },
+    { key: '3xx', label: '3xx' },
+    { key: '4xx', label: '4xx' },
+    { key: '5xx', label: '5xx' },
+    { key: 'incomplete', label: t('webapi.trafficIncomplete') },
+  ]
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {/* 上方紧凑流量表 */}
-      <div className="flex min-h-0 shrink-0 flex-col border-b border-border/60" style={{ maxHeight: '42%' }}>
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="text-[13px] font-medium text-foreground/75">{t('webapi.httpRecordsTitle')}</span>
-            <span className="truncate text-[11px] text-muted-foreground">{t('webapi.httpRecordsHint')}</span>
-          </span>
-          <Button type="button" variant="ghost" size="xs" onClick={refresh} disabled={loadingList} className="gap-1 text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('webapi.refresh')}
-          </Button>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-1 text-xs font-medium text-muted-foreground">
-          <span className="w-14 shrink-0">{t('webapi.method')}</span>
-          <span className="min-w-0 flex-1">{t('webapi.url')}</span>
-          <span className="w-28 shrink-0">{t('webapi.result')}</span>
-          <span className="w-20 shrink-0 text-right">{t('webapi.time')}</span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loadingList && items.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
-          ) : listError ? (
-            <div className="px-3 py-4 text-center text-sm text-destructive">{listError}</div>
-          ) : items.length === 0 ? (
-            <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.evidenceEmpty')}</div>
-          ) : (
-            <div className="divide-y divide-border/40">
-              {items.map((item) => (
-                <button
-                  key={item.evidence_id}
-                  type="button"
-                  onClick={() => select(item)}
-                  aria-pressed={selectedId === item.evidence_id}
-                  className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40', selectedId === item.evidence_id && 'bg-primary/10')}
-                >
-                  <span className={cn('w-14 shrink-0 font-mono text-[12px] font-semibold', methodTone(item.method))}>{item.method || '-'}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={item.url}>{item.url}</span>
-                  <span className="w-28 shrink-0">
-                    <span className={cn('text-[13px] font-medium', statusTone(item.status))}>{statusLabel(t, item.status)}</span>
-                    {item.http_status != null && <span className="ml-1 font-mono text-[12px] text-muted-foreground">{item.http_status}</span>}
-                    {item.sent === false && <span className="ml-1 text-[11px] text-muted-foreground">{t('webapi.notSent')}</span>}
-                  </span>
-                  <span className="w-20 shrink-0 text-right text-[11px] text-muted-foreground">{formatTime(item.created_at)}</span>
-                </button>
-              ))}
+      <PanelGroup direction="vertical" className="min-h-0 flex-1">
+        {/* 上：筛选条 + 流量表（默认 45% 高，可拖动分割，最小 160px）。 */}
+        <Panel defaultSize={45} minSize={15} className="flex min-h-0 flex-col">
+          <div className="flex min-h-[160px] min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+              <div className="relative h-7 w-full min-w-0 max-w-[260px]">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t('webapi.trafficSearchPlaceholder')}
+                  aria-label={t('webapi.trafficSearchPlaceholder')}
+                  className="h-7 w-full rounded-md border border-border/60 bg-background pl-7 pr-2 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                />
+              </div>
+              <div role="group" aria-label={t('webapi.result')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
+                {segments.map((seg) => (
+                  <button
+                    key={seg.key}
+                    type="button"
+                    aria-pressed={segment === seg.key}
+                    onClick={() => setSegment(seg.key)}
+                    className={cn(
+                      'h-6 rounded px-1.5 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                      segment === seg.key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                    )}
+                  >
+                    {seg.label}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t('webapi.httpRecordsHint')}
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">{t('webapi.httpRecordsHint')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={refresh}
+                      disabled={loadingList}
+                      aria-label={t('webapi.refresh')}
+                      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-50"
+                    >
+                      {loadingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('webapi.refresh')}</TooltipContent>
+                </Tooltip>
+              </span>
             </div>
-          )}
-        </div>
-        {hasMore && (
-          <div className="shrink-0 border-t border-border/50 px-3 py-1.5 text-center">
-            <Button type="button" variant="ghost" size="xs" onClick={() => void loadList(nextCursor ?? undefined)} disabled={loadingList} className="text-muted-foreground">
-              {loadingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('webapi.loadMore')}
-            </Button>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {loadingList && items.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
+              ) : listError ? (
+                <div className="px-3 py-4 text-center text-sm text-destructive">{listError}</div>
+              ) : items.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.evidenceEmpty')}</div>
+              ) : filtered.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.trafficNoMatch')}</div>
+              ) : (
+                <table className="w-full border-separate border-spacing-0 text-left">
+                  <thead className="sticky top-0 z-10">
+                    <tr>
+                      <th scope="col" className="w-[76px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.time')}</th>
+                      <th scope="col" className="w-[64px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.method')}</th>
+                      <th scope="col" className="w-[190px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficHost')}</th>
+                      <th scope="col" className="border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficPath')}</th>
+                      <th scope="col" className="w-[110px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.result')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((item) => {
+                      const selected = selectedId === item.evidence_id
+                      const { host, path } = splitUrl(item.url)
+                      const completed = item.status === 'completed' && item.http_status != null
+                      return (
+                        <tr
+                          key={item.evidence_id}
+                          tabIndex={0}
+                          onClick={() => select(item)}
+                          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(item) } }}
+                          aria-selected={selected}
+                          className={cn(
+                            'h-[30px] cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40',
+                            selected && 'bg-primary/10 shadow-[inset_2px_0_0_hsl(var(--primary))]',
+                          )}
+                        >
+                          <td className="border-b border-border/40 px-3 font-mono text-[12px] tabular-nums text-muted-foreground" title={new Date(item.created_at).toLocaleString()}>
+                            {formatClock(item.created_at)}
+                          </td>
+                          <td className={cn('border-b border-border/40 px-1 font-mono text-[12px] font-semibold', methodTone(item.method))}>
+                            {item.method || '-'}
+                          </td>
+                          <td className="max-w-0 truncate border-b border-border/40 px-1 font-mono text-[12px] text-foreground" title={host}>
+                            {host || '—'}
+                          </td>
+                          <td className="max-w-0 truncate border-b border-border/40 px-1 font-mono text-[12px] text-foreground" title={item.url}>
+                            {path}
+                          </td>
+                          <td className="border-b border-border/40 px-3">
+                            {completed ? (
+                              <span className={cn('font-mono text-[12px] tabular-nums', httpStatusTone(item.http_status!))}>{item.http_status}</span>
+                            ) : (
+                              <span className={cn('text-[12px]', statusTone(item.status))}>{statusLabel(t, item.status)}</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {hasMore && (
+              <div className="shrink-0 border-t border-border/50 px-3 py-1.5 text-center">
+                <Button type="button" variant="ghost" size="xs" onClick={() => void loadList(nextCursor ?? undefined)} disabled={loadingList} className="text-[13px] text-muted-foreground">
+                  {loadingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('webapi.loadMore')}
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </Panel>
 
-      {/* 下方请求/响应双栏 */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {selectedId == null ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('webapi.selectEvidence')}</div>
-        ) : detailLoading ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
-        ) : detailError ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-destructive">
-            <span>{t('webapi.evidenceLoadFailed')}</span>
-            <span className="text-xs text-muted-foreground">{detailError}</span>
+        <PanelResizeHandle className="relative flex h-1.5 w-full items-center justify-center bg-background transition-colors after:absolute after:inset-x-0 after:inset-y-[-3px] after:content-[''] hover:bg-primary/20 data-[resize-handle-state=drag]:bg-primary/30">
+          <span aria-hidden className="h-0.5 w-10 rounded-full bg-border" />
+        </PanelResizeHandle>
+
+        {/* 下：请求/响应双栏（原生 HttpViewPanels，保持不变）。 */}
+        <Panel minSize={25} className="flex min-h-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
+            {selectedId == null ? (
+              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('webapi.selectEvidence')}</div>
+            ) : detailLoading ? (
+              <div className="flex flex-1 items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
+            ) : detailError ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-destructive">
+                <span>{t('webapi.evidenceLoadFailed')}</span>
+                <span className="text-xs text-muted-foreground">{detailError}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs">
+                  <span className={cn('font-medium', statusTone(detail?.metadata.status || 'unknown'))}>{statusLabel(t, detail?.metadata.status || 'unknown')}</span>
+                  {detail?.metadata.http_status != null && <span className="font-mono">{detail.metadata.http_status}</span>}
+                  {detail?.metadata.sent === false && <span className="text-muted-foreground">{t('webapi.notSent')}</span>}
+                  {detail?.metadata.sent === true && <span className="text-muted-foreground">{t('webapi.sent')}</span>}
+                  {detail?.metadata.reason ? <span className="min-w-0 truncate text-muted-foreground" title={detail.metadata.reason}>{detail.metadata.reason}</span> : null}
+                  {detail?.capture.capture_truncated && <span className="text-warning">{t('webapi.captureTruncated')}</span>}
+                  <span className="text-muted-foreground">{t('webapi.reconstructionNote')}</span>
+                  <span className="ml-auto" />
+                  {requestBody?.length ? (
+                    <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(requestBody, `${detail?.metadata.evidence_id || 'request'}.request.body`)} className="text-muted-foreground">
+                      {t('webapi.downloadRequestBody')}
+                    </Button>
+                  ) : null}
+                  {responseBody?.length ? (
+                    <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(responseBody, `${detail?.metadata.evidence_id || 'response'}.response.body`)} className="text-muted-foreground">
+                      {t('webapi.downloadResponseBody')}
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="ghost" size="xs" onClick={copy} className="gap-1 text-muted-foreground">
+                    {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
+                  </Button>
+                </div>
+                <div className="min-h-0 min-w-0 flex-1">
+                  <HttpViewPanels
+                    view={view}
+                    requestTitle={t('webapi.request')}
+                    responseTitle={t('webapi.response')}
+                    emptyText={t('webapi.selectEvidence')}
+                    labels={{
+                      loadFailed: t('webapi.loadFailed'),
+                      requestError: t('webapi.requestError'),
+                      noResponse: t('webapi.noResponse'),
+                      emptyBody: t('webapi.emptyBody'),
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
-        ) : (
-          <>
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs">
-              <span className={cn('font-medium', statusTone(detail?.metadata.status || 'unknown'))}>{statusLabel(t, detail?.metadata.status || 'unknown')}</span>
-              {detail?.metadata.http_status != null && <span className="font-mono">{detail.metadata.http_status}</span>}
-              {detail?.metadata.sent === false && <span className="text-muted-foreground">{t('webapi.notSent')}</span>}
-              {detail?.metadata.sent === true && <span className="text-muted-foreground">{t('webapi.sent')}</span>}
-              {detail?.metadata.reason ? <span className="min-w-0 truncate text-muted-foreground" title={detail.metadata.reason}>{detail.metadata.reason}</span> : null}
-              {detail?.capture.capture_truncated && <span className="text-warning">{t('webapi.captureTruncated')}</span>}
-              <span className="text-muted-foreground">{t('webapi.reconstructionNote')}</span>
-              <span className="ml-auto" />
-              {requestBody?.length ? (
-                <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(requestBody, `${detail?.metadata.evidence_id || 'request'}.request.body`)} className="text-muted-foreground">
-                  {t('webapi.downloadRequestBody')}
-                </Button>
-              ) : null}
-              {responseBody?.length ? (
-                <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(responseBody, `${detail?.metadata.evidence_id || 'response'}.response.body`)} className="text-muted-foreground">
-                  {t('webapi.downloadResponseBody')}
-                </Button>
-              ) : null}
-              <Button type="button" variant="ghost" size="xs" onClick={copy} className="gap-1 text-muted-foreground">
-                {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
-              </Button>
-            </div>
-            <div className="min-h-0 min-w-0 flex-1">
-              <HttpViewPanels
-                view={view}
-                requestTitle={t('webapi.request')}
-                responseTitle={t('webapi.response')}
-                emptyText={t('webapi.selectEvidence')}
-                labels={{
-                  loadFailed: t('webapi.loadFailed'),
-                  requestError: t('webapi.requestError'),
-                  noResponse: t('webapi.noResponse'),
-                  emptyBody: t('webapi.emptyBody'),
-                }}
-              />
-            </div>
-          </>
-        )}
-      </div>
+        </Panel>
+      </PanelGroup>
     </div>
   )
 }

@@ -25,6 +25,8 @@ interface Props {
   task: WebApiTask
   onClose: () => void
   onSubmit: StartReport
+  /** 追加7：提交成功后父级回调（刷新列表并选中新报告）；Dialog 在此之前自行关闭。 */
+  onStarted?: (report: WebApiReportSummary) => void | Promise<void>
 }
 
 interface CandidateState {
@@ -70,7 +72,7 @@ function RowCheckbox({ checked, disabled, onChange, label }: {
 
 // 新建报告：勾选任务候选（当前修订），勾选后列出该修订上的独立验证，可默认勾选已有
 // 判读的附加。提交只固定关系（finding/revision/verification），不复制候选或验证内容。
-export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Props) {
+export default function WebApiReportDialog({ open, task, onClose, onSubmit, onStarted }: Props) {
   const { t } = useTranslation('chat')
   const [findings, setFindings] = useState<WebApiFindingSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -225,13 +227,16 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
     setSaving(true)
     setError('')
     try {
-      await onSubmit({ taskID: task.id, items })
+      const { report } = await onSubmit({ taskID: task.id, items })
+      // 追加7：成功即关对话框并通知父级刷新列表、选中新报告；失败留在原处可重试。
+      onClose()
+      await onStarted?.(report)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
-  }, [saving, selectedCount, findings, candidates, onSubmit, task.id, t])
+  }, [saving, selectedCount, findings, candidates, onSubmit, onStarted, onClose, task.id, t])
 
   const verdictKey = (verdict: string | undefined) => {
     if (verdict === 'supported') return 'webapi.verdict_supported'

@@ -4,7 +4,7 @@ import { Loader2, RefreshCw } from 'lucide-react'
 import type { TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, type TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
-import { Button } from '@cyber/ui'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
 import {
   getWebApiEvidence,
   getWebApiFinding,
@@ -29,10 +29,12 @@ interface Props {
   onResetVerificationLaunch: (findingKey: string) => void
   focusFindingId: string | null
   onFocusConsumed: () => void
+  /** 新建验证成功后通知 App bump 导航计数（fix-1 #5）。 */
+  onVerificationStarted?: () => void
 }
 
 // 只读候选：紧凑列表 + 有限行宽详情；证据引用按需读取本任务真实请求/响应并就近展开。
-export default function WebApiFindingsPanel({ task, onStartVerification, onViewExecution, verificationLaunch, onDismissVerificationLaunch, onResetVerificationLaunch, focusFindingId, onFocusConsumed }: Props) {
+export default function WebApiFindingsPanel({ task, onStartVerification, onViewExecution, verificationLaunch, onDismissVerificationLaunch, onResetVerificationLaunch, focusFindingId, onFocusConsumed, onVerificationStarted }: Props) {
   const { t } = useTranslation('chat')
   const [items, setItems] = useState<WebApiFindingSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -305,15 +307,19 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
       <div className={cn('findings-workspace', showDetail && 'findings-show-detail')}>
       {/* 候选列表与详情按工作区宽度分栏或切换。 */}
       <div ref={listRegionRef} tabIndex={-1} className="findings-list flex min-h-0 min-w-0 flex-col border-border/60">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="text-[13px] font-medium text-foreground/75">{t('webapi.findingsTitle')}</span>
-            <span className="truncate text-[11px] text-muted-foreground">{t('webapi.findingsHint')}</span>
+        <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
+          <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+            {t('webapi.findingsTitle')}
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{items.length}{hasMore ? '+' : ''}</span>
           </span>
-          <Button type="button" variant="ghost" size="xs" onClick={refresh} disabled={loadingList} className="gap-1 text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('webapi.refresh')}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" onClick={refresh} disabled={loadingList} aria-label={t('webapi.refresh')} className="text-muted-foreground">
+                {loadingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('webapi.refresh')}</TooltipContent>
+          </Tooltip>
         </div>
         <div ref={listScrollRef} onScroll={(event) => rememberScroll('list', event)} className="min-h-0 flex-1 overflow-auto">
           {loadingList && items.length === 0 ? (
@@ -321,7 +327,7 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
           ) : listError ? (
             <div className="px-3 py-4 text-center text-sm text-destructive">{listError}</div>
           ) : items.length === 0 ? (
-            <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.findingsEmpty')}</div>
+            <div className="px-3 py-4 text-center text-[13px] leading-relaxed text-muted-foreground">{t('webapi.findingsEmptyHint')}</div>
           ) : (
             <div className="divide-y divide-border/40">
               {items.map((item) => (
@@ -331,13 +337,13 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
                   ref={(el) => { if (el) rowRefs.current.set(item.finding_id, el); else rowRefs.current.delete(item.finding_id) }}
                   onClick={() => select(item)}
                   aria-pressed={selectedId === item.finding_id}
-                  className={cn('flex w-full min-w-0 flex-col gap-1 px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40', selectedId === item.finding_id && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
+                  className={cn('flex w-full min-w-0 flex-col gap-1 px-3 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40', selectedId === item.finding_id && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
                 >
-                  <span className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground">
-                    <span className="font-mono">{item.number}</span>
-                    <span>{t('webapi.findingStatus_candidate')}</span>
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{item.number}</span>
+                    <span className="text-[12px] text-muted-foreground">{t('webapi.findingStatus_candidate')}</span>
                   </span>
-                  <span className="findings-list-title text-[13px]" title={item.title}>{item.title}</span>
+                  <span className="findings-list-title text-[13px] leading-[1.4] text-foreground" title={item.title}>{item.title}</span>
                 </button>
               ))}
             </div>
@@ -390,6 +396,7 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
             launchView={launchView}
             onDismissLaunch={() => { if (findingKey) onDismissVerificationLaunch(findingKey) }}
             onResetLaunch={() => { if (findingKey && detail) { onResetVerificationLaunch(findingKey); void loadDetail(detail.finding_id) } }}
+            onVerificationStarted={onVerificationStarted}
           />
         ) : null}
       </div>
@@ -417,6 +424,7 @@ function FindingDetailBody({
   launchView,
   onDismissLaunch,
   onResetLaunch,
+  onVerificationStarted,
 }: {
   scrollRef: RefObject<HTMLDivElement>
   onScroll: (event: UIEvent<HTMLDivElement>) => void
@@ -436,6 +444,7 @@ function FindingDetailBody({
   launchView: VerificationLaunchView | null
   onDismissLaunch: () => void
   onResetLaunch: () => void
+  onVerificationStarted?: () => void
 }) {
   const { t } = useTranslation('chat')
   const [exportError, setExportError] = useState('')
@@ -467,113 +476,212 @@ function FindingDetailBody({
   }
 
   return (
-    <div ref={scrollRef} onScroll={onScroll} className="min-h-0 min-w-0 flex-1 overflow-auto">
-      <div className="finding-detail-content min-w-0 px-4 py-4">
-        <header className="finding-reading-width mb-4 border-b border-border/60 pb-3">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-mono text-[13px] text-muted-foreground">{detail.number}</span>
-            <h2 className="text-base font-semibold text-foreground">{content.title || t('webapi.untitledFinding')}</h2>
-            <span className="text-[12px] text-muted-foreground">{t('webapi.findingStatus_candidate')}</span>
+    <div className="findings-detail-grid min-h-0 min-w-0 flex-1">
+      {/* 正文列：滚动容器；<1240px 时证据引用与验证区作为正文阅读列的后续段落也在此列。 */}
+      <div ref={scrollRef} onScroll={onScroll} className="finding-detail-scroll min-h-0 min-w-0 flex-1 overflow-auto">
+        <div className="finding-detail-content min-w-0 px-4 py-4">
+          <header className="finding-reading-width mb-4 border-b border-border/60 pb-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{detail.number}</span>
+              <h2 className="text-[16px] font-semibold leading-[1.4] text-foreground">{content.title || t('webapi.untitledFinding')}</h2>
+              <span className="text-[12px] text-muted-foreground">{t('webapi.findingStatus_candidate')}</span>
+              <span className="ml-auto shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="outline" size="xs" onClick={exportDraft} disabled={!canExport} title={undefined}>
+                      {t('webapi.exportDraft')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">{t('webapi.exportDraftHint')}</TooltipContent>
+                </Tooltip>
+              </span>
+            </div>
+            <div className="mt-1 text-[12px] text-muted-foreground">
+              {t('webapi.revision')} {detail.revision} · {formatTime(detail.revision_created_at || detail.updated_at || detail.created_at || '')}
+            </div>
+            {exportError && <p role="alert" className="mt-1 text-xs text-destructive">{exportError}</p>}
+          </header>
+
+          <Section label={t('webapi.description')}>
+            <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-foreground">{content.description}</p>
+          </Section>
+
+          {content.steps?.length > 0 && (
+            <Section label={t('webapi.steps')}>
+              <ol className="list-decimal space-y-1.5 pl-5 text-[14px] leading-[1.65] text-foreground">
+                {content.steps.map((step, index) => (
+                  <li key={index}>
+                    <span className="whitespace-pre-wrap">{step.text}</span>
+                    {step.evidence_indices?.length > 0 && (
+                      <span className="ml-1 inline-flex flex-wrap items-baseline gap-1 align-baseline">
+                        {step.evidence_indices.map((evidenceIndex, refIndex) => {
+                          const valid = Number.isInteger(evidenceIndex) && evidenceIndex >= 0 && evidenceIndex < evidence.length
+                          if (!valid) {
+                            // 非法/越界索引保持纯文本，不跳错到别的证据。
+                            return <span key={refIndex} className="font-mono text-[12px] text-muted-foreground">[{evidenceIndex + 1}]</span>
+                          }
+                          const evidenceId = evidence[evidenceIndex].evidence_id
+                          return (
+                            <button
+                              key={refIndex}
+                              type="button"
+                              onClick={() => onOpenEvidence(evidenceId)}
+                              aria-label={t('webapi.evidenceRefLocate', { n: evidenceIndex + 1 })}
+                              title={t('webapi.evidenceRefLocate', { n: evidenceIndex + 1 })}
+                              className="inline-flex items-center rounded px-1 py-0.5 font-mono text-[12px] tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                            >
+                              [{evidenceIndex + 1}]
+                            </button>
+                          )
+                        })}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </Section>
+          )}
+
+          {content.remediation ? (
+            <Section label={t('webapi.remediation')}>
+              <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-foreground">{content.remediation}</p>
+            </Section>
+          ) : null}
+
+          {content.limitations ? (
+            <Section label={t('webapi.limitations')}>
+              <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-foreground">{content.limitations}</p>
+            </Section>
+          ) : null}
+
+          {/* 证据引用与独立验证是正文阅读列的后续段落（fix-2 #1）：<1240px 时与正文
+              同一滚动、同 46rem 行宽与内边距，间距 24px（mt-6）。证据引用只渲染一次：
+              这里是 <1240 的唯一渲染点；≥1240 此块（含证据）整体 display:none，
+              由右栏（.findings-aside）渲染。 */}
+          <div className="findings-reading-tail mt-6">
+            {/* <1240px：独立验证（含发起与历史）与证据引用排同一阅读列。 */}
+            <div className="findings-aside-inline">
+              <FindingAside
+                task={task}
+                detail={detail}
+                onStartVerification={onStartVerification}
+                onViewExecution={onViewExecution}
+                launchView={launchView}
+                onDismissLaunch={onDismissLaunch}
+                onResetLaunch={onResetLaunch}
+                onVerificationStarted={onVerificationStarted}
+                expandedEvidenceId={expandedEvidenceId}
+                evidenceLoading={evidenceLoading}
+                evidenceError={evidenceError}
+                evidenceView={evidenceView}
+                evidenceDetail={evidenceDetail}
+                onToggleEvidence={onToggleEvidence}
+                registerEvidenceRef={registerEvidenceRef}
+              />
+            </div>
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            {t('webapi.revision')} {detail.revision} · {formatTime(detail.revision_created_at || detail.updated_at || detail.created_at || '')}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Button type="button" variant="outline" size="xs" onClick={exportDraft} disabled={!canExport}>
-              {t('webapi.exportDraft')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('webapi.exportDraftHint')}</span>
-          </div>
-          {exportError && <p role="alert" className="mt-1 text-xs text-destructive">{exportError}</p>}
-        </header>
-
-        <Section label={t('webapi.description')}>
-          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{content.description}</p>
-        </Section>
-
-        {content.steps?.length > 0 && (
-          <Section label={t('webapi.steps')}>
-            <ol className="list-decimal space-y-1.5 pl-5 text-[13px] leading-relaxed text-foreground/90">
-              {content.steps.map((step, index) => (
-                <li key={index}>
-                  <span className="whitespace-pre-wrap">{step.text}</span>
-                  {step.evidence_indices?.length > 0 && (
-                    <span className="ml-1 inline-flex flex-wrap items-baseline gap-1 align-baseline">
-                      {step.evidence_indices.map((evidenceIndex, refIndex) => {
-                        const valid = Number.isInteger(evidenceIndex) && evidenceIndex >= 0 && evidenceIndex < evidence.length
-                        if (!valid) {
-                          // 非法/越界索引保持纯文本，不跳错到别的证据。
-                          return <span key={refIndex} className="text-[11px] text-muted-foreground">[{evidenceIndex + 1}]</span>
-                        }
-                        const evidenceId = evidence[evidenceIndex].evidence_id
-                        return (
-                          <button
-                            key={refIndex}
-                            type="button"
-                            onClick={() => onOpenEvidence(evidenceId)}
-                            aria-label={t('webapi.evidenceRefLocate', { n: evidenceIndex + 1 })}
-                            title={t('webapi.evidenceRefLocate', { n: evidenceIndex + 1 })}
-                            className="inline-flex items-center rounded px-1 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                          >
-                            [{evidenceIndex + 1}]
-                          </button>
-                        )
-                      })}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </Section>
-        )}
-
-        {content.remediation ? (
-          <Section label={t('webapi.remediation')}>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{content.remediation}</p>
-          </Section>
-        ) : null}
-
-        {content.limitations ? (
-          <Section label={t('webapi.limitations')}>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{content.limitations}</p>
-          </Section>
-        ) : null}
-
-        {evidence.length > 0 && (
-          <Section label={t('webapi.evidenceRefs')} wide>
-            <ol className="space-y-1.5">
-              {evidence.map((item, index) => (
-                <EvidenceReference
-                  key={item.evidence_id}
-                  index={index}
-                  item={item}
-                  expanded={expandedEvidenceId === item.evidence_id}
-                  loading={expandedEvidenceId === item.evidence_id && evidenceLoading}
-                  error={expandedEvidenceId === item.evidence_id ? evidenceError : ''}
-                  view={expandedEvidenceId === item.evidence_id ? evidenceView : null}
-                  detail={expandedEvidenceId === item.evidence_id ? evidenceDetail : null}
-                  onToggle={() => onToggleEvidence(item.evidence_id)}
-                  registerEvidenceRef={registerEvidenceRef}
-                />
-              ))}
-            </ol>
-          </Section>
-        )}
-
-        <div className="finding-verification">
-        <WebApiVerificationSection
-          key={detail.finding_id}
-          task={task}
-          finding={detail}
-          onStartVerification={onStartVerification}
-          onViewExecution={onViewExecution}
-          launchView={launchView}
-          onDismissLaunch={onDismissLaunch}
-          onResetLaunch={onResetLaunch}
-        />
         </div>
       </div>
+
+      {/* ≥1240px：右栏 380px 独立滚动（fix-1 #2）：证据引用 → 独立验证（唯一渲染点）。 */}
+      <aside className="findings-aside min-h-0 min-w-0 flex-col">
+        <div className="min-w-0 px-3 py-3">
+          <FindingAside
+            task={task}
+            detail={detail}
+            onStartVerification={onStartVerification}
+            onViewExecution={onViewExecution}
+            launchView={launchView}
+            onDismissLaunch={onDismissLaunch}
+            onResetLaunch={onResetLaunch}
+            onVerificationStarted={onVerificationStarted}
+            expandedEvidenceId={expandedEvidenceId}
+            evidenceLoading={evidenceLoading}
+            evidenceError={evidenceError}
+            evidenceView={evidenceView}
+            evidenceDetail={evidenceDetail}
+            onToggleEvidence={onToggleEvidence}
+            registerEvidenceRef={registerEvidenceRef}
+          />
+        </div>
+      </aside>
     </div>
+  )
+}
+
+// 右栏/正文尾部的证据引用 + 独立验证（含发起）。证据引用的唯一渲染组件（fix-2 #1）：
+// 右栏（≥1240）与正文尾部（<1240）同一组件，由 CSS 决定哪份可见，正文不再单独渲染。
+function FindingAside({
+  task,
+  detail,
+  onStartVerification,
+  onViewExecution,
+  launchView,
+  onDismissLaunch,
+  onResetLaunch,
+  onVerificationStarted,
+  expandedEvidenceId,
+  evidenceLoading,
+  evidenceError,
+  evidenceView,
+  evidenceDetail,
+  onToggleEvidence,
+  registerEvidenceRef,
+}: {
+  task: WebApiTask
+  detail: WebApiFindingDetail
+  onStartVerification: StartVerification
+  onViewExecution: (sessionID: string) => void
+  launchView: VerificationLaunchView | null
+  onDismissLaunch: () => void
+  onResetLaunch: () => void
+  onVerificationStarted?: () => void
+  expandedEvidenceId: string | null
+  evidenceLoading: boolean
+  evidenceError: string
+  evidenceView: TrafficHttpView | null
+  evidenceDetail: WebApiEvidenceDetail | null
+  onToggleEvidence: (evidenceId: string) => void
+  registerEvidenceRef: (evidenceId: string, el: HTMLButtonElement | null) => void
+}) {
+  const { t } = useTranslation('chat')
+  const evidence = detail.evidence ?? []
+  return (
+    <>
+      {evidence.length > 0 && (
+        <section className="mb-4">
+          <h3 className="mb-1.5 text-[12px] font-medium text-muted-foreground">{t('webapi.evidenceRefs')}</h3>
+          <ol className="space-y-1.5">
+            {evidence.map((item, index) => (
+              <EvidenceReference
+                key={item.evidence_id}
+                index={index}
+                item={item}
+                expanded={expandedEvidenceId === item.evidence_id}
+                loading={expandedEvidenceId === item.evidence_id && evidenceLoading}
+                error={expandedEvidenceId === item.evidence_id ? evidenceError : ''}
+                view={expandedEvidenceId === item.evidence_id ? evidenceView : null}
+                detail={expandedEvidenceId === item.evidence_id ? evidenceDetail : null}
+                onToggle={() => onToggleEvidence(item.evidence_id)}
+                registerEvidenceRef={registerEvidenceRef}
+                origins={task.origins}
+              />
+            ))}
+          </ol>
+        </section>
+      )}
+      <WebApiVerificationSection
+        key={detail.finding_id}
+        task={task}
+        finding={detail}
+        onStartVerification={onStartVerification}
+        onViewExecution={onViewExecution}
+        launchView={launchView}
+        onDismissLaunch={onDismissLaunch}
+        onResetLaunch={onResetLaunch}
+        onVerificationStarted={onVerificationStarted}
+      />
+    </>
   )
 }
 

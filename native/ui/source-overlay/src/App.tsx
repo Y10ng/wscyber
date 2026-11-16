@@ -7,6 +7,7 @@ import WebApiTaskDialog from './components/WebApiTaskDialog'
 import WebApiEvidencePanel from './components/WebApiEvidencePanel'
 import WebApiFindingsPanel from './components/WebApiFindingsPanel'
 import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
+import WebApiTaskNav from './components/WebApiTaskNav'
 import { WebApiVerificationBar } from './components/WebApiVerification'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
 import WebApiReportBar from './components/WebApiReportBar'
@@ -80,6 +81,9 @@ export default function App({ services }: { services: HubServices }) {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
+  // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
+  const [webApiCountsRevision, setWebApiCountsRevision] = useState(0)
+  const bumpWebApiCountsRevision = useCallback(() => setWebApiCountsRevision((n) => n + 1), [])
   const [webApiTaskError, setWebApiTaskError] = useState('')
   const [activeWebApiVerification, setActiveWebApiVerification] = useState<WebApiVerificationDetail | null>(null)
   const [activeWebApiReport, setActiveWebApiReport] = useState<WebApiReportDetail | null>(null)
@@ -470,7 +474,7 @@ export default function App({ services }: { services: HubServices }) {
               </div>
             )}
             {webApiTaskActive && activeWebApiTask && (
-              <WebApiTaskBar task={activeWebApiTask} view={workspaceView} onViewChange={setWorkspaceView} />
+              <WebApiTaskBar task={activeWebApiTask} />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
               <WebApiVerificationBar verification={activeWebApiVerification} onReturnToFinding={handleReturnToFinding} />
@@ -478,7 +482,14 @@ export default function App({ services }: { services: HubServices }) {
             {webApiReportActive && activeWebApiReport && (
               <WebApiReportBar report={activeWebApiReport} onReturnToReport={handleReturnToReport} />
             )}
-            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            {/* 任务视图行：≥1100px 为 导航168px | 面板 的水平行；<1100px 改为
+                垂直堆叠（导航横向分段在上、面板占满在下），主内容不再被挤出视口。
+                断点与 index.css 的 .webapi-task-nav 媒体查询（1099px）保持一致；
+                仅任务视图改列向，普通会话（无导航）保持行向不受影响。 */}
+            <div className={cn('webapi-task-row flex min-h-0 min-w-0 flex-1 overflow-hidden', webApiTaskActive ? 'flex-col min-[1100px]:flex-row' : 'flex-row')}>
+            {webApiTaskActive && activeWebApiTask && (
+              <WebApiTaskNav task={activeWebApiTask} view={workspaceView} onViewChange={setWorkspaceView} countsRevision={webApiCountsRevision} />
+            )}
             {webApiTaskActive && activeWebApiTask && workspaceView === 'traffic' ? (
               <WebApiEvidencePanel task={activeWebApiTask} />
             ) : webApiTaskActive && activeWebApiTask && workspaceView === 'findings' ? (
@@ -491,6 +502,7 @@ export default function App({ services }: { services: HubServices }) {
                 onResetVerificationLaunch={chat.resetVerificationLaunch}
                 focusFindingId={focusFindingId}
                 onFocusConsumed={() => setFocusFindingId(null)}
+                onVerificationStarted={bumpWebApiCountsRevision}
               />
             ) : webApiTaskActive && activeWebApiTask && workspaceView === 'reports' ? (
               <WebApiReportsPanel
@@ -503,6 +515,7 @@ export default function App({ services }: { services: HubServices }) {
                 onRetryReportLaunch={(items) => chat.startWebApiReport({ taskID: activeWebApiTask.id, items })}
                 focusReportId={focusReportId}
                 onFocusConsumed={() => setFocusReportId(null)}
+                onReportStarted={bumpWebApiCountsRevision}
               />
             ) : (
             <ChatPanel

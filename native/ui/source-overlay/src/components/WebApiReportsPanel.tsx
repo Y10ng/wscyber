@@ -5,7 +5,7 @@ import type { TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, type TrafficHttpView } from '@cyber/traffic'
 import { MarkdownContent } from '@/markdown'
 import { cn } from '@cyber/theme'
-import { Button } from '@cyber/ui'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
 import {
   exportWebApiReport,
   getWebApiEvidence,
@@ -40,6 +40,8 @@ interface Props {
   onRetryReportLaunch: (items: WebApiReportItem[]) => void
   focusReportId: string | null
   onFocusConsumed: () => void
+  /** 新建报告成功后通知 App bump 任务导航计数（fix-1 #5）。 */
+  onReportStarted?: () => void
 }
 
 // 判读标签与验证工作面一致：支持/反证/证据不足 + “模型判读”；判读不确认漏洞。
@@ -59,7 +61,7 @@ function verdictTone(verdict: string | undefined): string {
 
 // 只读报告视图：左窄列表（时间倒序）+ 阅读区（目录 + 限行宽正文 + 导出）。
 // 报告固定若干候选修订与所附验证；草稿由报告会话模型写入后只读展示，缺失按未提供处理。
-export default function WebApiReportsPanel({ task, onStartReport, onViewExecution, reportLaunch, onDismissReportLaunch, onResetReportLaunch, onRetryReportLaunch, focusReportId, onFocusConsumed }: Props) {
+export default function WebApiReportsPanel({ task, onStartReport, onViewExecution, reportLaunch, onDismissReportLaunch, onResetReportLaunch, onRetryReportLaunch, focusReportId, onFocusConsumed, onReportStarted }: Props) {
   const { t } = useTranslation('chat')
   const [items, setItems] = useState<WebApiReportSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -73,6 +75,8 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
   const [detailError, setDetailError] = useState('')
   const [showDetail, setShowDetail] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  // 追加7：Dialog「保存并启动」成功后回传新报告 ID，父级刷新列表并选中它。
+  const pendingFocusReportId = useRef<string | null>(null)
 
   const [exporting, setExporting] = useState<'markdown' | 'json' | null>(null)
   const [exportError, setExportError] = useState('')
@@ -256,6 +260,31 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
     void loadList()
   }, [loadList])
 
+  // 追加7：Dialog 提交成功 → 关闭（Dialog 自己 onClose）→ 刷新列表并选中新报告。
+  // 新报告无草稿时走既有等待态（PendingDraftBody + 8s 只读轮询）。
+  const handleReportStarted = useCallback(async (report: WebApiReportSummary) => {
+    pendingFocusReportId.current = report.report_id
+    // 先重载列表（结果非空页），等 items 就绪后由 effect 选中并加载详情。
+    listSeq.current++
+    detailSeq.current++
+    setShowDetail(false)
+    setSelectedId(null)
+    setDetail(null)
+    setDetailError('')
+    scrollPositions.current = { list: 0, detail: 0 }
+    await loadList()
+    onReportStarted?.()
+    if (pendingFocusReportId.current) {
+      const id = pendingFocusReportId.current
+      pendingFocusReportId.current = null
+      scrollPositions.current.detail = 0
+      pendingViewFocus.current = 'detail'
+      setShowDetail(true)
+      setSelectedId(id)
+      void loadDetail(id)
+    }
+  }, [loadList, loadDetail, onReportStarted])
+
   const canExport = !!detail?.has_draft
 
   // 未清除的冻结发起身份期间不得另起新建（Dialog 的新选择会被 hook 拒绝）；只有
@@ -281,7 +310,12 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
     <div className="reports-container min-h-0 min-w-0 flex-1">
       <div className={cn('reports-workspace', showDetail && 'reports-show-detail')}>
         <div ref={listRegionRef} tabIndex={-1} className="reports-list flex min-h-0 min-w-0 flex-col border-border/60">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
+            <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+              {t('webapi.reports')}
+              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{items.length}{hasMore ? '+' : ''}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
             <Button
               type="button"
               size="xs"
@@ -297,10 +331,15 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
               <Plus className="h-3.5 w-3.5" />
               {reportLaunch?.status === 'error' && reportLaunch.canStartFresh ? t('webapi.reportStartFresh') : t('webapi.newReport')}
             </Button>
-            <Button type="button" variant="ghost" size="xs" onClick={refresh} disabled={loadingList} className="gap-1 text-muted-foreground">
-              <RefreshCw className="h-3.5 w-3.5" />
-              {t('webapi.refresh')}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon-xs" onClick={refresh} disabled={loadingList} aria-label={t('webapi.refresh')} className="text-muted-foreground">
+                  {loadingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('webapi.refresh')}</TooltipContent>
+            </Tooltip>
+            </span>
           </div>
 
           {launchError && !reportLaunch && (
@@ -350,10 +389,10 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
                     aria-pressed={selectedId === item.report_id}
                     className={cn('flex w-full min-w-0 flex-col gap-1 px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40', selectedId === item.report_id && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
                   >
-                    <span className="reports-list-title text-[13px] text-foreground/90">
+                    <span className="reports-list-title text-[13px] leading-[1.4] text-foreground">
                       {item.title?.trim() || (item.has_draft ? `${t('webapi.reportUntitled')} ${item.report_id.slice(0, 8)}` : t('webapi.reportDraftPending'))}
                     </span>
-                    <span className="flex w-full items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span className="flex w-full items-center justify-between gap-2 text-[12px] text-muted-foreground">
                       <span>{t('webapi.reportItemsCount', { count: item.items.length })}</span>
                       <span>{formatTime(item.created_at)}</span>
                     </span>
@@ -407,7 +446,7 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
               <span className="text-xs text-muted-foreground">{detailError}</span>
             </div>
           ) : detail ? (
-            <ReportReading key={detail.report_id} detail={detail} />
+            <ReportReading key={detail.report_id} detail={detail} origins={task.origins} />
           ) : null}
         </div>
       </div>
@@ -417,13 +456,14 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
         task={task}
         onClose={() => setDialogOpen(false)}
         onSubmit={onStartReport}
+        onStarted={handleReportStarted}
       />
     </div>
   )
 }
 
 // 阅读区：目录（概述/各候选/局限）+ 限行宽正文。无草稿时显示固定来源与等待提示。
-function ReportReading({ detail }: { detail: WebApiReportDetail }) {
+function ReportReading({ detail, origins }: { detail: WebApiReportDetail; origins?: string[] }) {
   const { t } = useTranslation('chat')
   const draft = detail.draft?.payload
   const sectionRefs = useRef(new Map<string, HTMLElement>())
@@ -446,7 +486,7 @@ function ReportReading({ detail }: { detail: WebApiReportDetail }) {
   return (
     <div className="reports-reading">
       <nav aria-label={t('webapi.reportToc')} className="reports-toc min-h-0 flex-col gap-0.5 overflow-auto p-3">
-        <span className="mb-1 text-[11px] font-medium text-muted-foreground">{t('webapi.reportToc')}</span>
+        <span className="mb-1 text-[12px] font-medium text-muted-foreground">{t('webapi.reportToc')}</span>
         <TocButton label={t('webapi.reportOverview')} onClick={() => jump('overview')} />
         {tocItems.map((item) => (
           <TocButton key={item.id} label={item.label} onClick={() => jump(item.id)} />
@@ -454,18 +494,18 @@ function ReportReading({ detail }: { detail: WebApiReportDetail }) {
         <TocButton label={t('webapi.limitations')} onClick={() => jump('limitations')} />
       </nav>
       <div className="min-h-0 min-w-0 overflow-auto">
-        <div className="px-4 py-4">
+        <div className="reports-reading-column px-4 py-4">
           <header className="reports-reading-width mb-4 border-b border-border/60 pb-3">
-            <h2 className="text-base font-semibold text-foreground">{draft?.title || t('webapi.reportUntitled')}</h2>
-            <div className="mt-1 text-[11px] text-muted-foreground">
+            <h2 className="text-[16px] font-semibold leading-[1.4] text-foreground">{draft?.title || t('webapi.reportUntitled')}</h2>
+            <div className="mt-1 font-mono text-[12px] tabular-nums text-muted-foreground">
               {detail.report_id} · {formatTime(detail.created_at)} · {t('webapi.reportItemsCount', { count: detail.items.length })}
             </div>
           </header>
 
           {draft ? (
-            <DraftBody detail={detail} draft={draft} registerSection={registerSection} />
+            <DraftBody detail={detail} draft={draft} registerSection={registerSection} origins={origins} />
           ) : (
-            <PendingDraftBody detail={detail} registerSection={registerSection} />
+            <PendingDraftBody detail={detail} registerSection={registerSection} origins={origins} />
           )}
         </div>
       </div>
@@ -485,14 +525,13 @@ function TocButton({ label, onClick }: { label: string; onClick: () => void }) {
     </button>
   )
 }
-
-function Section({ id, label, children, registerSection, wide = false }: { id?: string; label: string; children: ReactNode; registerSection?: (id: string, el: HTMLElement | null) => void; wide?: boolean }) {
+function Section({ id, label, children, registerSection, wide = false }: { id?: string; label?: string; children: ReactNode; registerSection?: (id: string, el: HTMLElement | null) => void; wide?: boolean }) {
   return (
     <section
       ref={id && registerSection ? (el) => registerSection(id, el) : undefined}
       className={cn('mb-5 scroll-mt-4', !wide && 'reports-reading-width')}
     >
-      <h3 className="mb-1.5 text-[12px] font-medium text-muted-foreground">{label}</h3>
+      {label && <h3 className="mb-1.5 text-[12px] font-medium text-muted-foreground">{label}</h3>}
       {children}
     </section>
   )
@@ -500,12 +539,12 @@ function Section({ id, label, children, registerSection, wide = false }: { id?: 
 
 function MissingText() {
   const { t } = useTranslation('chat')
-  return <p className="text-[13px] italic text-muted-foreground">{t('webapi.reportMissing')}</p>
+  return <p className="text-[14px] italic text-muted-foreground">{t('webapi.reportMissing')}</p>
 }
 
 // 逐候选正文：编号/标题/修订号来自固定修订；描述/复现/修复/证据引用来自草稿（缺失
 // 写“未提供”）；验证判读来自所附验证。证据展开读取本任务真实原件，复用 EvidenceReference。
-function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?: WebApiReportDraftItem; item: WebApiReportItemDetail }) {
+function DraftItemBody({ taskID, draftItem, item, origins }: { taskID: string; draftItem?: WebApiReportDraftItem; item: WebApiReportItemDetail; origins?: string[] }) {
   const { t } = useTranslation('chat')
   const revision = item.revision
   const verifications = item.verifications ?? []
@@ -576,20 +615,21 @@ function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono text-[13px] text-muted-foreground">{revision?.number || '—'}</span>
-        <h4 className="text-[14px] font-semibold text-foreground">{revision?.content?.title || t('webapi.untitledFinding')}</h4>
-        <span className="text-[11px] text-muted-foreground">
+      {/* 追加8：编号 + 标题 + 版本徽章同一行（不再小号重复一行）。 */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{revision?.number || '—'}</span>
+        <h4 className="text-[16px] font-semibold leading-[1.4] text-foreground">{revision?.content?.title || t('webapi.untitledFinding')}</h4>
+        <span className="rounded border border-border/60 px-1.5 py-px text-[12px] text-muted-foreground">
           {t('webapi.revision')} {revision ? revision.revision : '—'}{draftItem ? '' : ` · ${t('webapi.reportDraftItemMissing')}`}
         </span>
       </div>
 
       <Section label={t('webapi.description')}>
-        {description ? <MarkdownContent content={description} className="text-[13px]" /> : <MissingText />}
+        {description ? <MarkdownContent content={description} className="text-[14px]" /> : <MissingText />}
       </Section>
 
       <Section label={t('webapi.steps')}>
-        {reproduction ? <MarkdownContent content={reproduction} className="text-[13px]" /> : <MissingText />}
+        {reproduction ? <MarkdownContent content={reproduction} className="text-[14px]" /> : <MissingText />}
       </Section>
 
       <Section label={t('webapi.evidenceRefs')} wide>
@@ -619,6 +659,7 @@ function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?
                   detail={expanded ? evidenceDetail : null}
                   onToggle={() => toggleEvidence(evidenceId)}
                   registerEvidenceRef={() => {}}
+                  origins={origins}
                 />
               )
             })}
@@ -627,7 +668,7 @@ function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?
       </Section>
 
       <Section label={t('webapi.remediation')}>
-        {remediation ? <MarkdownContent content={remediation} className="text-[13px]" /> : <MissingText />}
+        {remediation ? <MarkdownContent content={remediation} className="text-[14px]" /> : <MissingText />}
       </Section>
 
       <Section label={t('webapi.verification')} wide>
@@ -639,12 +680,12 @@ function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?
               <div key={verification.verification_id} className="rounded-md border border-border/60 px-2.5 py-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={cn('text-[13px] font-medium', verdictTone(verification.verdict))}>{t(verdictKey(verification.verdict))}</span>
-                  <span className="text-[11px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
-                  <span className="ml-auto text-[11px] text-muted-foreground">{formatTime(verification.created_at)}</span>
+                  <span className="text-[12px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
+                  <span className="ml-auto text-[12px] text-muted-foreground">{formatTime(verification.created_at)}</span>
                 </div>
                 {verification.result ? (
                   <div className="mt-1.5 space-y-1">
-                    {verification.result.payload.summary && <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{verification.result.payload.summary}</p>}
+                    {verification.result.payload.summary && <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-foreground">{verification.result.payload.summary}</p>}
                     {verification.result.payload.limitations && <p className="whitespace-pre-wrap text-[12px] text-muted-foreground">{t('webapi.verificationLimitations')}：{verification.result.payload.limitations}</p>}
                   </div>
                 ) : null}
@@ -658,7 +699,7 @@ function DraftItemBody({ taskID, draftItem, item }: { taskID: string; draftItem?
 }
 
 // 有草稿：概述 + 逐候选（草稿文本用 MarkdownContent 渲染）+ 局限。
-function DraftBody({ detail, draft, registerSection }: { detail: WebApiReportDetail; draft: WebApiReportDraftPayload; registerSection: (id: string, el: HTMLElement | null) => void }) {
+function DraftBody({ detail, draft, registerSection, origins }: { detail: WebApiReportDetail; draft: WebApiReportDraftPayload; registerSection: (id: string, el: HTMLElement | null) => void; origins?: string[] }) {
   const { t } = useTranslation('chat')
   const draftByFinding = useMemo(() => {
     const map = new Map<string, WebApiReportDraftItem>()
@@ -669,30 +710,28 @@ function DraftBody({ detail, draft, registerSection }: { detail: WebApiReportDet
   return (
     <article>
       <Section id="overview" label={t('webapi.reportOverview')} registerSection={registerSection}>
-        {draft.overview?.trim() ? <MarkdownContent content={draft.overview} className="text-[13px]" /> : <MissingText />}
+        {draft.overview?.trim() ? <MarkdownContent content={draft.overview} className="text-[14px]" /> : <MissingText />}
       </Section>
 
       {detail.items.map((item, index) => (
         <Section
           key={item.finding_id}
           id={`item-${index}`}
-          label={`${item.revision?.number || '—'} ${item.revision?.content?.title || t('webapi.untitledFinding')}`}
           registerSection={registerSection}
-          wide
         >
-          <DraftItemBody taskID={detail.task_id} draftItem={draftByFinding.get(item.finding_id)} item={item} />
+          <DraftItemBody taskID={detail.task_id} draftItem={draftByFinding.get(item.finding_id)} item={item} origins={origins} />
         </Section>
       ))}
 
       <Section id="limitations" label={t('webapi.limitations')} registerSection={registerSection}>
-        {draft.limitations?.trim() ? <MarkdownContent content={draft.limitations} className="text-[13px]" /> : <MissingText />}
+        {draft.limitations?.trim() ? <MarkdownContent content={draft.limitations} className="text-[14px]" /> : <MissingText />}
       </Section>
     </article>
   )
 }
 
 // 无草稿：固定来源（各候选修订 + 所附验证判读）+ 等待提示；导出按钮在上方禁用。
-function PendingDraftBody({ detail, registerSection }: { detail: WebApiReportDetail; registerSection: (id: string, el: HTMLElement | null) => void }) {
+function PendingDraftBody({ detail, registerSection, origins }: { detail: WebApiReportDetail; registerSection: (id: string, el: HTMLElement | null) => void; origins?: string[] }) {
   const { t } = useTranslation('chat')
   return (
     <article>
@@ -706,11 +745,9 @@ function PendingDraftBody({ detail, registerSection }: { detail: WebApiReportDet
         <Section
           key={item.finding_id}
           id={`item-${index}`}
-          label={`${item.revision?.number || '—'} ${item.revision?.content?.title || t('webapi.untitledFinding')}`}
           registerSection={registerSection}
-          wide
         >
-          <DraftItemBody taskID={detail.task_id} item={item} />
+          <DraftItemBody taskID={detail.task_id} item={item} origins={origins} />
         </Section>
       ))}
       <Section id="limitations" label={t('webapi.limitations')} registerSection={registerSection}>

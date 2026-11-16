@@ -37,6 +37,7 @@
 }
 
 .reports-toc {
+  /* 目录列默认不渲染（fix-1 #4）：主内容宽 <1200px 隐藏，正文顶部不加替代。 */
   display: none;
 }
 
@@ -45,9 +46,16 @@
   overflow-wrap: anywhere;
 }
 
-@container (min-width: 960px) {
+/* 追加10：目录 200px | 阅读列 max 46rem 偏左 | 余白；证据/验证卡片随正文
+   同宽，不撑满。宽屏给阅读列固定 46rem 上限并让余白落在右侧。 */
+.reports-reading-column {
+  max-width: calc(46rem + 2rem);
+}
+
+/* 主内容宽 ≥1200px（fix-1 #4）：列表 240px | 详情；阅读列 = 目录 200px + 正文。 */
+@container (min-width: 1200px) {
   .reports-workspace {
-    grid-template-columns: clamp(260px, 24%, 340px) minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 
   .reports-workspace .reports-list,
@@ -72,5 +80,31 @@
   .reports-toc {
     display: flex;
     border-right-width: 1px;
+  }
+
+  .reports-reading-column {
+    margin-right: auto;
+  }
+}
+
+/* 主内容宽 <1200px（fix-1 #4）：列表 240px | 正文，无目录列。 */
+@container (min-width: 860px) and (max-width: 1199.9px) {
+  .reports-workspace {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .reports-workspace .reports-list,
+  .reports-workspace.reports-show-detail .reports-list,
+  .reports-workspace .reports-detail,
+  .reports-workspace.reports-show-detail .reports-detail {
+    display: flex;
+  }
+
+  .reports-list {
+    border-right-width: 1px;
+  }
+
+  .reports-back {
+    display: none;
   }
 }

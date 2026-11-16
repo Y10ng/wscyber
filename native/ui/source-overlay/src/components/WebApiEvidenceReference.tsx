@@ -51,8 +51,26 @@ export const STATUS_KEYS: Record<string, string> = {
   capture_failed: 'webapi.status_capture_failed',
 }
 
+// URL 与任一授权 origin 同源（scheme+host+port 一致）→ 只显示路径；否则返回 null，
+// 由调用方按非授权目标显示完整 URL。
+function sameOriginPath(url: string, origins: string[]): string | null {
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return null }
+  for (const origin of origins) {
+    try {
+      const o = new URL(origin)
+      if (o.protocol === parsed.protocol && o.host === parsed.host) {
+        return `${parsed.pathname}${parsed.search}${parsed.hash}` || '/'
+      }
+    } catch { continue }
+  }
+  return null
+}
+
 // 复用的证据引用条目：元数据摘要 + 按需展开原生 HttpViewPanels。它只负责展示，
 // 取数/解码/展开态由调用方维护，便于候选证据与独立验证新证据共用同一渲染器。
+// origins：任务授权 origin 列表；与授权同源的 URL 只显示路径（title 保留完整 URL），
+// 非授权目标显示完整 URL 并允许换行（fix-2 #3）。
 export function EvidenceReference({
   index,
   item,
@@ -63,6 +81,7 @@ export function EvidenceReference({
   detail,
   onToggle,
   registerEvidenceRef,
+  origins,
 }: {
   index: number
   item: WebApiFindingEvidenceSnapshot
@@ -73,8 +92,10 @@ export function EvidenceReference({
   detail: WebApiEvidenceDetail | null
   onToggle: () => void
   registerEvidenceRef: (evidenceId: string, el: HTMLButtonElement | null) => void
+  origins?: string[]
 }) {
   const { t } = useTranslation('chat')
+  const inScopePath = origins && origins.length > 0 ? sameOriginPath(item.url, origins) : null
   return (
     <li className="rounded-md border border-border/60">
       <button
@@ -85,10 +106,14 @@ export function EvidenceReference({
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-        <span className="w-6 shrink-0 font-mono text-[11px] text-muted-foreground">{index + 1}</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">{t(relationLabelKey(item.relation))}</span>
+        <span className="w-6 shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{index + 1}</span>
+        <span className="shrink-0 text-[12px] text-muted-foreground">{t(relationLabelKey(item.relation))}</span>
         <span className={cn('shrink-0 font-mono text-[12px] font-semibold', methodTone(item.method))}>{item.method || '-'}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={item.url}>{item.url}</span>
+        {inScopePath !== null ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={item.url}>{inScopePath}</span>
+        ) : (
+          <span className="min-w-0 flex-1 break-all font-mono text-[12px]" title={item.url}>{item.url}</span>
+        )}
         {item.http_status != null && <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{item.http_status}</span>}
       </button>
       {expanded && (

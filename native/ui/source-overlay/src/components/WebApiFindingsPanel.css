@@ -28,15 +28,28 @@
   -webkit-line-clamp: 2;
 }
 
-.finding-reading-width,
-.finding-verification p {
-  max-width: 60rem;
+/* 正文阅读列：候选详情限宽；行高与字号在组件层用工具类。 */
+.finding-reading-width {
+  max-width: 46rem;
   overflow-wrap: anywhere;
 }
 
-@container (min-width: 960px) {
+.finding-verification p {
+  max-width: 46rem;
+  overflow-wrap: anywhere;
+}
+
+/* 正文列的后续段落（证据引用 + 独立验证）：限宽同 46rem；右栏模式整体隐藏。
+   独立验证区在两种模式下都渲染（display:none 只作用在 ≥1240 的正文尾块上）。 */
+.findings-reading-tail {
+  max-width: 46rem;
+}
+
+/* ≥1240px：列表 300px | 正文（内容 46rem）| 右栏 380px（独立滚动）。
+   详情自身为 grid：正文列 | 右栏；正文尾块隐藏，右栏渲染证据引用与验证区。 */
+@container (min-width: 1240px) {
   .findings-workspace {
-    grid-template-columns: clamp(280px, 26%, 352px) minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
   }
 
   .findings-workspace .findings-list,
@@ -51,6 +64,66 @@
   }
 
   .findings-back {
+    display: none;
+  }
+
+  .findings-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    overflow: hidden;
+  }
+
+  .findings-aside {
+    display: flex;
+    border-left: 1px solid hsl(var(--border) / 0.6);
+    overflow-y: auto;
+  }
+
+  .findings-reading-tail {
+    display: none;
+  }
+}
+
+/* 860–1239px：列表 280px | 正文；证据引用与验证区排正文之后（同一阅读列）。
+   右栏容器不渲染内容（display:none），正文尾块显示。 */
+@container (min-width: 860px) and (max-width: 1239.9px) {
+  .findings-workspace {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .findings-workspace .findings-list,
+  .findings-workspace.findings-show-detail .findings-list,
+  .findings-workspace .findings-detail,
+  .findings-workspace.findings-show-detail .findings-detail {
+    display: flex;
+  }
+
+  .findings-list {
+    border-right-width: 1px;
+  }
+
+  .findings-back {
+    display: none;
+  }
+
+  .findings-detail-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .findings-aside {
+    display: none;
+  }
+}
+
+/* <860px：列表/详情切换（默认规则已处理）。 */
+@container (max-width: 859.9px) {
+  .findings-detail-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .findings-aside {
     display: none;
   }
 }

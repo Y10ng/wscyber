@@ -34,6 +34,8 @@ interface Props {
   launchView: VerificationLaunchView | null
   onDismissLaunch: () => void
   onResetLaunch: () => void
+  /** 发起成功后通知上层刷新任务导航计数（fix-1 #5）。 */
+  onVerificationStarted?: () => void
 }
 
 function verdictKey(verdict: string | undefined): string {
@@ -52,7 +54,7 @@ function verdictTone(verdict: string | undefined): string {
 
 // 候选详情内的独立验证区：按需发起、历史列表、三类模型判读与本验证新 HTTP 原件。
 // 它只读原生执行入口（chat.selectSession），绝不因查看而 Run；候选不自动 confirmed。
-export default function WebApiVerificationSection({ task, finding, onStartVerification, onViewExecution, launchView, onDismissLaunch, onResetLaunch }: Props) {
+export default function WebApiVerificationSection({ task, finding, onStartVerification, onViewExecution, launchView, onDismissLaunch, onResetLaunch, onVerificationStarted }: Props) {
   const { t } = useTranslation('chat')
   const [items, setItems] = useState<WebApiVerificationSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -162,19 +164,19 @@ export default function WebApiVerificationSection({ task, finding, onStartVerifi
     try {
       await onStartVerification({ taskID: task.id, findingID: finding.finding_id, origins: task.origins, source: finding })
       setDialogOpen(false)
+      onVerificationStarted?.()
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : String(err))
     } finally {
       setLaunching(false)
     }
-  }, [launching, onStartVerification, task.id, task.origins, finding])
+  }, [launching, onStartVerification, task.id, task.origins, finding, onVerificationStarted])
 
   return (
     <section className="mb-4">
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <h3 className="text-[12px] font-medium text-muted-foreground">{t('webapi.verification')}</h3>
-          <span className="truncate text-[11px] text-muted-foreground">{t('webapi.verificationHint')}</span>
         </div>
         <Button type="button" variant="soft" size="xs" onClick={() => { setLaunchError(''); setDialogOpen(true) }} disabled={launchView?.status === 'pending'} className="shrink-0 gap-1 text-[12px]">
           <ShieldCheck className="h-3.5 w-3.5" />
@@ -217,7 +219,7 @@ export default function WebApiVerificationSection({ task, finding, onStartVerifi
                   >
                     <span className={cn('shrink-0 text-[12px] font-medium', verdictTone(item.verdict))}>{t(verdictKey(item.verdict))}</span>
                     <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{formatTime(item.created_at)}</span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
+                    <span className="shrink-0 text-[12px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
                   </button>
                   {selected && (
                     <div className="border-t border-border/50">
@@ -340,7 +342,7 @@ function VerificationDetailBody({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn('text-[13px] font-medium', verdictTone(result.payload.verdict))}>{t(verdictKey(result.payload.verdict))}</span>
-            <span className="text-[11px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
+            <span className="text-[12px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>
           </div>
           {result.payload.method ? <PayloadRow label={t('webapi.verificationMethod')} text={result.payload.method} /> : null}
           {result.payload.preconditions ? <PayloadRow label={t('webapi.verificationPreconditions')} text={result.payload.preconditions} /> : null}
@@ -362,6 +364,7 @@ function VerificationDetailBody({
                     detail={expandedEvidenceId === item.evidence_id ? evidenceDetail : null}
                     onToggle={() => toggleEvidence(item.evidence_id)}
                     registerEvidenceRef={registerEvidenceRef}
+                    origins={task.origins}
                   />
                 ))}
               </ol>
@@ -376,8 +379,8 @@ function VerificationDetailBody({
 function PayloadRow({ label, text }: { label: string; text: string }) {
   return (
     <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{text}</p>
+      <div className="text-[12px] text-muted-foreground">{label}</div>
+      <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-foreground">{text}</p>
     </div>
   )
 }
@@ -439,17 +442,17 @@ function VerificationLaunchDialog({
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           <div className="space-y-1">
-            <div className="text-[13px] font-medium text-foreground/75">{finding.number} · {finding.content.title || t('webapi.untitledFinding')}</div>
+            <div className="text-[13px] font-medium text-foreground">{finding.number} · {finding.content.title || t('webapi.untitledFinding')}</div>
             <div className="text-xs text-muted-foreground">
               {t('webapi.revision')} {finding.revision} · {formatTime(finding.revision_created_at)}
             </div>
           </div>
 
           <div className="rounded-lg border border-border/70 bg-muted/15 p-2.5">
-            <div className="text-[13px] font-medium text-foreground/75">{t('webapi.verificationAuthorization')}</div>
+            <div className="text-[13px] font-medium text-foreground">{t('webapi.verificationAuthorization')}</div>
             <div className="mt-1 space-y-0.5">
               {origins.map((origin) => (
-                <div key={origin} className="font-mono text-[11px] text-muted-foreground" title={origin}>{origin}</div>
+                <div key={origin} className="font-mono text-[12px] text-muted-foreground" title={origin}>{origin}</div>
               ))}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">{t('webapi.verificationLaunchHint')}</div>
@@ -476,7 +479,7 @@ export function WebApiVerificationBar({ verification, onReturnToFinding }: { ver
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-background px-4 py-1.5">
       <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <span className="min-w-0 truncate text-[13px] font-medium text-foreground/80" title={verification.source.content.title}>
+        <span className="min-w-0 truncate text-[13px] font-medium text-foreground" title={verification.source.content.title}>
           {t('webapi.verification')} · {verification.source.number} {verification.source.content.title || t('webapi.untitledFinding')}
         </span>
         <span className="shrink-0 text-muted-foreground">{t('webapi.revision')} {verification.source.revision}</span>
