@@ -197,7 +197,8 @@ async function saveWebApiVerificationReconciled(
   try {
     saved = await saveWebApiVerification(input.taskID, input.findingID, launch.verificationID, launch.sourceRevisionID)
   } catch (err) {
-    const rejected = err instanceof APIError && (err.status === 404 || err.status === 409)
+    // 400/404/409 均属确定未保存（服务端校验拒绝/不存在/冲突）；其它错误先核对再定性。
+    const rejected = err instanceof APIError && (err.status === 400 || err.status === 404 || err.status === 409)
     if (!rejected) launch.saveUnknown = true
     let existing: WebApiVerificationDetail
     try {
@@ -245,8 +246,18 @@ export interface ReportLaunchView {
   canStartFresh?: boolean
 }
 
+// 详情 items 每项多带 revision/verifications 展开字段；只按发起时固定的三项投影比较，
+// verification_ids 缺省按 []，保持原顺序。
+function reportItemProjection(items: WebApiReportItem[] | undefined): Array<{ finding_id: string; revision_id: string; verification_ids: string[] }> {
+  return (items ?? []).map((item) => ({
+    finding_id: item.finding_id,
+    revision_id: item.revision_id,
+    verification_ids: item.verification_ids ?? [],
+  }))
+}
+
 function reportItemsEqual(left: WebApiReportItem[] | undefined, right: WebApiReportItem[]): boolean {
-  return JSON.stringify(left ?? []) === JSON.stringify(right)
+  return JSON.stringify(reportItemProjection(left)) === JSON.stringify(reportItemProjection(right))
 }
 
 function reportSummaryFromDetail(detail: WebApiReportDetail): WebApiReportSummary {
@@ -278,9 +289,9 @@ async function saveWebApiReportReconciled(
   try {
     saved = await saveWebApiReport(input.taskID, launch.reportID, launch.items)
   } catch (err) {
-    // 409/404 均属确定未保存：409 可能是固定非当前修订（需重读候选重建条目）或
-    // 同 ID 异 items（冲突）；其它错误先核对再定性，不当作不存在。
-    const rejected = err instanceof APIError && (err.status === 404 || err.status === 409)
+    // 400/404/409 均属确定未保存：400 是服务端校验拒绝（未写入）；409 可能是固定非当前修订
+    // （需重读候选重建条目）或同 ID 异 items（冲突）；其它错误先核对再定性，不当作不存在。
+    const rejected = err instanceof APIError && (err.status === 400 || err.status === 404 || err.status === 409)
     if (!rejected) launch.saveUnknown = true
     let existing: WebApiReportDetail
     try {

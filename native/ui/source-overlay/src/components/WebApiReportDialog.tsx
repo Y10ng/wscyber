@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, Loader2 } from 'lucide-react'
+import { Check, FileText, Loader2 } from 'lucide-react'
 import { cn } from '@cyber/theme'
-import { Button, Callout, Checkbox, Dialog, DialogContent, DialogTitle, Spinner } from '@cyber/ui'
+import { Button, Callout, Dialog, DialogContent, DialogTitle, Spinner } from '@cyber/ui'
 import {
   listWebApiFindings,
   listWebApiVerifications,
@@ -35,6 +35,39 @@ interface CandidateState {
   attached: string[]
 }
 
+// 行内唯一勾选控件：真实 checkbox 承载键盘空格与 label 整行点击，指示器纯展示。
+// 不把带交互处理的角色控件再包进 label——那会形成两层 checkbox，一次点击切换两次。
+function RowCheckbox({ checked, disabled, onChange, label }: {
+  checked: boolean
+  disabled?: boolean
+  onChange: () => void
+  label: string
+}) {
+  return (
+    <>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        aria-label={label}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden
+        className={cn(
+          'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-primary transition-colors',
+          'peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background',
+          checked ? 'bg-primary text-primary-foreground' : 'bg-background',
+          disabled && 'cursor-not-allowed opacity-50',
+        )}
+      >
+        {checked && <Check className="h-3 w-3" />}
+      </span>
+    </>
+  )
+}
+
 // 新建报告：勾选任务候选（当前修订），勾选后列出该修订上的独立验证，可默认勾选已有
 // 判读的附加。提交只固定关系（finding/revision/verification），不复制候选或验证内容。
 export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Props) {
@@ -48,7 +81,8 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const findingsSeq = useRef(0)
-  const verificationSeq = useRef(1)
+  // 按 finding 维度的请求序号：多个候选并行加载验证时互不抢占，早完成的不再被丢弃。
+  const verificationSeq = useRef<Record<string, number>>({})
   const returnFocus = useRef<HTMLElement | null>(null)
   const contentElement = useRef<HTMLElement | null>(null)
 
@@ -78,49 +112,64 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
     void loadFindings()
     return () => {
       findingsSeq.current++
-      verificationSeq.current++
+      verificationSeq.current = {}
     }
   }, [open, loadFindings])
 
   const loadVerifications = useCallback(async (finding: WebApiFindingSummary) => {
-    const seq = ++verificationSeq.current
-    setCandidates((current) => ({ ...current, [finding.finding_id]: { ...current[finding.finding_id], verificationLoading: true, verificationError: '' } }))
+    const seq = (verificationSeq.current[finding.finding_id] ?? 0) + 1
+    verificationSeq.current[finding.finding_id] = seq
+    setCandidates((current) => {
+      const entry = current[finding.finding_id]
+      if (!entry) return current
+      return { ...current, [finding.finding_id]: { ...entry, verificationLoading: true, verificationError: '' } }
+    })
     try {
       const result = await listWebApiVerifications(task.id, finding.finding_id, 50)
-      if (seq !== verificationSeq.current) return
+      if (seq !== verificationSeq.current[finding.finding_id]) return
       // 只列该候选当前修订上的验证；已有判读的默认附加。
       const matched = result.items.filter((item) => item.source_revision_id === finding.revision_id)
-      setCandidates((current) => ({
-        ...current,
-        [finding.finding_id]: {
-          ...current[finding.finding_id],
-          verifications: matched,
-          verificationLoading: false,
-          attached: matched.filter((item) => item.verdict).map((item) => item.verification_id),
-        },
-      }))
+      setCandidates((current) => {
+        const entry = current[finding.finding_id]
+        if (!entry) return current
+        return {
+          ...current,
+          [finding.finding_id]: {
+            ...entry,
+            verifications: matched,
+            verificationLoading: false,
+            attached: matched.filter((item) => item.verdict).map((item) => item.verification_id),
+          },
+        }
+      })
     } catch (err) {
-      if (seq !== verificationSeq.current) return
-      setCandidates((current) => ({
-        ...current,
-        [finding.finding_id]: { ...current[finding.finding_id], verificationLoading: false, verificationError: err instanceof Error ? err.message : String(err) },
-      }))
+      if (seq !== verificationSeq.current[finding.finding_id]) return
+      setCandidates((current) => {
+        const entry = current[finding.finding_id]
+        if (!entry) return current
+        return { ...current, [finding.finding_id]: { ...entry, verificationLoading: false, verificationError: err instanceof Error ? err.message : String(err) } }
+      })
     }
   }, [task.id])
 
   const toggleFinding = useCallback((finding: WebApiFindingSummary) => {
     setError('')
-    setCandidates((current) => {
-      const existing = current[finding.finding_id]
-      if (existing) {
+    if (candidates[finding.finding_id]) {
+      setCandidates((current) => {
+        if (!current[finding.finding_id]) return current
         const next = { ...current }
         delete next[finding.finding_id]
         return next
-      }
+      })
+      return
+    }
+    setCandidates((current) => {
+      if (current[finding.finding_id]) return current
       return { ...current, [finding.finding_id]: { revision_id: finding.revision_id, verifications: [], verificationLoading: false, verificationError: '', attached: [] } }
     })
+    // 只在勾选时加载验证：取消勾选不发请求，也不会为已删条目造出残缺状态。
     void loadVerifications(finding)
-  }, [loadVerifications])
+  }, [candidates, loadVerifications])
 
   const toggleVerification = useCallback((findingID: string, verificationID: string) => {
     setCandidates((current) => {
@@ -134,19 +183,45 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
   }, [])
 
   const selectedCount = Object.keys(candidates).length
+  const allSelected = findings.length > 0 && findings.every((finding) => candidates[finding.finding_id])
+
+  const handleToggleAll = useCallback(() => {
+    setError('')
+    if (findings.length === 0) return
+    if (findings.every((finding) => candidates[finding.finding_id])) {
+      setCandidates({})
+      return
+    }
+    setCandidates((current) => {
+      const next = { ...current }
+      for (const finding of findings) {
+        if (!next[finding.finding_id]) {
+          next[finding.finding_id] = { revision_id: finding.revision_id, verifications: [], verificationLoading: false, verificationError: '', attached: [] }
+        }
+      }
+      return next
+    })
+    for (const finding of findings) {
+      if (!candidates[finding.finding_id]) void loadVerifications(finding)
+    }
+  }, [findings, candidates, loadVerifications])
 
   const handleConfirm = useCallback(async () => {
     if (saving) return
     if (selectedCount === 0) { setError(t('webapi.reportSelectFindingsRequired')); return }
     if (selectedCount > 50) { setError(t('webapi.reportTooManyItems')); return }
+    const selected = findings.filter((finding) => candidates[finding.finding_id])
+    // 防御：勾选条目必须有当前修订标识，缺失则不提交（后端会整体拒绝且前端状态不完整）。
+    if (selected.some((finding) => !candidates[finding.finding_id].revision_id)) {
+      setError(t('webapi.reportMissingRevision'))
+      return
+    }
     // items 按候选列表顺序固定；勾选后候选列表变化（加载更多）不影响既有条目顺序。
-    const items: WebApiReportItem[] = findings
-      .filter((finding) => candidates[finding.finding_id])
-      .map((finding) => ({
-        finding_id: finding.finding_id,
-        revision_id: candidates[finding.finding_id].revision_id,
-        verification_ids: candidates[finding.finding_id].attached,
-      }))
+    const items: WebApiReportItem[] = selected.map((finding) => ({
+      finding_id: finding.finding_id,
+      revision_id: candidates[finding.finding_id].revision_id,
+      verification_ids: candidates[finding.finding_id].attached,
+    }))
     setSaving(true)
     setError('')
     try {
@@ -202,13 +277,31 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
             <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.findingsEmpty')}</div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border/70">
+              <div className="flex shrink-0 items-center justify-between border-b border-border/50 bg-muted/15 px-3 py-1.5">
+                <span className="text-[11px] text-muted-foreground">{selectedCount}/{findings.length}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={handleToggleAll}
+                  disabled={saving || findings.length === 0}
+                  className="text-muted-foreground"
+                >
+                  {allSelected ? t('webapi.reportClearAll') : t('webapi.reportSelectAll')}
+                </Button>
+              </div>
               {findings.map((finding) => {
                 const state = candidates[finding.finding_id]
                 const checked = !!state
                 return (
                   <div key={finding.finding_id} className="border-b border-border/50 last:border-b-0">
                     <label className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/40">
-                      <Checkbox checked={checked} onCheckedChange={() => toggleFinding(finding)} disabled={saving} />
+                      <RowCheckbox
+                        checked={checked}
+                        disabled={saving}
+                        onChange={() => toggleFinding(finding)}
+                        label={`${finding.number} ${finding.title}`}
+                      />
                       <span className="font-mono text-[12px] text-muted-foreground">{finding.number}</span>
                       <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90" title={finding.title}>{finding.title}</span>
                       <span className="shrink-0 text-[11px] text-muted-foreground">{t('webapi.revision')} {finding.revision}</span>
@@ -225,10 +318,11 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit }: Pr
                           <div className="space-y-1.5">
                             {state.verifications.map((verification) => (
                               <label key={verification.verification_id} className="flex w-full cursor-pointer items-center gap-2">
-                                <Checkbox
+                                <RowCheckbox
                                   checked={state.attached.includes(verification.verification_id)}
-                                  onCheckedChange={() => toggleVerification(finding.finding_id, verification.verification_id)}
                                   disabled={saving}
+                                  onChange={() => toggleVerification(finding.finding_id, verification.verification_id)}
+                                  label={t(verdictKey(verification.verdict))}
                                 />
                                 <span className={cn('text-[12px]', !verification.verdict && 'text-muted-foreground')}>{t(verdictKey(verification.verdict))}</span>
                                 {verification.verdict && <span className="text-[11px] text-muted-foreground">{t('webapi.verdictModelLabel')}</span>}
