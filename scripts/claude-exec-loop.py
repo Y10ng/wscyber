@@ -5,6 +5,7 @@
 用法：scripts/claude-exec-loop.py <model> <短名> <任务目录> [--rounds N] [--session ID]
 例：  scripts/claude-exec-loop.py wangsu-o-latest r3-backend var/r3-report
 --session 续跑已有会话（如主机重启后），直接以“继续”恢复，不新建会话。
+--prompt  与 --session 合用：首轮发送该文本（如主会话的纠正意见）代替“继续”。
 """
 import argparse
 import json
@@ -49,6 +50,7 @@ def main() -> int:
     parser.add_argument("taskdir")
     parser.add_argument("--rounds", type=int, default=30)
     parser.add_argument("--session", help="续跑已有会话 id")
+    parser.add_argument("--prompt", help="续跑首轮发送的文本")
     args = parser.parse_args()
 
     os.chdir(ROOT)
@@ -70,7 +72,8 @@ def main() -> int:
             cmd = base + ["--session-id", session, "--name", f"wscyber-{args.name}", "--",
                           FIRST.format(task=task, result=result)]
         else:
-            cmd = base + ["--resume", session, "--", AGAIN.format(task=task, result=result)]
+            text = args.prompt if (round_no == 1 and args.prompt) else AGAIN
+            cmd = base + ["--resume", session, "--", text]
         print(f"\n===== 第 {round_no} 轮 {time.strftime('%H:%M:%S')} =====", flush=True)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in proc.stdout:
