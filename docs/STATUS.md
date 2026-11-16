@@ -27,6 +27,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 **已知问题：**
 - 真实模型独立验证尚未跑过，没有非空判读的页面验收。
 - 原生终端等工具无强制出口；只有 `webapi_http` 强制 origin。
+- `TestWebAPIEventPersistence*`（SQLite 写锁 5s 超时）在机器负载高时偶发失败，单独重跑通过。
 - `scripts/cyber-ui-rebuild-check.py` 自检在清理前就失败（release 目录校验），未修；不影响实际 rebuild。
 
 ## 下一步（按顺序）
@@ -44,4 +45,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 ## 执行会话
 
 - `wscyber-ui-redesign-a`（`wangsu-glm-latest`）：UI 改版 A。
-- `wscyber-fix-uri`（`wangsu-kimi-latest`）：`webapi_http` 路径 `%2F` 被解码（既有失败测试）。
+
