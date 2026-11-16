@@ -32,11 +32,12 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 下一步（按顺序）
 
-1. **UI 改版 A（进行中，GLM）**：任务工作区三栏（任务局部导航）、候选三栏、流量筛选与可拖动分割、等宽字体与字号刻度、报告链体验问题（`var/ui-redesign-a/task.md`）。主会话在演示环境浏览器验收。
-2. **复测（R4）前端**：后端已提交（6c4de0c）；前端放入候选右栏，GLM。
-3. **执行复盘（R2）**：按方向/会话阅读执行流。
-4. **真实验证链（R1，挂起）**：需用户授权真实模型/靶场。
-5. 首版验收：靶场完整链跑通（product.md §6）。
+1. **复测（R4）前端（进行中，GLM）**：候选右栏「复测」区块、复测会话条、侧栏徽标（`var/r4-retest-ui/task.md`）。主会话在演示环境验收（fix off/on 两种结论）。
+2. **执行复盘（R2）**：按方向/会话阅读执行流（执行视图仍是原生工作流画布，宽屏下工具结果 JSON 原文可读性差）。
+3. **真实验证链（R1，挂起）**：需用户授权真实模型/靶场。
+4. 首版验收：靶场完整链跑通（product.md §6）。
+
+**UI 改版 A 已提交（19c9f4b）**：任务局部导航（执行/流量/候选/报告 + 计数）、候选三栏（≥1240：列表 300 | 正文 46rem | 右栏 380 证据+验证）、流量筛选/Host+路径分列/可拖动分割、等宽字体 Fira Code 与 11/12/13/14/16 字号刻度、报告阅读列与目录断点、侧栏会话业务标题+类型图标。
 
 ## 验收方式
 
@@ -44,5 +45,5 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-- `wscyber-ui-redesign-a`（`wangsu-glm-latest`）：UI 改版 A。
+- `wscyber-r4-retest-ui`（`wangsu-glm-latest`）：R4 复测前端。
 
