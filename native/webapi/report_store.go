@@ -48,6 +48,7 @@ type ReportSummary struct {
 	CreatedAt string       `json:"created_at"`
 	Items     []ReportItem `json:"items"`
 	HasDraft  bool         `json:"has_draft"`
+	Title     string       `json:"title"` // 草稿标题；无草稿为空串。
 }
 
 type ReportVerification struct {
@@ -195,13 +196,29 @@ func (s *taskStore) saveReport(ctx context.Context, id, taskID string, items []R
 		return nil, false, false, err
 	}
 	if !created && !conflict {
-		draft, err := s.reportDraft(ctx, model.ID)
-		if err != nil {
+		if err := s.fillReportDraftSummary(ctx, &summary); err != nil {
 			return nil, false, false, err
 		}
-		summary.HasDraft = draft != nil
 	}
 	return &summary, created, conflict, nil
+}
+
+// fillReportDraftSummary 只取草稿payload一次，填has_draft与title。
+func (s *taskStore) fillReportDraftSummary(ctx context.Context, summary *ReportSummary) error {
+	var payloadJSON string
+	err := s.orm.NewSelect().Model((*reportDraftModel)(nil)).Column("payload_json").Where("report_id = ?", summary.ReportID).Limit(1).Scan(ctx, &payloadJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var stored storedReportDraft
+	if err := json.Unmarshal([]byte(payloadJSON), &stored); err != nil {
+		return err
+	}
+	summary.HasDraft, summary.Title = true, stored.Payload.Title
+	return nil
 }
 
 func (s *taskStore) reportDraft(ctx context.Context, reportID string) (*ReportDraftView, error) {
@@ -282,12 +299,9 @@ func (s *taskStore) reportList(ctx context.Context, taskID string, limit int, af
 		if err != nil {
 			return nil, err
 		}
-		var reportID string
-		err = s.orm.NewSelect().Model((*reportDraftModel)(nil)).Column("report_id").Where("report_id = ?", model.ID).Limit(1).Scan(ctx, &reportID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := s.fillReportDraftSummary(ctx, &summary); err != nil {
 			return nil, err
 		}
-		summary.HasDraft = err == nil
 		items = append(items, summary)
 	}
 	return items, nil

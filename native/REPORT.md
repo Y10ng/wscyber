@@ -14,7 +14,7 @@
 | 方法与路径 | 作用 |
 |---|---|
 | `PUT /api/webapi/tasks/{task}/reports/{report}` | body `{"items":[{"finding_id","revision_id","verification_ids":[]}]}`；1–50 项、finding 不重复、每项验证 ≤16；缺省 `verification_ids` 等同空数组 |
-| `GET /api/webapi/tasks/{task}/reports?limit&cursor` | 分页摘要（固定 items、`has_draft`） |
+| `GET /api/webapi/tasks/{task}/reports?limit&cursor` | 分页摘要（固定 items、`has_draft`、`title`：草稿标题，无草稿为空串） |
 | `GET /api/webapi/tasks/{task}/reports/{report}` | 详情：items 展开为修订快照＋验证摘要/结果，`draft` 或 null |
 | `GET /api/webapi/tasks/{task}/reports/{report}/export?format=markdown\|json` | 由已存草稿＋固定来源确定性渲染；无草稿 409 |
 | `GET /api/webapi/reports?session_id=` | 由报告 session 反查详情；不存在 404 |

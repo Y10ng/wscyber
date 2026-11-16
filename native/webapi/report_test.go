@@ -130,7 +130,7 @@ const (
 func TestWebAPIReportSaveReplayAndSessionProtection(t *testing.T) {
 	f := newReportFixture(t)
 	report := f.saveReport(t, reportID)
-	if report.SessionID == "" || report.SessionID == f.task.InitialSessionID || report.SessionID == f.verifyA.SessionID || len(report.Items) != 2 || report.HasDraft {
+	if report.SessionID == "" || report.SessionID == f.task.InitialSessionID || report.SessionID == f.verifyA.SessionID || len(report.Items) != 2 || report.HasDraft || report.Title != "" {
 		t.Fatalf("report summary = %+v", report)
 	}
 	if len(report.Items[1].VerificationIDs) != 0 || report.Items[1].VerificationIDs == nil {
@@ -138,7 +138,8 @@ func TestWebAPIReportSaveReplayAndSessionProtection(t *testing.T) {
 	}
 	base := "/api/webapi/tasks/" + f.task.ID + "/reports/"
 	status, replay, _ := f.do(http.MethodPut, base+reportID, f.items())
-	if status != 200 || replay["idempotent"] != true || replay["created"] != false || replay["report"].(map[string]any)["session_id"] != report.SessionID {
+	if status != 200 || replay["idempotent"] != true || replay["created"] != false || replay["report"].(map[string]any)["session_id"] != report.SessionID ||
+		replay["report"].(map[string]any)["has_draft"] != false || replay["report"].(map[string]any)["title"] != "" {
 		t.Fatalf("same report replay = %d %+v", status, replay)
 	}
 	only := func(findingID, revisionID, verifications string) string {
@@ -211,7 +212,7 @@ func TestWebAPIReportSaveReplayAndSessionProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, page, raw := f.do(http.MethodGet, listPath+"?limit=1", "")
-	if status != 200 || page["has_more"] != true || len(page["items"].([]any)) != 1 {
+	if status != 200 || page["has_more"] != true || len(page["items"].([]any)) != 1 || page["items"].([]any)[0].(map[string]any)["title"] != "" {
 		t.Fatalf("report list = %d %s", status, raw)
 	}
 	status, second, raw := f.do(http.MethodGet, listPath+"?limit=1&cursor="+page["next_cursor"].(string), "")
@@ -337,8 +338,12 @@ func TestWebAPIReportDraftAndDeterministicExport(t *testing.T) {
 		t.Fatalf("unsupported format = %d", status)
 	}
 	status, page, _ := f.do(http.MethodGet, "/api/webapi/tasks/"+f.task.ID+"/reports", "")
-	if status != 200 || page["items"].([]any)[0].(map[string]any)["has_draft"] != true {
-		t.Fatalf("list has_draft = %d %+v", status, page)
+	if status != 200 || page["items"].([]any)[0].(map[string]any)["has_draft"] != true || page["items"].([]any)[0].(map[string]any)["title"] != "报告标题" {
+		t.Fatalf("list has_draft/title = %d %+v", status, page)
+	}
+	status, replay, _ := f.do(http.MethodPut, "/api/webapi/tasks/"+f.task.ID+"/reports/"+reportID, f.items())
+	if status != 200 || replay["report"].(map[string]any)["has_draft"] != true || replay["report"].(map[string]any)["title"] != "报告标题" {
+		t.Fatalf("replay with draft = %d %+v", status, replay)
 	}
 	status, detail, _ := f.do(http.MethodGet, "/api/webapi/tasks/"+f.task.ID+"/reports/"+reportID, "")
 	if status != 200 || detail["draft"] == nil || detail["has_draft"] != true {
