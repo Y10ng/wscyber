@@ -70,7 +70,7 @@ def main():
     manifest = json.loads((public / '.wscyber-ui.json').read_text())
     provenance = verify_provenance(manifest)
     # 先拿同一重型锁再创建key/runtime；锁忙时不留下私有资源。
-    heavy = (REPO/'var/full-system-models.Pg2PL1Id/heavy.lock').open('r+')
+    heavy = (REPO/'var/heavy.lock').open('r+')
     fcntl.flock(heavy, fcntl.LOCK_EX | fcntl.LOCK_NB)
     os.umask(0o077)
     evidence.mkdir(mode=0o700)

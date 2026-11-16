@@ -31,7 +31,7 @@ def main() -> int:
         raise RuntimeError("固定 Cyber SQLite 源文件与预期不匹配；未应用 overlay")
     output = root / "var/cyber-sqlite-overlay"
     output.mkdir(parents=True, exist_ok=True)
-    lock = root / "var/full-system-models.Pg2PL1Id/heavy.lock"
+    lock = root / "var/heavy.lock"
     with lock.open("a") as lock_file:
         import fcntl
         fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -50,7 +50,7 @@ def main() -> int:
         main_mod = output / "native.mod"
         shutil.copyfile(root / "native/go.mod", main_mod)
         shutil.copyfile(root / "native/go.sum", output / "native.sum")
-        subprocess.run(["go", "mod", "edit", "-modfile=" + str(main_mod), "-replace=github.com/chainreactors/cyber=" + str(module_copy)], check=True)
+        subprocess.run(["go", "mod", "edit", "-modfile=" + str(main_mod), "-replace=github.com/chainreactors/cyber=" + str(module_copy)], check=True, cwd=root / "native")
         return subprocess.run(["go", "-C", str(root / "native"), args[0], "-mod=readonly", "-modfile=" + str(main_mod), "-overlay=" + str(overlay), *args[1:]], check=False).returncode
 
 

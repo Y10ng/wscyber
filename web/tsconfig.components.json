@@ -1,4 +1,0 @@
-{
-  "extends": "./tsconfig.design.json",
-  "include": ["src/ui/**/*.ts", "src/ui/**/*.tsx", "src/component-preview/**/*.ts", "src/component-preview/**/*.tsx", "vite.components.config.ts"]
-}

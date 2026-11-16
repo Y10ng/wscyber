@@ -95,7 +95,7 @@ H2-A 继续使用相同 Cyber/AOP 固定提交/公开模块，不修改上游。
 
 H1 四个模块的缺根许可文本 UNKNOWN、AGPL/GPL 组合及对应源代码/通知义务仍然存在；H2-A 不消除这些缺口，未部署或分发。固定新模块根许可证存在不等于所有嵌套代码/资产均已审查；后续网络部署/分发仍须完成相应核验。
 
-H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIGTERM/关闭验证见 [HUB.md](HUB.md)。空库重开不等于执行历史恢复，Web 空 Hub 不等于 H1 工具执行已接入。
+H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIGTERM/关闭验证见 HUB.md（见 tag legacy-snapshot）。空库重开不等于执行历史恢复，Web 空 Hub 不等于 H1 工具执行已接入。
 
 ## H2-B：原生节点/持久控制台的可达依赖增量
 
@@ -120,7 +120,7 @@ H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIG
 
 已有四个缺根文本 UNKNOWN、Cyber/AOP AGPL、proxyclient GPL、源代码与通知义务继续存在；本增量不作法律结论或可部署声明。新模块根文本存在也不代表嵌套代码/资产/商标全审查完成。
 
-真实链路/净环境CLI/14条原生持久事件/关闭与有限验收见 [NODE.md](NODE.md)。原生SQLite事件重开仅证明记录落盘可读，不是完整执行恢复；原生WebSocket回流不是生产UI验收。
+真实链路/净环境CLI/14条原生持久事件/关闭与有限验收见 NODE.md（见 tag legacy-snapshot）。原生SQLite事件重开仅证明记录落盘可读，不是完整执行恢复；原生WebSocket回流不是生产UI验收。
 
 ## H3-A / H3-A2：固定原生UI与补充依赖（已验本机构建/资源HTTP）
 

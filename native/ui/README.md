@@ -1,8 +1,8 @@
 # H3-A2：固定原生 UI 最小依赖覆盖与静态宿主
 
-**H3-C后续更新（2026-11-14）：** 复用此固定构建，已真实通过UI登录/节点就绪/单次创建运行→固定工具→原生Workflow参数/结果及持久事件回读，5阶段图已由主查看。未改产品/构建，原生实际显示分支与失败修正、护栏/IOA/工具公告等限制详见[EXECUTION-ACCEPTANCE.md](EXECUTION-ACCEPTANCE.md)。不等生产研究、完整业务或视觉认可；最终统一预览的当前存活状态见STATUS。
+**H3-C后续更新（2026-11-14）：** 复用此固定构建，已真实通过UI登录/节点就绪/单次创建运行→固定工具→原生Workflow参数/结果及持久事件回读，5阶段图已由主查看。未改产品/构建，原生实际显示分支与失败修正、护栏/IOA/工具公告等限制详见EXECUTION-ACCEPTANCE.md（见 tag legacy-snapshot）。不等生产研究、完整业务或视觉认可；最终统一预览的当前存活状态见STATUS。
 
-**H3-B后续更新：** 真实浏览器原生登录、空会话列表/侧栏收展、Agents空抽屉开关已完成本机验收，7阶段截图已由主实际查看。空Hub仍有GetConfig400红提示和IOA3个404，完整业务/非空详情/终端及UI→节点执行未验；临时运行资源已清理，无常驻新预览。详见[BROWSER-ACCEPTANCE.md](BROWSER-ACCEPTANCE.md)。下文“浏览器未验”是H3-A2当时范围，不覆盖此后有限验收，也不能据后片称完整UI已认可。
+**H3-B后续更新：** 真实浏览器原生登录、空会话列表/侧栏收展、Agents空抽屉开关已完成本机验收，7阶段截图已由主实际查看。空Hub仍有GetConfig400红提示和IOA3个404，完整业务/非空详情/终端及UI→节点执行未验；临时运行资源已清理，无常驻新预览。详见BROWSER-ACCEPTANCE.md（见 tag legacy-snapshot）。下文“浏览器未验”是H3-A2当时范围，不覆盖此后有限验收，也不能据后片称完整UI已认可。
 
 2026-11-13。**H3-A2已完成本机真实构建与静态资源HTTP验收。** 执行会话正常退出后，主串行安装437包、完整TypeScript检查和Vite构建通过；真实Hub的24项HTTP检查通过，服务exit0、私有runtime清理及端口释放已核验。**浏览器、逐功能交互/展开态和完整业务仍未验收**，静态可提供不等于这些能力已完成。
 
@@ -57,8 +57,8 @@ timeout 180s env -i PATH=/usr/bin:/bin HOME="$PWD/var" LANG=C.UTF-8 \
 
 ```bash
 # fresh checkout时创建同一个锁位置；本轮已经存在，不创建另一把锁并行。
-mkdir -p var/full-system-models.Pg2PL1Id
-touch var/full-system-models.Pg2PL1Id/heavy.lock
+mkdir -p var
+touch var/heavy.lock
 # 脚本内部独占上面的同一heavy.lock，锁忙立即失败，不重复套flock自锁。
 env -i PATH=/usr/bin:/bin HOME="$WORK/home" LANG=C.UTF-8 \
   python3 -I "$PWD/scripts/cyber-ui-build.py" build --workspace "$WORK"
@@ -91,7 +91,7 @@ env -i PATH=/usr/bin:/bin HOME="$WORK/home" LANG=C.UTF-8 \
 - 原生 SPAFileServer 本身对缺失路径返回 index。通过原生 `extension.Add(web.Route)` 添加两个低优先级 fallback（`/{service}`、`/{service}/{rest...}`），仅把未匹配 `cyber.rpc.*`、IOA、缺失 asset/文件、隐藏路径和非 GET/HEAD fallback 变为 404，其他 SPA 路径仍委托**同一原生 SPAFileServer**。无第二 mux/鉴权层。具体已注册 API/Connect 路由更优先，仍使用原生鉴权。
 - `ready.frontend=true` 仅指已校验并挂载静态资源，不表示浏览器/页面业务功能就绪。原生 UI 内尚无服务支持的扫描/配置/IOA等功能不因静态可访问而变成已实现；不补假 API。
 
-运行命令沿用 [../HUB.md](../HUB.md)，只额外加 `--ui-dir`。不要将 key 原值放入 argv，不打开真实 provider/目标/部署。
+运行命令沿用 ../HUB.md（见 tag legacy-snapshot），只额外加 `--ui-dir`。不要将 key 原值放入 argv，不打开真实 provider/目标/部署。
 
 ## 主的真实资产 HTTP 接续入口（本执行者未运行）
 

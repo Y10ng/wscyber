@@ -25,7 +25,7 @@ OVERLAY = REPO / 'native/ui/dependencies.overlay.json'
 OVERLAY_FILES = REPO / 'native/ui/build-overlay'
 SOURCE_OVERLAY = REPO / 'native/ui/source-overlay.json'
 SOURCE_FILES = REPO / 'native/ui/source-overlay'
-SHARED_LOCK = REPO / 'var/full-system-models.Pg2PL1Id/heavy.lock'
+SHARED_LOCK = REPO / 'var/heavy.lock'
 SELECT = ['LICENSE', '.gitmodules', 'web/frontend', 'web/static/.gitkeep']
 LIMIT = 128 * 1024 * 1024
 
