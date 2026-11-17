@@ -31,9 +31,13 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 下一步
 
-1. **F1 修复（进行中）**：后端结果工具错误文案逐字段说清（Kimi，`var/f1-tool-errors`）；前端报告列表标题刷新 + 复测区块跨断点闪现空态（GLM，`var/f1-ui-fixes`）。
-2. **用量**：每任务/每日 tokens（先核 Cyber 原生 usage 记录与展示）。
-3. 之后按 [roadmap](roadmap.md)：B1 审批拦截 → C1 资产 → C2/C3 周期任务与漏洞库 → D1/D2 证据图片与企业微信 → B2 全工具出口 → D3 SDL。
+11-17 已提交：F1 修复（faca5ff）、U1 用量后端（24a1833）+ 前端（e7d10be）、B1 测试策略/审批后端（79b6eec，契约 `native/POLICY.md`）。
+
+1. **B1 前端（进行中，GLM，`var/b1-policy-frontend`）**：建任务策略选项 + origins 识别 chip、顶栏策略指示/修改、「待审批 N」替换原生“护栏未配置”、执行视图置顶审批卡片、流量显示审批拒绝/超时。交回后主在演示环境走：审批演示剧本 → 批准/拒绝 → 改策略为“审批关”再跑。
+2. 小打磨（攒一片 GLM）：用量按会话表按角色排序（研究在前）；全局用量 Dialog 高度随内容。
+3. 之后按 [roadmap](roadmap.md)：C1 资产 → C2/C3 周期任务与漏洞库 → D1/D2 证据图片与企业微信 → B2 全工具出口 → D3 SDL。
+
+注意：`var/wscyber-hub` 曾被执行会话用含在途改动的工作区重建；更新 42453 预览前须从 HEAD 重建（`native/RUNNING.md`）。B1 审批状态只在节点内存（重启即取消挂起项）；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本。
 
 ## 验收方式
 
@@ -41,5 +45,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-- `wscyber-f1-tool-errors`（`wangsu-kimi-latest`）：结果工具错误文案。
-- `wscyber-f1-ui-fixes`（`wangsu-glm-latest`）：报告列表标题、复测区块加载态。
+- `wscyber-b1-policy-frontend`（`wangsu-glm-latest`）：B1 前端。
