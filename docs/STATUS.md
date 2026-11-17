@@ -30,12 +30,12 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 - `TestWebAPIEventPersistence*`（SQLite 写锁 5s 超时）在机器负载高时偶发失败，单独重跑通过。
 - `scripts/cyber-ui-rebuild-check.py` 自检在清理前就失败（release 目录校验），未修；不影响实际 rebuild。
 
-## 下一步（主会话已暂停，等用户对齐方向）
+## 下一步
 
 11-16~17 一个长会话补齐了首版功能链（报告 R3、复测 R4、UI 改版 A、执行时间线 R2），**全部只在演示环境（模拟模型）验过**。离首版验收（product.md §6）还差：**真实模型在靶场跑完整链**。待用户决定：
 
-- **A（推荐）真实链**：用户授权产品模型 + 本地靶场 `http://192.168.157.1:8000`，跑 建任务→候选→真实验证判读→报告草稿→复测；按"主会话不碰真实数据"规则，由用户在预览里操作或指定执行会话跑，主会话只看问题清单。
-- **B** 继续打磨 UI / 做配套功能（用量、原文记录、资料库、测试安全、任务内对话、图谱）。
+- **R1 真实链（进行中，11-17 用户授权，执行会话 Kimi 运行）**：升级预览 Hub（先备份 `var/preview/state.bak-20261117`）→ 产品模型 + 靶场 `http://192.168.157.1:8000` 跑 建任务→验证→报告→复测；`var/r1-real/result.md` 只含结构化问题清单，主会话不接触真实数据。随后按问题清单派修复。
+- 之后：配套功能（用量、原文记录、资料库、测试安全、任务内对话、图谱）。
 
 **本会话已提交：** R3 报告（a89f35f、539dfdd、743fc0d、a55aebd）、R4 复测（6c4de0c、71d297c）、UI 改版 A（19c9f4b）、R2 执行时间线（f3bd114）、演示环境（6d23c22）、URI %2F 修复（4eec51c）。
 
@@ -47,5 +47,5 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-- 无（全部已结束，终端已关）。
+- `wscyber-r1-real`（`wangsu-kimi-latest`）：R1 真实链运行，交回结构化问题清单。
 
