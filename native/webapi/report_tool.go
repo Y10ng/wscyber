@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"strings"
+	"fmt"
 
 	aop "github.com/chainreactors/cyber/aop"
 	"github.com/chainreactors/cyber/core/operation"
@@ -41,31 +40,65 @@ func (*reportDraftTool) Definition() *aop.ToolDefinition {
 
 func validateReportDraftArguments(arguments string) (reportDraftPayload, []byte, error) {
 	var args reportDraftPayload
-	if len(arguments) > maxReportDraftBytes {
-		return args, nil, errors.New("报告草稿载荷超过128KiB")
+	if err := decodeStrictToolPayloadLimit(arguments, &args, "报告草稿", maxReportDraftBytes); err != nil {
+		return args, nil, err
 	}
-	decoder := json.NewDecoder(strings.NewReader(arguments))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil {
-		return args, nil, errors.New("参数不是strict JSON或含未知字段")
+	for _, field := range []struct {
+		path     string
+		value    string
+		maximum  int
+		required bool
+	}{
+		{"title", args.Title, 256, true},
+		{"overview", args.Overview, 8192, true},
+		{"limitations", args.Limitations, 8192, false},
+	} {
+		if err := findingTextError(field.path, field.value, field.maximum, field.required); err != nil {
+			return args, nil, err
+		}
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return args, nil, errors.New("参数只能包含一个JSON对象")
+	if len(args.Items) < 1 {
+		return args, nil, fmt.Errorf("items数量不足：实际 %d，至少 1", len(args.Items))
 	}
-	if !validFindingText(args.Title, 256, true) || !validFindingText(args.Overview, 8192, true) ||
-		!validFindingText(args.Limitations, 8192, false) || len(args.Items) < 1 || len(args.Items) > maxReportItems {
-		return args, nil, errors.New("报告标题/概述/局限或条目数量不符合限制")
+	if len(args.Items) > maxReportItems {
+		return args, nil, fmt.Errorf("items数量过多：实际 %d，上限 %d", len(args.Items), maxReportItems)
 	}
-	for _, item := range args.Items {
-		if !validReferenceID(item.FindingID) || !validFindingText(item.Description, 8192, true) ||
-			!validFindingText(item.Reproduction, 8192, true) || !validFindingText(item.Remediation, 4096, false) || len(item.EvidenceIDs) > 16 {
-			return args, nil, errors.New("报告条目正文或证据数量不符合限制")
+	for index, item := range args.Items {
+		path := fmt.Sprintf("items[%d]", index)
+		if item.FindingID == "" {
+			return args, nil, fmt.Errorf("%s.finding_id必填为空", path)
+		}
+		if !validReferenceID(item.FindingID) {
+			return args, nil, fmt.Errorf("%s.finding_id非法：需为有效引用ID", path)
+		}
+		for _, field := range []struct {
+			name     string
+			value    string
+			maximum  int
+			required bool
+		}{
+			{"description", item.Description, 8192, true},
+			{"reproduction", item.Reproduction, 8192, true},
+			{"remediation", item.Remediation, 4096, false},
+		} {
+			if err := findingTextError(path+"."+field.name, field.value, field.maximum, field.required); err != nil {
+				return args, nil, err
+			}
+		}
+		if len(item.EvidenceIDs) > 16 {
+			return args, nil, fmt.Errorf("%s.evidence_ids数量过多：实际 %d，上限 16", path, len(item.EvidenceIDs))
 		}
 		seen := map[string]bool{}
-		for _, evidenceID := range item.EvidenceIDs {
-			if !validReferenceID(evidenceID) || seen[evidenceID] {
-				return args, nil, errors.New("报告条目证据ID重复或非法")
+		for evidenceIndex, evidenceID := range item.EvidenceIDs {
+			evidencePath := fmt.Sprintf("%s.evidence_ids[%d]", path, evidenceIndex)
+			if evidenceID == "" {
+				return args, nil, fmt.Errorf("%s必填为空", evidencePath)
+			}
+			if !validReferenceID(evidenceID) {
+				return args, nil, fmt.Errorf("%s非法：需为有效引用ID", evidencePath)
+			}
+			if seen[evidenceID] {
+				return args, nil, fmt.Errorf("%s重复", evidencePath)
 			}
 			seen[evidenceID] = true
 		}

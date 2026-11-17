@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"reflect"
+	"strconv"
 	"strings"
 
 	aop "github.com/chainreactors/cyber/aop"
@@ -40,18 +43,164 @@ func (*verificationTool) Definition() *aop.ToolDefinition {
 	return coretool.Def("webapi_verification_result", "保存当前独立验证的模型判读；只引用本会话新HTTP证据，支持/反证须完整响应，状态码不判资格，不修改原候选。", verificationToolPayload{})
 }
 
+func jsonTypeName(valueType reflect.Type) string {
+	if valueType == nil {
+		return "未知类型"
+	}
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+	switch valueType.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.Array, reflect.Slice:
+		return "array"
+	case reflect.Map, reflect.Struct:
+		return "object"
+	default:
+		return valueType.String()
+	}
+}
+
+type jsonPathFrame struct {
+	path         string
+	object       bool
+	expectingKey bool
+	index        int
+}
+
+func joinJSONFieldPath(parent, field string) string {
+	if parent == "" {
+		return field
+	}
+	return parent + "." + field
+}
+
+// jsonPathAtOffset 用类型错误的字节位置补回encoding/json未提供的数组下标。
+func jsonPathAtOffset(arguments string, offset int64) string {
+	decoder := json.NewDecoder(strings.NewReader(arguments))
+	decoder.UseNumber()
+	stack := []jsonPathFrame{}
+	currentPath := ""
+	finishValue := func() {
+		if len(stack) == 0 {
+			return
+		}
+		parent := &stack[len(stack)-1]
+		if parent.object {
+			parent.expectingKey = true
+		} else {
+			parent.index++
+			currentPath = fmt.Sprintf("%s[%d]", parent.path, parent.index)
+		}
+	}
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return ""
+		}
+		if delimiter, ok := token.(json.Delim); ok {
+			switch delimiter {
+			case '{', '[':
+				path := currentPath
+				stack = append(stack, jsonPathFrame{path: path, object: delimiter == '{', expectingKey: delimiter == '{'})
+				if delimiter == '[' {
+					currentPath = path + "[0]"
+				}
+			case '}', ']':
+				if len(stack) == 0 {
+					return ""
+				}
+				currentPath = stack[len(stack)-1].path
+				stack = stack[:len(stack)-1]
+				if decoder.InputOffset() >= offset {
+					return currentPath
+				}
+				finishValue()
+			}
+			continue
+		}
+		if len(stack) > 0 {
+			current := &stack[len(stack)-1]
+			if current.object && current.expectingKey {
+				key, ok := token.(string)
+				if !ok {
+					return ""
+				}
+				current.expectingKey = false
+				currentPath = joinJSONFieldPath(current.path, key)
+				continue
+			}
+		}
+		if decoder.InputOffset() >= offset {
+			return currentPath
+		}
+		finishValue()
+	}
+}
+
+func strictToolJSONError(err error, arguments string) error {
+	const unknownPrefix = "json: unknown field "
+	if message, ok := strings.CutPrefix(err.Error(), unknownPrefix); ok {
+		if field, unquoteErr := strconv.Unquote(message); unquoteErr == nil {
+			return fmt.Errorf("参数不是strict JSON：含未知字段 %q", field)
+		}
+	}
+	var typeError *json.UnmarshalTypeError
+	if errors.As(err, &typeError) {
+		field := jsonPathAtOffset(arguments, typeError.Offset)
+		if field == "" {
+			field = typeError.Field
+		}
+		if field == "" {
+			field = "参数"
+		} else {
+			field = "字段 " + field
+		}
+		actual := typeError.Value
+		if actual == "bool" {
+			actual = "boolean"
+		}
+		return fmt.Errorf("参数不是strict JSON：%s类型不符：期望 %s，实际 %s（字节位置 %d）", field, jsonTypeName(typeError.Type), actual, typeError.Offset)
+	}
+	var syntaxError *json.SyntaxError
+	if errors.As(err, &syntaxError) {
+		return fmt.Errorf("参数不是strict JSON：JSON语法错误，字节位置 %d", syntaxError.Offset)
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("参数不是strict JSON：JSON语法错误，字节位置 %d（内容不完整）", len(arguments)+1)
+	}
+	if errors.Is(err, io.EOF) {
+		return errors.New("参数不是strict JSON：JSON内容为空")
+	}
+	return errors.New("参数不是strict JSON：无法解码")
+}
+
 // decodeStrictToolPayload 是验证/复测结果共用的strict单对象JSON解码；label为“验证”或“复测”。
 func decodeStrictToolPayload(arguments string, target any, label string) error {
-	if len(arguments) > maxVerificationPayloadBytes {
-		return errors.New(label + "载荷超过24KiB")
+	return decodeStrictToolPayloadLimit(arguments, target, label, maxVerificationPayloadBytes)
+}
+
+func decodeStrictToolPayloadLimit(arguments string, target any, label string, maximum int) error {
+	if len(arguments) > maximum {
+		return fmt.Errorf("%s载荷超过%dKiB", label, maximum>>10)
 	}
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return errors.New("参数不是strict JSON或含未知字段")
+		return strictToolJSONError(err, arguments)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return strictToolJSONError(err, arguments)
+		}
 		return errors.New("参数只能包含一个JSON对象")
 	}
 	return nil
@@ -59,15 +208,37 @@ func decodeStrictToolPayload(arguments string, target any, label string) error {
 
 // validateResultBody 校验验证/复测结果共用的正文长度与证据引用形状。
 func validateResultBody(method, preconditions, summary, limitations string, evidence []verificationEvidenceInput, label string) error {
-	if !validFindingText(method, 4096, true) || !validFindingText(preconditions, 4096, false) ||
-		!validFindingText(summary, 4096, true) || !validFindingText(limitations, 4096, false) || len(evidence) > 16 {
-		return errors.New(label + "正文或证据数量不符合限制")
+	for _, field := range []struct {
+		path     string
+		value    string
+		required bool
+	}{
+		{"method", method, true},
+		{"preconditions", preconditions, false},
+		{"summary", summary, true},
+		{"limitations", limitations, false},
+	} {
+		if err := findingTextError(field.path, field.value, 4096, field.required); err != nil {
+			return fmt.Errorf("%s参数校验失败：%w", label, err)
+		}
+	}
+	if len(evidence) > 16 {
+		return fmt.Errorf("%s参数 evidence 数量过多：实际 %d，上限 16", label, len(evidence))
 	}
 	seen := map[string]bool{}
-	for _, item := range evidence {
-		if item.EvidenceID == "" || len(item.EvidenceID) > 128 || seen[item.EvidenceID] ||
-			(item.Relation != "supporting" && item.Relation != "counterevidence" && item.Relation != "limitation") {
-			return errors.New(label + "证据ID重复/非法或relation非法")
+	for index, item := range evidence {
+		path := fmt.Sprintf("evidence[%d]", index)
+		if item.EvidenceID == "" {
+			return fmt.Errorf("%s参数 %s.evidence_id 必填为空", label, path)
+		}
+		if len(item.EvidenceID) > 128 {
+			return fmt.Errorf("%s参数 %s.evidence_id 超长：实际 %d 字节，上限 128 字节", label, path, len(item.EvidenceID))
+		}
+		if seen[item.EvidenceID] {
+			return fmt.Errorf("%s参数 %s.evidence_id 重复", label, path)
+		}
+		if item.Relation != "supporting" && item.Relation != "counterevidence" && item.Relation != "limitation" {
+			return fmt.Errorf("%s参数 %s.relation 仅支持supporting/counterevidence/limitation", label, path)
 		}
 		seen[item.EvidenceID] = true
 	}

@@ -138,7 +138,11 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
       const fresh = await getWebApiReport(task.id, current.report_id)
       if (fresh.report_id !== current.report_id || fresh.task_id !== task.id) return
       setDetail((prev) => (prev && prev.report_id === fresh.report_id ? fresh : prev))
-      setItems((prev) => prev.map((item) => (item.report_id === fresh.report_id ? { ...item, has_draft: fresh.has_draft } : item)))
+      // 列表标题来自草稿（后端有草稿=草稿标题），轮询到草稿出现时同步合并，
+      // 不额外发请求；无草稿保持原值，空标题由渲染处的未命名分支兜底。
+      setItems((prev) => prev.map((item) => (item.report_id === fresh.report_id
+        ? { ...item, has_draft: fresh.has_draft, title: fresh.draft?.payload.title ?? item.title }
+        : item)))
     } catch { /* 轮询失败不覆盖已有；下一次再试 */ }
   }, [detail, task.id])
   usePolling(refreshDetailQuiet, 8000, !!detail && !detail.has_draft)

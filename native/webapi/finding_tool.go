@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode/utf8"
 
@@ -51,57 +50,118 @@ func (*findingTool) Definition() *aop.ToolDefinition {
 	return coretool.Def("webapi_finding", "保存或更新候选发现；只引用本任务webapi_http返回的真实evidence_id，主张不等于确认，不发送任何请求。", findingToolArguments{})
 }
 
+func findingTextError(field, value string, maximum int, required bool) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%s必须是有效UTF8", field)
+	}
+	if strings.ContainsRune(value, 0) {
+		return fmt.Errorf("%s不能包含NUL", field)
+	}
+	if len(value) > maximum {
+		return fmt.Errorf("%s超长：实际 %d 字符（%d 字节），上限 %d 字节", field, utf8.RuneCountInString(value), len(value), maximum)
+	}
+	if required && strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s必填为空", field)
+	}
+	return nil
+}
+
 func validFindingText(value string, maximum int, required bool) bool {
-	return utf8.ValidString(value) && !strings.ContainsRune(value, 0) && len(value) <= maximum && (!required || strings.TrimSpace(value) != "")
+	return findingTextError("", value, maximum, required) == nil
 }
 
 func validateFindingArguments(arguments string) (findingToolArguments, []byte, error) {
 	var args findingToolArguments
-	if len(arguments) > maxFindingPayloadBytes {
-		return args, nil, errors.New("候选载荷超过24KiB")
+	if err := decodeStrictToolPayloadLimit(arguments, &args, "候选", maxFindingPayloadBytes); err != nil {
+		return args, nil, err
 	}
-	decoder := json.NewDecoder(strings.NewReader(arguments))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil {
-		return args, nil, errors.New("参数不是strict JSON或含未知字段")
+	if !utf8.ValidString(arguments) {
+		return args, nil, errors.New("候选参数必须是有效UTF8")
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return args, nil, errors.New("参数只能包含一个JSON对象")
+	if strings.ContainsRune(arguments, 0) {
+		return args, nil, errors.New("候选参数不能包含NUL")
 	}
-	if !utf8.ValidString(arguments) || strings.ContainsRune(arguments, 0) {
-		return args, nil, errors.New("候选文本必须是有效UTF8且不含NUL")
+	if args.ExpectedRevision < 0 {
+		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision不能小于0")
 	}
-	if (args.FindingID == "") != (args.ExpectedRevision == 0) || args.ExpectedRevision < 0 {
-		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision；创建两者均不提供")
+	if args.FindingID == "" && args.ExpectedRevision != 0 {
+		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：finding_id为空")
+	}
+	if args.FindingID != "" && args.ExpectedRevision == 0 {
+		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision为0")
 	}
 	if args.FindingID != "" {
-		if len(args.FindingID) > 128 || strings.ContainsAny(args.FindingID, "/\\?#%") || strings.ContainsFunc(args.FindingID, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return args, nil, errors.New("finding_id非法")
+		if len(args.FindingID) > 128 {
+			return args, nil, fmt.Errorf("finding_id超长：实际 %d 字符（%d 字节），上限 128 字节", utf8.RuneCountInString(args.FindingID), len(args.FindingID))
+		}
+		if strings.ContainsAny(args.FindingID, "/\\?#%") || strings.ContainsFunc(args.FindingID, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			return args, nil, errors.New("finding_id含非法字符")
 		}
 	}
 	content := args.Content
-	if !validFindingText(content.Title, 256, true) || !validFindingText(content.Description, 8192, true) ||
-		!validFindingText(content.Remediation, 4096, false) || !validFindingText(content.Limitations, 4096, false) ||
-		len(content.Steps) < 1 || len(content.Steps) > 16 || len(content.Evidence) < 1 || len(content.Evidence) > 16 {
-		return args, nil, errors.New("候选正文或步骤/证据数量不符合限制")
+	for _, field := range []struct {
+		path     string
+		value    string
+		maximum  int
+		required bool
+	}{
+		{"content.title", content.Title, 256, true},
+		{"content.description", content.Description, 8192, true},
+		{"content.remediation", content.Remediation, 4096, false},
+		{"content.limitations", content.Limitations, 4096, false},
+	} {
+		if err := findingTextError(field.path, field.value, field.maximum, field.required); err != nil {
+			return args, nil, err
+		}
+	}
+	if len(content.Steps) < 1 {
+		return args, nil, fmt.Errorf("content.steps数量不足：实际 %d，至少 1", len(content.Steps))
+	}
+	if len(content.Steps) > 16 {
+		return args, nil, fmt.Errorf("content.steps数量过多：实际 %d，上限 16", len(content.Steps))
+	}
+	if len(content.Evidence) < 1 {
+		return args, nil, fmt.Errorf("content.evidence数量不足：实际 %d，至少 1", len(content.Evidence))
+	}
+	if len(content.Evidence) > 16 {
+		return args, nil, fmt.Errorf("content.evidence数量过多：实际 %d，上限 16", len(content.Evidence))
 	}
 	seenEvidence := make(map[string]bool, len(content.Evidence))
-	for _, evidence := range content.Evidence {
-		if evidence.EvidenceID == "" || len(evidence.EvidenceID) > 128 || seenEvidence[evidence.EvidenceID] ||
-			(evidence.Relation != "supporting" && evidence.Relation != "counterevidence" && evidence.Relation != "limitation") {
-			return args, nil, errors.New("证据ID重复/非法或relation非法")
+	for index, evidence := range content.Evidence {
+		path := fmt.Sprintf("content.evidence[%d]", index)
+		if evidence.EvidenceID == "" {
+			return args, nil, fmt.Errorf("%s.evidence_id必填为空", path)
+		}
+		if len(evidence.EvidenceID) > 128 {
+			return args, nil, fmt.Errorf("%s.evidence_id超长：实际 %d 字符（%d 字节），上限 128 字节", path, utf8.RuneCountInString(evidence.EvidenceID), len(evidence.EvidenceID))
+		}
+		if seenEvidence[evidence.EvidenceID] {
+			return args, nil, fmt.Errorf("%s.evidence_id重复", path)
+		}
+		if evidence.Relation != "supporting" && evidence.Relation != "counterevidence" && evidence.Relation != "limitation" {
+			return args, nil, fmt.Errorf("%s.relation仅支持supporting/counterevidence/limitation", path)
 		}
 		seenEvidence[evidence.EvidenceID] = true
 	}
-	for _, step := range content.Steps {
-		if !validFindingText(step.Text, 1024, true) || len(step.EvidenceIndices) > 16 {
-			return args, nil, errors.New("步骤文本或索引数量不符合限制")
+	for index, step := range content.Steps {
+		path := fmt.Sprintf("content.steps[%d]", index)
+		if err := findingTextError(path+".text", step.Text, 1024, true); err != nil {
+			return args, nil, err
+		}
+		if len(step.EvidenceIndices) > 16 {
+			return args, nil, fmt.Errorf("%s.evidence_indices数量过多：实际 %d，上限 16", path, len(step.EvidenceIndices))
 		}
 		seenIndices := make(map[int]bool, len(step.EvidenceIndices))
-		for _, index := range step.EvidenceIndices {
-			if index < 0 || index >= len(content.Evidence) || seenIndices[index] {
-				return args, nil, errors.New("步骤证据索引越界或重复")
+		for evidenceIndex, index := range step.EvidenceIndices {
+			indexPath := fmt.Sprintf("%s.evidence_indices[%d]", path, evidenceIndex)
+			if index < 0 {
+				return args, nil, fmt.Errorf("%s不能小于0", indexPath)
+			}
+			if index >= len(content.Evidence) {
+				return args, nil, fmt.Errorf("%s证据索引越界：上限 %d", indexPath, len(content.Evidence)-1)
+			}
+			if seenIndices[index] {
+				return args, nil, fmt.Errorf("%s重复", indexPath)
 			}
 			seenIndices[index] = true
 		}

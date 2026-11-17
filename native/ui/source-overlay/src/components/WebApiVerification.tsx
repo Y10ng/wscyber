@@ -59,7 +59,9 @@ export default function WebApiVerificationSection({ task, finding, onStartVerifi
   const [items, setItems] = useState<WebApiVerificationSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [loadingList, setLoadingList] = useState(false)
+  // 初始即“加载中”：挂载（含跨断点重挂载）到首帧之间 effect 尚未跑 loadList，
+  // 若初值 false 会先闪空态；首帧直接走既有加载样式，加载完成且为空才显示空态。
+  const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState('')
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
