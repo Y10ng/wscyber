@@ -1,0 +1,52 @@
+/* ── 执行时间线（R2）──────────────────────────────────────────────────────
+   布局断点用容器查询而不是视口媒体查询：本视图嵌在任务导航右侧的 flex 行里，
+   外层宽度取决于侧栏/导航开合，视口断点会误判。容器宽 ≥1240px：三栏
+   （筛选 200 | 时间线 | 详情 420）。<1240：筛选收为上方分段行、详情在所选行
+   下方原地展开（<860 同为单列，行内展开）。 */
+.webapi-exec {
+  container: webapi-exec / inline-size;
+}
+
+.webapi-exec-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.webapi-exec-filters-top { display: flex; }
+.webapi-exec-filters-side { display: none; }
+.webapi-exec-detail-side { display: none; }
+
+/* 时间线行：34px 单行；窄屏隐藏耗时列（网格列同步收窄），宽屏恢复。 */
+.webapi-exec-row {
+  display: grid;
+  grid-template-columns: 72px 20px minmax(0, 1fr) auto;
+}
+.webapi-exec .webapi-exec-dur-col { display: none; }
+
+@container webapi-exec (min-width: 1240px) {
+  .webapi-exec-layout {
+    flex-direction: row;
+  }
+  .webapi-exec-filters-top { display: none; }
+  .webapi-exec-filters-side {
+    display: flex;
+    flex-basis: 200px;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .webapi-exec-detail-side {
+    display: flex;
+    flex-basis: 420px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .webapi-exec-row {
+    grid-template-columns: 72px 52px 20px minmax(0, 1fr) auto;
+  }
+  .webapi-exec .webapi-exec-dur-col { display: block; }
+  /* 三栏模式详情只在右栏展示；行内展开仅用于 <1240 的堆叠版式。 */
+  .webapi-exec-detail-inline { display: none; }
+}

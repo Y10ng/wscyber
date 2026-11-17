@@ -27,16 +27,19 @@ function recordID(record: SessionRecord): string {
   return record.session?.id || ''
 }
 
-// ── 侧栏会话业务标题（追加 11 / fix-1 #6）────────────────────────────────────
+// ── 侧栏会话业务标题（追加 11 / fix-1 #6；R2 改为结构化缓存）────────────────
 // 已识别为 Web/API 业务会话的条目显示「类型图标 + 业务标题」，未识别的保持原样。
-// 仅前端展示：识别用已有 by-session 反查接口，结果按 session_id 缓存（模块级），
-// 不改原生会话数据。复测为下一片预留（kind 与格式函数已备，无识别路径）。
+// 仅前端展示：识别用已有 by-session 反查接口，结果按 session_id 缓存（模块级）。
+// 缓存只存结构化数据（kind + 编号 + 标题），前缀文案在渲染期用 t() 组装 ——
+// 识别时把语言字符串固化进缓存会让切换语言后仍显示旧前缀。
 type WebApiSessionKind = 'task' | 'verification' | 'report' | 'retest'
 
 interface WebApiSessionBadge {
   kind: WebApiSessionKind
-  label: string
-  icon: LucideIcon
+  /** 任务/验证/复测：候选编号（WSC-xxxx）；报告无编号。 */
+  number: string
+  /** 标题（任务为 objective 首行；报告为草稿标题）。 */
+  title: string
 }
 
 const webApiBadgeCache = new Map<string, WebApiSessionBadge | null>()
@@ -47,17 +50,22 @@ const webApiBadgeInflight = new Set<string>()
 // 下次列表刷新时自愈，而不是永久显示首条消息原文。
 const WEB_API_BADGE_NULL_TTL_MS = 30_000
 
+// 渲染期组装徽标文案（语言随当前界面）。zh：任务 / 验证 · / 报告 · / 复测 ·；
+// en：Verification · / Report · / Retest ·。编号与标题保留空格分隔。
+function badgeLabel(badge: WebApiSessionBadge, t: (key: string) => string): string {
+  const body = [badge.number, badge.title].filter(Boolean).join(' ')
+  if (badge.kind === 'task') return body || badge.title
+  const prefixKey = badge.kind === 'verification' ? 'webapi.verification'
+    : badge.kind === 'report' ? 'webapi.reportSingular' : 'webapi.retestTitle'
+  const prefix = t(prefixKey)
+  return body ? `${prefix} · ${body}` : prefix
+}
+
 function badgeIcon(kind: WebApiSessionKind): LucideIcon {
   if (kind === 'verification') return ShieldCheck
   if (kind === 'report') return FileText
   if (kind === 'retest') return RefreshCw
   return Globe
-}
-
-// 复测侧栏标题：`复测 · WSC-xxxx 标题`（编号与标题保留空格分隔）。
-function retestBadge(findingNumber: string, findingTitle: string): WebApiSessionBadge {
-  const parts = [i18n.t('webapi.retestTitle', { ns: 'chat' }), findingNumber, findingTitle].filter(Boolean)
-  return { kind: 'retest', label: parts.length > 1 ? `${parts[0]} · ${parts.slice(1).join(' ')}` : parts[0] || '', icon: badgeIcon('retest') }
 }
 
 function firstLine(text: string): string {
@@ -73,14 +81,14 @@ interface BadgeResolution {
 
 // 反查顺序：任务 → 验证 → 报告 → 复测。任务接口对验证/复测 session 也 200 回父任务，
 // 必须比对 initial_session_id；真实 404 视为「非业务会话」，网络错误标记 transient。
+// 只缓存结构化数据（kind + 编号 + 标题）；前缀文案渲染期用 t() 组装。
 async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
-  const chatNS = { ns: 'chat' } as const
   let transient = false
   try {
     const task = await getWebApiTaskBySession(sessionID)
     if (task.initial_session_id === sessionID) {
       const objective = firstLine(task.objective)
-      if (objective) return { badge: { kind: 'task', label: objective, icon: badgeIcon('task') }, transient: false }
+      if (objective) return { badge: { kind: 'task', number: '', title: objective }, transient: false }
     }
   } catch (err) {
     transient = transient || !isNotFound(err)
@@ -88,12 +96,14 @@ async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
   try {
     const verification = await getWebApiVerificationBySession(sessionID)
     if (verification.session_id === sessionID) {
-      const number = verification.source?.number || ''
-      const title = verification.source?.content?.title || ''
-      // 格式：`验证 · WSC-xxxx 标题`（编号与标题保留空格分隔）。
-      const parts = [i18n.t('webapi.verification', chatNS), number, title].filter(Boolean)
-      const label = parts.length > 1 ? `${parts[0]} · ${parts.slice(1).join(' ')}` : parts[0] || ''
-      return { badge: { kind: 'verification', label, icon: badgeIcon('verification') }, transient: false }
+      return {
+        badge: {
+          kind: 'verification',
+          number: verification.source?.number || '',
+          title: verification.source?.content?.title || '',
+        },
+        transient: false,
+      }
     }
   } catch (err) {
     transient = transient || !isNotFound(err)
@@ -101,8 +111,14 @@ async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
   try {
     const report = await getWebApiReportBySession(sessionID)
     if (report.session_id === sessionID) {
-      const title = report.draft?.payload?.title?.trim() || i18n.t('webapi.reportUntitled', chatNS)
-      return { badge: { kind: 'report', label: `${i18n.t('webapi.reports', chatNS)} · ${title}`, icon: badgeIcon('report') }, transient: false }
+      return {
+        badge: {
+          kind: 'report',
+          number: '',
+          title: report.draft?.payload?.title?.trim() || '',
+        },
+        transient: false,
+      }
     }
   } catch (err) {
     transient = transient || !isNotFound(err)
@@ -110,7 +126,14 @@ async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
   try {
     const retest = await getWebApiRetestBySession(sessionID)
     if (retest.session_id === sessionID) {
-      return { badge: retestBadge(retest.source?.number || '', retest.source?.content?.title || ''), transient: false }
+      return {
+        badge: {
+          kind: 'retest',
+          number: retest.source?.number || '',
+          title: retest.source?.content?.title || '',
+        },
+        transient: false,
+      }
     }
   } catch (err) {
     transient = transient || !isNotFound(err)
@@ -381,6 +404,8 @@ function SessionItem({
   onUpdate: (patch: { title?: string; archived?: boolean }) => Promise<void>
 }) {
   const { t } = useTranslation('sidebar')
+  // 业务徽标前缀文案用 chat 命名空间渲染期组装（结构化缓存 + t()，语言随界面切换）。
+  const { t: tc } = useTranslation('chat')
   const [editing, setEditing] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -399,6 +424,8 @@ function SessionItem({
   const updatedAt = session.updatedAt ? timestampDate(session.updatedAt) : null
   const time = (updatedAt || new Date(0)).toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' })
   const closed = session.session?.state === 'closed'
+  const badgeText = badge ? badgeLabel(badge, tc) : ''
+  const BadgeIcon = badge ? badgeIcon(badge.kind) : null
 
   return (
     <div
@@ -416,13 +443,13 @@ function SessionItem({
       </form> : <>
       <button type="button" onClick={onSelect} className="flex-1 min-w-0 text-left">
         <div className="flex items-center gap-1.5">
-          {badge ? (
-            // 业务会话：12px 类型图标（任务=Globe，验证=ShieldCheck，报告=FileText）+ 业务标题。
-            <BadgeIcon icon={badge.icon} />
+          {badge && BadgeIcon ? (
+            // 业务会话：12px 类型图标（任务=Globe，验证=ShieldCheck，报告=FileText，复测=RefreshCw）+ 业务标题。
+            <BadgeIcon className="h-3 w-3 shrink-0" />
           ) : busy ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" role="status" aria-label={t('runningTask')} title={t('runningTask')} />
             : closed ? <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" role="status" aria-label={t('closedTask')} title={t('closedTask')} />
               : <MessageSquare className="h-2.5 w-2.5 shrink-0" />}
-          <span className="truncate text-[11px] font-medium" title={badge ? badge.label : undefined}>{badge ? badge.label : title}</span>
+          <span className="truncate text-[11px] font-medium" title={badge ? badgeText : undefined}>{badge ? badgeText : title}</span>
           {pendingReviews > 0 && <span className="ml-auto inline-flex items-center gap-0.5 text-warning" title={t('pendingReviews', { count: pendingReviews })}><ShieldAlert className="h-3 w-3" /><span className="text-[9px] tabular-nums">{pendingReviews}</span></span>}
         </div>
         <div className="mt-0.5 text-[9px] text-muted-foreground">{time}</div>
@@ -441,9 +468,4 @@ function SessionItem({
       </>}
     </div>
   )
-}
-
-// 业务类型图标：12px（h-3 w-3），颜色随行文字（muted / active 时 foreground）。
-function BadgeIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return <Icon className="h-3 w-3 shrink-0" />
 }

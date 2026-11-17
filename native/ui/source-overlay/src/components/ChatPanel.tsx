@@ -433,6 +433,8 @@ interface Props {
   onPause: () => void
   onClearError: () => void
   localModelActive?: boolean
+  /** 只渲染底部输入框（R2 执行时间线复用同一 composer 组件与发送路径），隐藏会话流。 */
+  composerOnly?: boolean
 }
 
 export default function ChatPanel({
@@ -461,6 +463,7 @@ export default function ChatPanel({
   onPause,
   onClearError,
   localModelActive = false,
+  composerOnly = false,
 }: Props) {
   const { t, i18n } = useTranslation('chat')
   const aopReducers = useMemo(() => new Map<string, ReturnType<typeof createAOPTimelineReducer>>(), [activeSessionID])
@@ -726,10 +729,10 @@ export default function ChatPanel({
   return (
     <ToolResultsProvider sessionID={activeSessionID}>
     <ViewerChatPanel
-      timeline={viewerTimeline as unknown as CyberTimelineItem[]}
-      className="min-w-0 bg-transparent"
+      timeline={composerOnly ? [] : viewerTimeline as unknown as CyberTimelineItem[]}
+      className={cn('min-w-0 bg-transparent', composerOnly && 'justify-end')}
     >
-      {(error || attachmentError) && (
+      {!composerOnly && (error || attachmentError) && (
         <ViewerChatPanel.ErrorBar>
           <div
             role="alert"
@@ -746,6 +749,7 @@ export default function ChatPanel({
       <div className="sr-only" role="status" aria-live="polite">
         {livePhase ? t(livePhase === 'thinking' ? 'a11yThinking' : 'a11yTurnDone') : ''}
       </div>
+      {!composerOnly && (
       <ViewerChatPanel.Timeline
         data-testid="conversation-timeline"
         className="overscroll-contain !px-0 !py-0"
@@ -762,9 +766,9 @@ export default function ChatPanel({
         scrollBehavior="instant"
         scrollResetKey={activeSessionID}
       />
+      )}
 
-      {(
-        <div className="bg-background/95 pb-safe backdrop-blur-sm">
+      <div className={cn('bg-background/95 pb-safe backdrop-blur-sm', composerOnly && 'shrink-0')}>
             {agentOffline && (
               <div className={cn(workspaceClass, 'pt-2')}>
                 <div className={inputFormClass}>
@@ -830,8 +834,7 @@ export default function ChatPanel({
                 />
               </div>
             </div>
-        </div>
-      )}
+      </div>
     </ViewerChatPanel>
     </ToolResultsProvider>
   )

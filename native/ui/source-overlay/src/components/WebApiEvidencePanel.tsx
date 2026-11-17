@@ -11,6 +11,9 @@ import { getWebApiEvidence, listWebApiEvidence, type WebApiEvidence, type WebApi
 
 interface Props {
   task: WebApiTask
+  /** 定位并选中该 evidence（模式同候选面板的 focusFindingId）；消费后回调清空。 */
+  focusEvidenceId?: string | null
+  onFocusConsumed?: () => void
 }
 
 // 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给原生 HttpViewPanels
@@ -140,7 +143,7 @@ function segmentOf(item: WebApiEvidence): TrafficSegment {
   return 'incomplete'
 }
 
-export default function WebApiEvidencePanel({ task }: Props) {
+export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusConsumed }: Props) {
   const { t } = useTranslation('chat')
   const [items, setItems] = useState<WebApiEvidence[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -232,6 +235,15 @@ export default function WebApiEvidencePanel({ task }: Props) {
     setSelectedId(item.evidence_id)
     void loadDetail(item.evidence_id)
   }, [loadDetail])
+
+  // 「在流量中查看」定位：按 evidence_id 直接选中/加载详情，不在首页 100 条内也能到达；
+  // 列表分页后仍以 ID 请求详情，找不到时 loadDetail 就地显示错误。404 不冒称已定位。
+  useEffect(() => {
+    if (!focusEvidenceId) return
+    setSelectedId(focusEvidenceId)
+    void loadDetail(focusEvidenceId)
+    onFocusConsumed?.()
+  }, [focusEvidenceId, loadDetail, onFocusConsumed])
 
   const refresh = useCallback(() => {
     listSeq.current++

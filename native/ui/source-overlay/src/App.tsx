@@ -8,6 +8,8 @@ import WebApiEvidencePanel from './components/WebApiEvidencePanel'
 import WebApiFindingsPanel from './components/WebApiFindingsPanel'
 import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
 import WebApiTaskNav from './components/WebApiTaskNav'
+import WebApiExecutionTimeline, { ExecutionViewHeader, type ExecutionViewMode } from './components/WebApiExecutionTimeline'
+import { buildExecutionTimeline } from './lib/execution-timeline'
 import { WebApiVerificationBar } from './components/WebApiVerification'
 import { WebApiRetestBar } from './components/WebApiRetest'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
@@ -91,8 +93,12 @@ export default function App({ services }: { services: HubServices }) {
   const [activeWebApiRetest, setActiveWebApiRetest] = useState<WebApiRetestDetail | null>(null)
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null)
   const [focusReportId, setFocusReportId] = useState<string | null>(null)
+  const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
   const pendingFindingIdRef = useRef<{ sessionID: string; findingID: string } | null>(null)
   const pendingReportIdRef = useRef<{ sessionID: string; reportID: string } | null>(null)
+  // 执行视图内部：时间线（默认）| 控制流。不在 WebApiView 枚举里 —— 切到流量/候选
+  // 再回来仍落回时间线，与任务导航语义一致。
+  const [executionMode, setExecutionMode] = useState<ExecutionViewMode>('timeline')
   const activeSessionIDRef = useRef(chat.activeSessionID)
   activeSessionIDRef.current = chat.activeSessionID
   const extensionRevision = useObservable(services.slots.revision)
@@ -118,6 +124,7 @@ export default function App({ services }: { services: HubServices }) {
     setActiveWebApiRetest(null)
     setFocusFindingId(null)
     setFocusReportId(null)
+    setFocusEvidenceId(null)
     setWorkspaceView('execution')
     setWebApiTaskError('')
     if (!webapiEnabled) return
@@ -401,8 +408,7 @@ export default function App({ services }: { services: HubServices }) {
   }
 
   // 从验证 session 返回原候选：定位到父任务 finding，而不是只给侧栏说明。
-  async function handleReturnToFinding() {
-    if (!activeWebApiVerification) return
+  async function handleReturnToFinding() {    if (!activeWebApiVerification) return
     const verification = activeWebApiVerification
     try {
       const parent = await getWebApiTask(verification.task_id)
@@ -456,6 +462,25 @@ export default function App({ services }: { services: HubServices }) {
   const webApiVerificationActive = webapiEnabled && !!activeWebApiVerification && activeWebApiVerification.session_id === chat.activeSessionID
   const webApiReportActive = webapiEnabled && !!activeWebApiReport && activeWebApiReport.session_id === chat.activeSessionID
   const webApiRetestActive = webapiEnabled && !!activeWebApiRetest && activeWebApiRetest.session_id === chat.activeSessionID
+  // 执行时间线数据：验证/报告/复测/任务会话的「执行」视图都显示（纯函数派生，不新增接口）。
+  const executionSessionActive = webApiTaskActive || webApiVerificationActive || webApiReportActive || webApiRetestActive
+  const executionData = useMemo(
+    () => (executionSessionActive ? buildExecutionTimeline(chat.aopEvents) : null),
+    [executionSessionActive, chat.aopEvents],
+  )
+
+  // 时间线「在流量中查看」：切换流量视图并定位该 evidence（模式同 focusFindingId）。
+  const handleViewEvidence = useCallback((taskId: string, evidenceId: string) => {
+    if (!activeWebApiTask || activeWebApiTask.id !== taskId) return
+    setFocusEvidenceId(evidenceId)
+    setWorkspaceView('traffic')
+  }, [activeWebApiTask])
+
+  // 时间线「查看候选」：切换候选视图并定位该 finding。
+  const handleViewFinding = useCallback((findingId: string) => {
+    setFocusFindingId(findingId)
+    setWorkspaceView('findings')
+  }, [])
 
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
@@ -548,7 +573,11 @@ export default function App({ services }: { services: HubServices }) {
               <WebApiTaskNav task={activeWebApiTask} view={workspaceView} onViewChange={setWorkspaceView} countsRevision={webApiCountsRevision} />
             )}
             {webApiTaskActive && activeWebApiTask && workspaceView === 'traffic' ? (
-              <WebApiEvidencePanel task={activeWebApiTask} />
+              <WebApiEvidencePanel
+                task={activeWebApiTask}
+                focusEvidenceId={focusEvidenceId}
+                onFocusConsumed={() => setFocusEvidenceId(null)}
+              />
             ) : webApiTaskActive && activeWebApiTask && workspaceView === 'findings' ? (
               <WebApiFindingsPanel
                 task={activeWebApiTask}
@@ -579,6 +608,117 @@ export default function App({ services }: { services: HubServices }) {
                 onFocusConsumed={() => setFocusReportId(null)}
                 onReportStarted={bumpWebApiCountsRevision}
               />
+            ) : executionSessionActive ? (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <ExecutionViewHeader mode={executionMode} onModeChange={setExecutionMode} summary={executionData?.summary ?? null} />
+                {executionMode === 'timeline' ? (
+                  executionData && executionData.entries.length > 0 ? (
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                      <WebApiExecutionTimeline
+                        data={executionData}
+                        onViewEvidence={handleViewEvidence}
+                        onViewFinding={handleViewFinding}
+                      />
+                      {/* 时间线视图保留原生 composer：与控制流模式同一组件与发送路径，
+                          发送后新事件追加到时间线（executionData 由会话事件驱动）。 */}
+                      <ChatPanel
+                        composerOnly
+                        resolveExtension={services.slots.resolve}
+                        extensionRevision={extensionRevision}
+                        timeline={chat.timeline}
+                        guardrailUnavailable={guardrails.unavailable[chat.activeSessionID || ''] === true}
+                        guardrailReviews={guardrails.bySession[chat.activeSessionID || ''] || []}
+                        onResolveGuardrail={(review, approve) => guardrails.resolve(chat.activeSessionID!, review, approve)}
+                        aopEvents={chat.aopEvents}
+                        isThinking={chat.isThinking}
+                        isBusy={chat.busy}
+                        canPause={chat.canPause}
+                        error={chat.error}
+                        activeSessionID={chat.activeSessionID}
+                        hasActiveSession={chat.activeSessionID !== null}
+                        agentOffline={activeAgentOffline}
+                        agentName={activeSession?.agentName}
+                        agents={chat.agents.map((a) => ({ nodeID: a.hello?.nodeId || '', name: a.hello?.name || '' }))}
+                        onCreateSession={handleCreateSession}
+                        onOpenTerminal={handleOpenTerminal}
+                        onOpenIOA={openIOAConsole}
+                        mentionables={mentionables}
+                        renderMentionPopup={renderMentionPopup}
+                        injectText={composerSeed}
+                        onSend={chat.sendMessage}
+                        ensureSession={chat.ensureSession}
+                        onPause={chat.cancelMessage}
+                        onClearError={chat.clearError}
+                        localModelActive={activeNodeIsLocalModel}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-1 flex-col overflow-hidden">
+                      <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">{tc('webapi.execNoEntries')}</div>
+                      <ChatPanel
+                        composerOnly
+                        resolveExtension={services.slots.resolve}
+                        extensionRevision={extensionRevision}
+                        timeline={chat.timeline}
+                        guardrailUnavailable={guardrails.unavailable[chat.activeSessionID || ''] === true}
+                        guardrailReviews={guardrails.bySession[chat.activeSessionID || ''] || []}
+                        onResolveGuardrail={(review, approve) => guardrails.resolve(chat.activeSessionID!, review, approve)}
+                        aopEvents={chat.aopEvents}
+                        isThinking={chat.isThinking}
+                        isBusy={chat.busy}
+                        canPause={chat.canPause}
+                        error={chat.error}
+                        activeSessionID={chat.activeSessionID}
+                        hasActiveSession={chat.activeSessionID !== null}
+                        agentOffline={activeAgentOffline}
+                        agentName={activeSession?.agentName}
+                        agents={chat.agents.map((a) => ({ nodeID: a.hello?.nodeId || '', name: a.hello?.name || '' }))}
+                        onCreateSession={handleCreateSession}
+                        onOpenTerminal={handleOpenTerminal}
+                        onOpenIOA={openIOAConsole}
+                        mentionables={mentionables}
+                        renderMentionPopup={renderMentionPopup}
+                        injectText={composerSeed}
+                        onSend={chat.sendMessage}
+                        ensureSession={chat.ensureSession}
+                        onPause={chat.cancelMessage}
+                        onClearError={chat.clearError}
+                        localModelActive={activeNodeIsLocalModel}
+                      />
+                    </div>
+                  )
+                ) : (
+                  <ChatPanel
+                    resolveExtension={services.slots.resolve}
+                    extensionRevision={extensionRevision}
+                    timeline={chat.timeline}
+                    guardrailUnavailable={guardrails.unavailable[chat.activeSessionID || ''] === true}
+                    guardrailReviews={guardrails.bySession[chat.activeSessionID || ''] || []}
+                    onResolveGuardrail={(review, approve) => guardrails.resolve(chat.activeSessionID!, review, approve)}
+                    aopEvents={chat.aopEvents}
+                    isThinking={chat.isThinking}
+                    isBusy={chat.busy}
+                    canPause={chat.canPause}
+                    error={chat.error}
+                    activeSessionID={chat.activeSessionID}
+                    hasActiveSession={chat.activeSessionID !== null}
+                    agentOffline={activeAgentOffline}
+                    agentName={activeSession?.agentName}
+                    agents={chat.agents.map((a) => ({ nodeID: a.hello?.nodeId || '', name: a.hello?.name || '' }))}
+                    onCreateSession={handleCreateSession}
+                    onOpenTerminal={handleOpenTerminal}
+                    onOpenIOA={openIOAConsole}
+                    mentionables={mentionables}
+                    renderMentionPopup={renderMentionPopup}
+                    injectText={composerSeed}
+                    onSend={chat.sendMessage}
+                    ensureSession={chat.ensureSession}
+                    onPause={chat.cancelMessage}
+                    onClearError={chat.clearError}
+                    localModelActive={activeNodeIsLocalModel}
+                  />
+                )}
+              </div>
             ) : (
             <ChatPanel
               resolveExtension={services.slots.resolve}
