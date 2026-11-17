@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":             {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -71,6 +71,9 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_retest_results":       {"retest_id", "session_id", "turn_id", "call_id", "payload_json", "created_at"},
 			"webapi_task_policies":        {"task_id", "scope", "approval", "updated_at"},
 			"webapi_task_policy_events":   {"id", "task_id", "scope", "approval", "created_at"},
+			"webapi_assets":               {"id", "name", "owner", "environment", "known_info", "objective", "origins_json", "forbidden", "scope", "approval", "archived", "created_at", "updated_at"},
+			"webapi_asset_credentials":    {"id", "asset_id", "label", "username", "secret_cipher", "note", "created_at", "updated_at"},
+			"webapi_asset_tasks":          {"task_id", "asset_id", "created_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -86,6 +89,8 @@ func SchemaModule() webservice.SchemaModule {
 			{Model: (*retestModel)(nil), Name: "webapi_retests_session", Columns: []string{"session_id"}, Unique: true},
 			{Model: (*retestModel)(nil), Name: "webapi_retests_finding_created", Expr: "finding_id, created_at DESC, id DESC"},
 			{Model: (*taskPolicyEventModel)(nil), Name: "webapi_task_policy_events_task_created", Expr: "task_id, created_at DESC, id DESC"},
+			{Model: (*assetCredentialModel)(nil), Name: "webapi_asset_credentials_asset", Columns: []string{"asset_id", "created_at"}},
+			{Model: (*assetTaskModel)(nil), Name: "webapi_asset_tasks_asset_created", Expr: "asset_id, created_at DESC"},
 		},
 	}
 }

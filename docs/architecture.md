@@ -33,7 +33,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` |
+| PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` 与 `asset:{id,name}\|null` |
 | PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |
 | GET | `/tasks/{id}/findings[/{fid}[/history\|/revisions/{rid}]]` | 候选、修订 |
@@ -44,6 +44,9 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET | `/reports?session_id=` | 由报告会话反查上下文 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/retests[/{rtid}]` | 发起/读取复测（固定候选修订；客户端稳定 UUID，幂等；保存不启动；结论与验证分开记录） |
 | GET | `/retests?session_id=` | 由复测会话反查上下文 |
+| GET/PUT | `/assets?archived=0\|1`、`/assets/{id}` | 资产登记（名称、负责人、环境、已知信息、默认目标、origins、禁止行为、默认策略、归档）；保存即生效；凭据只回 `has_secret`；见 `native/ASSETS.md` |
+| PUT/DELETE | `/assets/{id}/credentials/{cid}` | 测试账号（secret 写-only，AES-GCM 落库，省略/空串保留原值） |
+| PUT/GET | `/assets/{id}/tasks[/{task_id}]` | 从资产一次发起任务（建任务+策略+关联→Open→Run，按 task_id 幂等、可续完；Go 层 `Capability.LaunchAssetTask`）/ 关联任务列表 |
 | GET | `/usage?task_id=&from=&to=` | 只读 token 用量汇总（按日/模型，全局按任务、任务内按会话角色）；解 `chat_aop_events` 中 `Event_Usage`，不含费用，见 `native/USAGE.md` |
 
 工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。

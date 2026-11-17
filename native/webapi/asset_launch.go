@@ -1,0 +1,403 @@
+package webapi
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"sync"
+
+	aop "github.com/chainreactors/cyber/aop"
+	types "github.com/chainreactors/cyber/core/types"
+	managementapi "github.com/chainreactors/cyber/pkg/web/api"
+)
+
+// 与前端 lib/session-agent.ts 相同的节点能力标志：只选明确提供 webapi_http 的节点；
+// 本机受控模型节点 Run 预算固定 3（同前端 handleSendMessage）。
+const (
+	webapiHTTPCapability = "wscyber.webapi-http.v1"
+	localModelCapability = "wscyber.local-model.v1"
+	localModelMaxTurns   = 3
+)
+
+// sessionLauncher 是从资产发起任务所需的原生会话能力；生产实现包装管理 API
+// （Routes 时注入），测试可替换。
+type sessionLauncher interface {
+	Agents() []*types.AgentView
+	// Session 读已存在会话；不存在返回 (nil, nil)。
+	Session(ctx context.Context, sessionID string) (*aop.Session, error)
+	OpenSession(ctx context.Context, requestID string, request *aop.OpenSessionRequest) (*aop.OpenSessionResponse, error)
+	RunTurn(ctx context.Context, requestID string, request *aop.RunTurnRequest) (*aop.RunTurnResponse, error)
+	// UserTurn 判断会话里是否已有用户首条消息（Run 已被接受）。
+	UserTurn(ctx context.Context, sessionID string) (turnID string, found bool, err error)
+}
+
+type apiLauncher struct{ api *managementapi.API }
+
+func (l apiLauncher) Agents() []*types.AgentView {
+	return l.api.ListAgents(&types.ListAgentsRequest{}).GetAgents()
+}
+
+func (l apiLauncher) Session(ctx context.Context, sessionID string) (*aop.Session, error) {
+	if l.api.Sessions == nil {
+		return nil, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
+	}
+	response, err := l.api.Sessions.GetSession(ctx, &types.GetSessionRequest{SessionId: sessionID})
+	if managementapi.ErrorCode(err) == managementapi.CodeNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return response.GetSession().GetSession(), nil
+}
+
+func (l apiLauncher) OpenSession(ctx context.Context, requestID string, request *aop.OpenSessionRequest) (*aop.OpenSessionResponse, error) {
+	if l.api.Sessions == nil {
+		return nil, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
+	}
+	return l.api.Sessions.OpenSession(ctx, requestID, request)
+}
+
+func (l apiLauncher) RunTurn(ctx context.Context, requestID string, request *aop.RunTurnRequest) (*aop.RunTurnResponse, error) {
+	if l.api.Sessions == nil {
+		return nil, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
+	}
+	return l.api.Sessions.RunTurn(ctx, requestID, request)
+}
+
+// 首条用户消息在 Run 接受时先于 Agent 执行持久化，位于会话最前部。
+const userTurnScanLimit = 500
+
+func (l apiLauncher) UserTurn(ctx context.Context, sessionID string) (string, bool, error) {
+	if l.api.Sessions == nil {
+		return "", false, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
+	}
+	response, err := l.api.Sessions.ListEvents(ctx, &aop.ListEventsRequest{SessionId: sessionID, Limit: userTurnScanLimit})
+	if err != nil {
+		return "", false, err
+	}
+	for _, delivery := range response.GetEvents() {
+		event := delivery.GetEvent()
+		if message := event.GetMessage(); message != nil && message.GetRole() == "user" {
+			return event.GetTurnId(), true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// AssetLaunchOptions 覆盖资产默认值；空串＝用资产的 objective/scope/approval。
+type AssetLaunchOptions struct {
+	Objective string `json:"objective"`
+	Scope     string `json:"scope"`
+	Approval  string `json:"approval"`
+}
+
+// AssetLaunchProgress 如实记录已完成到哪一步。
+type AssetLaunchProgress struct {
+	TaskCreated   bool `json:"task_created"`
+	SessionOpened bool `json:"session_opened"`
+	TurnStarted   bool `json:"turn_started"`
+}
+
+// AssetLaunchResult 是发起结果（成功或部分完成）。
+type AssetLaunchResult struct {
+	AssetID   string              `json:"asset_id"`
+	Task      *Task               `json:"task"`
+	SessionID string              `json:"session_id"`
+	NodeID    string              `json:"node_id"`
+	TurnID    string              `json:"turn_id"`
+	Progress  AssetLaunchProgress `json:"progress"`
+	// Created=本次新建任务；Idempotent=本次调用前已全部完成，未做任何动作。
+	Created    bool `json:"created"`
+	Idempotent bool `json:"idempotent"`
+}
+
+// AssetLaunchError 带 HTTP 状态、失败阶段与已完成进度；重试同一 task_id 续完。
+type AssetLaunchError struct {
+	Status int
+	Stage  string // validate | task | first_message | select_node | open_session | run_turn
+	Msg    string
+	Result *AssetLaunchResult
+}
+
+func (e *AssetLaunchError) Error() string { return e.Msg }
+
+func launchFail(status int, stage, message string, result *AssetLaunchResult) *AssetLaunchError {
+	return &AssetLaunchError{Status: status, Stage: stage, Msg: message, Result: result}
+}
+
+func randomRequestID(prefix string) string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return prefix + hex.EncodeToString(b)
+}
+
+// taskLaunchLock 按 task_id 串行化同进程内并发发起，避免重复 Open/Run。
+func (c *Capability) taskLaunchLock(taskID string) func() {
+	value, _ := c.launchLocks.LoadOrStore(taskID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// LaunchAssetTask 从资产一次完成：建任务（含策略与资产关联）→ Open → Run（首条消息附
+// 测试账号与禁止行为块）。按 task_id 幂等：已完成的步骤不重复；失败返回 *AssetLaunchError
+// 说明阶段与进度，同 task_id 重试续完。供 HTTP 与周期调度共用。
+func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string, opts AssetLaunchOptions) (*AssetLaunchResult, error) {
+	if err := validPathID(assetID); err != nil {
+		return nil, launchFail(http.StatusBadRequest, "validate", "资产 id 非法", nil)
+	}
+	if err := validPathID(taskID); err != nil {
+		return nil, launchFail(http.StatusBadRequest, "validate", "任务 id 非法", nil)
+	}
+	opts.Scope, opts.Approval = strings.TrimSpace(opts.Scope), strings.TrimSpace(opts.Approval)
+	if opts.Scope != "" && opts.Scope != ScopeOrigins && opts.Scope != ScopeUnrestricted {
+		return nil, launchFail(http.StatusBadRequest, "validate", "scope 只能是 origins 或 unrestricted", nil)
+	}
+	if opts.Approval != "" && opts.Approval != ApprovalOff && opts.Approval != ApprovalHighRisk && opts.Approval != ApprovalAll {
+		return nil, launchFail(http.StatusBadRequest, "validate", "approval 只能是 off、high_risk 或 all", nil)
+	}
+	unlock := c.taskLaunchLock(taskID)
+	defer unlock()
+
+	asset, err := c.store.assetModel(ctx, assetID)
+	if err != nil {
+		return nil, launchFail(http.StatusInternalServerError, "task", "读取资产失败", nil)
+	}
+	if asset == nil {
+		return nil, launchFail(http.StatusNotFound, "validate", "资产不存在", nil)
+	}
+	result := &AssetLaunchResult{AssetID: assetID}
+
+	// 1. 任务 + 策略 + 关联（单事务）。已存在且属于本资产则原样沿用，不按当前资产重算。
+	existing, err := c.store.Get(ctx, taskID)
+	if err != nil {
+		return nil, launchFail(http.StatusInternalServerError, "task", "读取任务失败", nil)
+	}
+	knownInfo := composeAssetKnownInfo(asset)
+	objective := opts.Objective
+	if strings.TrimSpace(objective) == "" {
+		objective = asset.Objective
+	}
+	scope, approval := asset.Scope, asset.Approval
+	if opts.Scope != "" {
+		scope = opts.Scope
+	}
+	if opts.Approval != "" {
+		approval = opts.Approval
+	}
+	origins, err := decodeOrigins(asset.OriginsJSON)
+	if err != nil {
+		return nil, launchFail(http.StatusInternalServerError, "task", "资产 origins 损坏", nil)
+	}
+	if existing == nil {
+		if strings.TrimSpace(knownInfo) == "" {
+			return nil, launchFail(http.StatusBadRequest, "validate", "资产已知信息、环境、负责人均为空，无法组成任务已知信息", nil)
+		}
+		if strings.TrimSpace(objective) == "" {
+			return nil, launchFail(http.StatusBadRequest, "validate", "资产未设默认目标，请求也未提供 objective", nil)
+		}
+		if len(origins) == 0 {
+			return nil, launchFail(http.StatusBadRequest, "validate", "资产没有授权 origin", nil)
+		}
+		if err := validPolicy(scope, approval); err != nil {
+			return nil, launchFail(http.StatusBadRequest, "validate", err.Error(), nil)
+		}
+	}
+	task, created, err := c.store.createAssetTask(ctx, assetID, taskID, knownInfo, objective, origins, scope, approval)
+	if errors.Is(err, errAssetTaskOther) {
+		return nil, launchFail(http.StatusConflict, "task", errAssetTaskOther.Error(), nil)
+	}
+	if err != nil {
+		return nil, launchFail(http.StatusInternalServerError, "task", "保存任务失败", nil)
+	}
+	result.Created = created
+	result.Progress.TaskCreated = true
+	result.SessionID = task.InitialSessionID
+	if decorated, err := c.store.withPolicy(ctx, task); err == nil {
+		result.Task = decorated
+	} else {
+		result.Task = task
+	}
+
+	if c.launcher == nil {
+		return result, launchFail(http.StatusServiceUnavailable, "open_session", "会话服务不可用，任务已保存但未启动；可重试", result)
+	}
+	// 2. 会话：已存在则沿用原绑定节点，不换节点。
+	session, err := c.launcher.Session(ctx, task.InitialSessionID)
+	if err != nil {
+		return result, launchFail(http.StatusInternalServerError, "open_session", "暂不能核对原生会话状态，任务已保存；可重试（不会重复 Open）", result)
+	}
+	agents := c.launcher.Agents()
+	if session != nil {
+		result.Progress.SessionOpened = true
+		result.NodeID = session.GetNodeId()
+		turnID, found, err := c.launcher.UserTurn(ctx, task.InitialSessionID)
+		if err != nil {
+			return result, launchFail(http.StatusInternalServerError, "run_turn", "暂不能核对首条消息是否已发送，任务与会话已就绪；可重试（不会盲发新 Run）", result)
+		}
+		if found {
+			result.Progress.TurnStarted = true
+			result.TurnID = turnID
+			result.Idempotent = !created
+			return result, nil
+		}
+	}
+
+	// 3. 首条消息（解密测试账号）在 Open 前组装：密钥问题不留下空会话。
+	message, err := c.assetFirstMessage(ctx, asset, task)
+	if err != nil {
+		return result, launchFail(http.StatusInternalServerError, "first_message", err.Error(), result)
+	}
+
+	var node *types.AgentView
+	if session != nil {
+		node = findAgent(agents, session.GetNodeId())
+		if node == nil {
+			return result, launchFail(http.StatusConflict, "run_turn", "会话绑定的节点 "+session.GetNodeId()+" 当前不在线，任务与会话已保存但未启动；节点上线后重试", result)
+		}
+	} else {
+		node = pickWebAPINode(agents)
+		if node == nil {
+			return result, launchFail(http.StatusConflict, "select_node", "当前没有已提供 webapi_http 工具的在线节点，任务已保存但未启动；请先启动或连接模型节点后重试", result)
+		}
+	}
+	if hasCapability(node, localModelCapability) && (strings.TrimSpace(node.GetStatus().GetProvider()) == "" || strings.TrimSpace(node.GetStatus().GetModel()) == "") {
+		return result, launchFail(http.StatusConflict, "select_node", "本机模型节点尚未配置模型，任务已保存但未启动；请在设置中配置模型后重试", result)
+	}
+	result.NodeID = node.GetHello().GetNodeId()
+	if session == nil {
+		response, err := c.launcher.OpenSession(ctx, randomRequestID("wa-open-"), &aop.OpenSessionRequest{SessionId: task.InitialSessionID, NodeId: result.NodeID})
+		if err != nil {
+			return result, launchFail(http.StatusBadGateway, "open_session", "创建原生会话失败："+err.Error(), result)
+		}
+		if rejected := response.GetRejected(); rejected != nil || response.GetAccepted() == nil {
+			return result, rejectionFail("open_session", "创建原生会话被拒绝", rejected, result)
+		}
+		result.Progress.SessionOpened = true
+	}
+
+	maxTurns := uint32(0)
+	if hasCapability(node, localModelCapability) {
+		maxTurns = localModelMaxTurns
+	}
+	turnID := randomRequestID("")
+	run, err := c.launcher.RunTurn(ctx, randomRequestID("wa-run-"), &aop.RunTurnRequest{
+		SessionId: task.InitialSessionID, TurnId: turnID, MaxTurns: maxTurns,
+		Input: &aop.Message{Id: randomRequestID(""), Role: "user", Content: []*aop.Content{{Value: &aop.Content_Text{Text: &aop.TextContent{Text: message}}}}},
+	})
+	if err != nil {
+		return result, launchFail(http.StatusBadGateway, "run_turn", "发送首条消息失败："+err.Error(), result)
+	}
+	if rejected := run.GetRejected(); rejected != nil || run.GetAccepted() == nil {
+		return result, rejectionFail("run_turn", "首条消息被拒绝", rejected, result)
+	}
+	result.Progress.TurnStarted = true
+	result.TurnID = run.GetAccepted().GetTurnId()
+	return result, nil
+}
+
+func rejectionFail(stage, prefix string, rejected *aop.Rejection, result *AssetLaunchResult) *AssetLaunchError {
+	code, detail := rejected.GetCode(), rejected.GetMessage()
+	status := http.StatusBadGateway
+	message := fmt.Sprintf("%s（%s：%s），任务已保存；可重试", prefix, code, detail)
+	if code == string(managementapi.CodeUnavailable) {
+		status = http.StatusConflict
+		message = prefix + "：节点不在线，任务已保存但未启动；节点上线后重试"
+	}
+	return launchFail(status, stage, message, result)
+}
+
+func hasCapability(agent *types.AgentView, capability string) bool {
+	for _, value := range agent.GetHello().GetCapabilities() {
+		if value == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func findAgent(agents []*types.AgentView, nodeID string) *types.AgentView {
+	for _, agent := range agents {
+		if agent.GetHello().GetNodeId() == nodeID && nodeID != "" {
+			return agent
+		}
+	}
+	return nil
+}
+
+// pickWebAPINode 同前端 findWebApiHttpNode：在线且提供 webapi_http；服务端无“当前选中”，
+// 按 node_id 排序取第一个保证确定性。
+func pickWebAPINode(agents []*types.AgentView) *types.AgentView {
+	capable := []*types.AgentView{}
+	for _, agent := range agents {
+		if agent.GetHello().GetNodeId() != "" && hasCapability(agent, webapiHTTPCapability) {
+			capable = append(capable, agent)
+		}
+	}
+	sort.Slice(capable, func(i, j int) bool { return capable[i].GetHello().GetNodeId() < capable[j].GetHello().GetNodeId() })
+	if len(capable) == 0 {
+		return nil
+	}
+	return capable[0]
+}
+
+// webAPIFirstMessage 与前端 useChatSession.ts webApiFirstMessage 逐行一致。
+func webAPIFirstMessage(task *Task) []string {
+	lines := []string{
+		"开始探索任务。",
+		"",
+		"目标／已知信息：" + task.KnownInfo,
+		"希望达到的目标：" + task.Objective,
+		"",
+		"HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：",
+	}
+	for _, origin := range task.Origins {
+		lines = append(lines, "- "+origin)
+	}
+	return append(lines, "", "提示：需要发送 HTTP 请求时，优先使用 webapi_http 工具以留存请求/响应证据（此提示不构成额外授权）。")
+}
+
+// assetFirstMessage = 前端首条消息 + 测试账号块（发起时解密，只进首条消息）+ 禁止行为块。
+func (c *Capability) assetFirstMessage(ctx context.Context, asset *assetModel, task *Task) (string, error) {
+	lines := webAPIFirstMessage(task)
+	credentials, err := c.store.assetCredentials(ctx, asset.ID)
+	if err != nil {
+		return "", errors.New("读取测试账号失败")
+	}
+	if items := credentials[asset.ID]; len(items) > 0 {
+		lines = append(lines, "", "测试账号（资产登记，仅用于上述授权范围内的测试）：")
+		for _, item := range items {
+			fields := []string{}
+			if item.Label != "" {
+				fields = append(fields, "名称："+item.Label)
+			}
+			if item.Username != "" {
+				fields = append(fields, "用户名："+item.Username)
+			}
+			if item.SecretCipher != "" {
+				aead, err := c.secrets.load(false)
+				if err != nil {
+					return "", err
+				}
+				secret, err := openSecret(aead, asset.ID, item.ID, item.SecretCipher)
+				if err != nil {
+					return "", err
+				}
+				fields = append(fields, "密码："+secret)
+			}
+			if len(fields) > 0 {
+				lines = append(lines, "- "+strings.Join(fields, "；"))
+			}
+		}
+	}
+	if forbidden := strings.TrimSpace(asset.Forbidden); forbidden != "" {
+		lines = append(lines, "", "禁止行为（提示词约束，非拦截）：", forbidden)
+	}
+	return strings.Join(lines, "\n"), nil
+}

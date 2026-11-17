@@ -13,9 +13,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	aop "github.com/chainreactors/cyber/aop"
 	"github.com/chainreactors/cyber/pkg/web"
@@ -34,6 +36,8 @@ type Task struct {
 	CreatedAt        string   `json:"created_at"`
 	// Policy 只在接口响应中附带当前测试策略，不进入任务规范比较。
 	Policy *TaskPolicy `json:"policy,omitempty"`
+	// Asset 只在接口响应中附带：从资产发起的任务为 {id,name}，否则 null。
+	Asset *TaskAssetRef `json:"asset"`
 }
 
 // taskAuthorization 是规范保存的授权部分（已规范化 origins）。
@@ -277,6 +281,11 @@ func (c *Capability) handleGetTaskBySession(w http.ResponseWriter, r *http.Reque
 type Capability struct {
 	store     *taskStore
 	approvals *approvalRuntime
+	// secrets 加密资产测试账号；密钥文件与 hub.sqlite 同在 state-dir。
+	secrets *secretBox
+	// launcher 由 Routes 从原生管理 API 注入（从资产发起任务用）；测试可替换。
+	launcher    sessionLauncher
+	launchLocks sync.Map
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -285,7 +294,7 @@ func NewCapability(database string) (*Capability, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	return &Capability{store: store, approvals: newApprovalRuntime()}, nil
+	return &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName))}, nil
 }
 
 func (c *Capability) ID() string { return "webapi" }
@@ -300,7 +309,10 @@ func (c *Capability) SchemaModules() []webservice.SchemaModule {
 }
 
 // Routes 注册原生鉴权内的业务输入/读取路由。
-func (c *Capability) Routes(_ *managementapi.API) []web.Route {
+func (c *Capability) Routes(api *managementapi.API) []web.Route {
+	if api != nil {
+		c.launcher = apiLauncher{api: api}
+	}
 	return []web.Route{
 		{Pattern: "PUT /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handlePutTask)},
 		{Pattern: "GET /api/webapi/tasks", Handler: http.HandlerFunc(c.handleGetTaskBySession)},
@@ -326,6 +338,13 @@ func (c *Capability) Routes(_ *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks/{id}/reports/{report_id}/export", Handler: http.HandlerFunc(c.handleReportExport)},
 		{Pattern: "GET /api/webapi/reports", Handler: http.HandlerFunc(c.handleReportBySession)},
 		{Pattern: "GET /api/webapi/usage", Handler: http.HandlerFunc(c.handleUsage)},
+		{Pattern: "GET /api/webapi/assets", Handler: http.HandlerFunc(c.handleAssetList)},
+		{Pattern: "GET /api/webapi/assets/{id}", Handler: http.HandlerFunc(c.handleAssetGet)},
+		{Pattern: "PUT /api/webapi/assets/{id}", Handler: http.HandlerFunc(c.handleAssetPut)},
+		{Pattern: "PUT /api/webapi/assets/{id}/credentials/{cid}", Handler: http.HandlerFunc(c.handleCredentialPut)},
+		{Pattern: "DELETE /api/webapi/assets/{id}/credentials/{cid}", Handler: http.HandlerFunc(c.handleCredentialDelete)},
+		{Pattern: "GET /api/webapi/assets/{id}/tasks", Handler: http.HandlerFunc(c.handleAssetTasks)},
+		{Pattern: "PUT /api/webapi/assets/{id}/tasks/{task_id}", Handler: http.HandlerFunc(c.handleAssetLaunch)},
 	}
 }
 

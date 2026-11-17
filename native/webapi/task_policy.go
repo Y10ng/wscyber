@@ -124,7 +124,7 @@ func (s *taskStore) setPolicy(ctx context.Context, taskID, scope, approval strin
 	return current.toPolicy(), nil
 }
 
-// withPolicy 给任务响应附上当前策略；读失败返回错误而不是伪造默认值。
+// withPolicy 给任务响应附上当前策略与来源资产；读失败返回错误而不是伪造默认值。
 func (s *taskStore) withPolicy(ctx context.Context, task *Task) (*Task, error) {
 	if task == nil {
 		return nil, nil
@@ -133,8 +133,13 @@ func (s *taskStore) withPolicy(ctx context.Context, task *Task) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	asset, err := s.assetForTask(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
 	copied := *task
 	copied.Policy = &policy
+	copied.Asset = asset
 	return &copied, nil
 }
 
