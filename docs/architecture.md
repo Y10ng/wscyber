@@ -43,6 +43,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET | `/reports?session_id=` | 由报告会话反查上下文 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/retests[/{rtid}]` | 发起/读取复测（固定候选修订；客户端稳定 UUID，幂等；保存不启动；结论与验证分开记录） |
 | GET | `/retests?session_id=` | 由复测会话反查上下文 |
+| GET | `/usage?task_id=&from=&to=` | 只读 token 用量汇总（按日/模型，全局按任务、任务内按会话角色）；解 `chat_aop_events` 中 `Event_Usage`，不含费用，见 `native/USAGE.md` |
 
 工具：`webapi_http`（只发授权 origins，保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 

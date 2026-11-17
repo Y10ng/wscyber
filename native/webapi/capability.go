@@ -307,6 +307,7 @@ func (c *Capability) Routes(_ *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks/{id}/reports/{report_id}", Handler: http.HandlerFunc(c.handleReportGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/reports/{report_id}/export", Handler: http.HandlerFunc(c.handleReportExport)},
 		{Pattern: "GET /api/webapi/reports", Handler: http.HandlerFunc(c.handleReportBySession)},
+		{Pattern: "GET /api/webapi/usage", Handler: http.HandlerFunc(c.handleUsage)},
 	}
 }
 
