@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, ListChecks, Play, Radio } from 'lucide-react'
+import { FileText, Gauge, ListChecks, Play, Radio } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@cyber/theme'
 import {
@@ -29,7 +29,7 @@ interface NavItem {
   count: CountState
 }
 
-// 任务局部导航（UI 改版 B）：执行 / 流量 / 候选 / 报告，图标 + 文字 + 右侧计数。
+// 任务局部导航（UI 改版 B）：执行 / 流量 / 候选 / 报告 / 用量，图标 + 文字 + 右侧计数。
 // ≥1100px 视口渲染为 168px 竖列；<1100px 由 .webapi-task-row（垂直堆叠）+ 媒体查询
 // 收为横向分段。计数取列表接口第一页（无 total 字段）：has_more 用 “N+”；
 // 取不到就不显示，不显示假 0。countsRevision 变化时重取（新建报告/验证后计数即时更新）。
@@ -75,6 +75,8 @@ export default function WebApiTaskNav({ task, view, onViewChange, countsRevision
     { view: 'traffic', icon: Radio, labelKey: 'webapi.traffic', count: counts.traffic },
     { view: 'findings', icon: ListChecks, labelKey: 'webapi.findings', count: counts.findings },
     { view: 'reports', icon: FileText, labelKey: 'webapi.reports', count: counts.reports },
+    // 用量：只读汇总视图，无计数徽标。
+    { view: 'usage', icon: Gauge, labelKey: 'webapi.usageView', count: null },
   ]
 
   return (

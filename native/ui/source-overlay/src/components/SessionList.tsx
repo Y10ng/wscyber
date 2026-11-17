@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  FileText, Globe, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, Monitor,
+  FileText, Gauge, Globe, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, Monitor,
   List, MessageSquare, MoreHorizontal, Plus, RefreshCw, Trash2,
   Archive, ArchiveRestore, Pencil, Check, X, ShieldAlert, ShieldCheck,
 } from 'lucide-react'
@@ -203,14 +203,17 @@ interface Props {
   onSelectSession: (id: string) => void
   onCreateSession: (nodeID: string) => void
   onDeleteSession: (id: string) => void
+  /** 全局用量入口（webapi capability 可用时提供；标题行「用量」按钮）。 */
+  onOpenUsage?: () => void
 }
 
 export default function SessionList({
   open, onToggle, agents = [], sessions = [], pendingReviewCounts = {}, filters, onFilter,
   activeSessionID, activeSessionNodeID, activeSessionBusy, selectedNodeID,
-  onSelectSession, onCreateSession, onDeleteSession, onUpdateSession,
+  onSelectSession, onCreateSession, onDeleteSession, onUpdateSession, onOpenUsage,
 }: Props) {
   const { t } = useTranslation('sidebar')
+  const { t: tc } = useTranslation('chat')
   const webApiBadges = useWebApiSessionBadges(sessions)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const toggleRef = useRef(onToggle)
@@ -281,6 +284,16 @@ export default function SessionList({
           {open ? (
             <>
               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">{t('tasks')}</span>
+              {onOpenUsage && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={onOpenUsage} className="h-7 w-7 text-muted-foreground" aria-label={tc('webapi.usageView')}>
+                      <Gauge className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{tc('webapi.usageView')}</TooltipContent>
+                </Tooltip>
+              )}
               <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onToggle} className="h-7 w-7 text-muted-foreground" aria-label={t('collapseSidebar')}>
                 <PanelLeftClose className="w-4 h-4" />
               </Button>

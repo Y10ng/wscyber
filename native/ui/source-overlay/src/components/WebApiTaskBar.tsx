@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Globe, ShieldCheck } from 'lucide-react'
 import type { WebApiTask } from '../api'
 
-export type WebApiView = 'execution' | 'traffic' | 'findings' | 'reports'
+export type WebApiView = 'execution' | 'traffic' | 'findings' | 'reports' | 'usage'
 
 interface Props {
   task: WebApiTask

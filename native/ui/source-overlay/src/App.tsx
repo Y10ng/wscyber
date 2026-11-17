@@ -14,6 +14,8 @@ import { WebApiVerificationBar } from './components/WebApiVerification'
 import { WebApiRetestBar } from './components/WebApiRetest'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
 import WebApiReportBar from './components/WebApiReportBar'
+import WebApiUsagePanel from './components/WebApiUsagePanel'
+import WebApiUsageDialog from './components/WebApiUsageDialog'
 import { assetMentionables } from './components/AssetPanel'
 import MentionPicker from './components/MentionPicker'
 import QuickConnect from './components/QuickConnect'
@@ -82,6 +84,7 @@ export default function App({ services }: { services: HubServices }) {
   const activeToolPanel = panelSelection?.id ?? null
   const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
   // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
@@ -482,6 +485,18 @@ export default function App({ services }: { services: HubServices }) {
     setWorkspaceView('findings')
   }, [])
 
+  // 全局用量 Dialog 点击任务行：关闭 Dialog，按 task_id 解析出任务初始会话后打开该任务。
+  const handleOpenUsageTask = useCallback(async (taskID: string) => {
+    if (!taskID) return
+    setUsageDialogOpen(false)
+    try {
+      const task = await getWebApiTask(taskID)
+      void chat.selectSession(task.initial_session_id)
+    } catch (err) {
+      setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }, [chat.selectSession])
+
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
     <TooltipProvider delayDuration={300}>
@@ -543,6 +558,7 @@ export default function App({ services }: { services: HubServices }) {
             onSelectSession={handleSelectSession}
             onCreateSession={handleCreateSession}
             onDeleteSession={handleDeleteSession}
+            onOpenUsage={webapiEnabled ? () => setUsageDialogOpen(true) : undefined}
           />
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -608,6 +624,8 @@ export default function App({ services }: { services: HubServices }) {
                 onFocusConsumed={() => setFocusReportId(null)}
                 onReportStarted={bumpWebApiCountsRevision}
               />
+            ) : webApiTaskActive && activeWebApiTask && workspaceView === 'usage' ? (
+              <WebApiUsagePanel task={activeWebApiTask} onViewExecution={chat.selectSession} />
             ) : executionSessionActive ? (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <ExecutionViewHeader mode={executionMode} onModeChange={setExecutionMode} summary={executionData?.summary ?? null} />
@@ -756,6 +774,10 @@ export default function App({ services }: { services: HubServices }) {
       </div>
 
       <WebApiTaskDialog open={taskDialogOpen} onClose={() => setTaskDialogOpen(false)} onSubmit={chat.startWebApiTask} />
+
+      {webapiEnabled && (
+        <WebApiUsageDialog open={usageDialogOpen} onClose={() => setUsageDialogOpen(false)} onOpenTask={handleOpenUsageTask} />
+      )}
 
       <WorkbenchSlots services={services} name="shell.panels" />
     </TooltipProvider>

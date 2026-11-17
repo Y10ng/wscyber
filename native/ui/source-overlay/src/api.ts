@@ -1071,6 +1071,59 @@ export async function exportWebApiReport(taskID: string, reportID: string, forma
   return res.text()
 }
 
+// --- Web/API 用量（只读 token 汇总；上游无价格配置，不含费用） ---
+// 契约见 native/USAGE.md：task_id 省略/空 = 全局汇总（返回 by_task）；
+// 指定 task 返回 by_session；from/to 为 Hub 本地时区日期闭区间（YYYY-MM-DD）。
+// 损坏事件行计入 skipped_events，不进任何汇总；日期按响应 timezone 字段。
+
+export interface WebApiUsageTotals {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  calls: number
+}
+
+export interface WebApiUsageDay extends WebApiUsageTotals {
+  day: string
+}
+
+export interface WebApiUsageModel extends WebApiUsageTotals {
+  model: string
+}
+
+export interface WebApiUsageTask extends WebApiUsageTotals {
+  task_id: string
+  title: string
+}
+
+export interface WebApiUsageSession extends WebApiUsageTotals {
+  session_id: string
+  role: string
+  finding_id: string
+  report_id: string
+}
+
+export interface WebApiUsageReport {
+  timezone: string
+  totals: WebApiUsageTotals
+  by_day: WebApiUsageDay[]
+  by_model: WebApiUsageModel[]
+  by_task?: WebApiUsageTask[]
+  by_session?: WebApiUsageSession[]
+  skipped_events: number
+}
+
+export async function getWebApiUsage(options?: { taskId?: string; from?: string; to?: string }): Promise<WebApiUsageReport> {
+  const query = new URLSearchParams()
+  if (options?.taskId) query.set('task_id', options.taskId)
+  if (options?.from) query.set('from', options.from)
+  if (options?.to) query.set('to', options.to)
+  const suffix = query.toString()
+  return apiJSON<WebApiUsageReport>(`/api/webapi/usage${suffix ? `?${suffix}` : ''}`, 'Failed to load usage')
+}
+
 export function webApiReportExportFilename(reportID: string, format: 'markdown' | 'json'): string {
   return `report-${reportID.slice(0, 8)}.${format === 'markdown' ? 'md' : 'json'}`
 }
