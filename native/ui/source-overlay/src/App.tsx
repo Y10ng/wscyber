@@ -9,6 +9,7 @@ import WebApiFindingsPanel from './components/WebApiFindingsPanel'
 import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
 import WebApiTaskNav from './components/WebApiTaskNav'
 import { WebApiVerificationBar } from './components/WebApiVerification'
+import { WebApiRetestBar } from './components/WebApiRetest'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
 import WebApiReportBar from './components/WebApiReportBar'
 import { assetMentionables } from './components/AssetPanel'
@@ -18,8 +19,8 @@ import BrandLogo from './components/brand/BrandLogo'
 import { useObservations } from '@/viewer'
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, useConfirm } from '@cyber/ui'
 import { ThemeProvider, cn } from '@cyber/theme'
-import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiTask, getWebApiTaskBySession, getWebApiVerificationBySession, logout } from './api'
-import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiReportDetail, WebApiTask, WebApiVerificationDetail } from './api'
+import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiVerificationBySession, logout } from './api'
+import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiReportDetail, WebApiRetestDetail, WebApiTask, WebApiVerificationDetail } from './api'
 import type { SCONode } from '@cyber/cstx-easm'
 import type { MentionPopupApi } from './viewer'
 import { useChatSession } from './hooks/useChatSession'
@@ -87,6 +88,7 @@ export default function App({ services }: { services: HubServices }) {
   const [webApiTaskError, setWebApiTaskError] = useState('')
   const [activeWebApiVerification, setActiveWebApiVerification] = useState<WebApiVerificationDetail | null>(null)
   const [activeWebApiReport, setActiveWebApiReport] = useState<WebApiReportDetail | null>(null)
+  const [activeWebApiRetest, setActiveWebApiRetest] = useState<WebApiRetestDetail | null>(null)
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null)
   const [focusReportId, setFocusReportId] = useState<string | null>(null)
   const pendingFindingIdRef = useRef<{ sessionID: string; findingID: string } | null>(null)
@@ -109,10 +111,11 @@ export default function App({ services }: { services: HubServices }) {
   // 选中/刷新已有原生会话后按 session 查询恢复业务 Task；非 Web/API 会话不显示
   // 假流量，也不根据聊天文本/标题猜 TaskID。
   useEffect(() => {
-    // 切 session 立刻清旧 Task/验证/报告/视图，渲染再由 initial_session_id / session_id 兜底。
+    // 切 session 立刻清旧 Task/验证/报告/复测/视图，渲染再由 initial_session_id / session_id 兜底。
     setActiveWebApiTask(null)
     setActiveWebApiVerification(null)
     setActiveWebApiReport(null)
+    setActiveWebApiRetest(null)
     setFocusFindingId(null)
     setFocusReportId(null)
     setWorkspaceView('execution')
@@ -123,7 +126,7 @@ export default function App({ services }: { services: HubServices }) {
     if (pendingFindingIdRef.current && pendingFindingIdRef.current.sessionID !== id) pendingFindingIdRef.current = null
     if (pendingReportIdRef.current && pendingReportIdRef.current.sessionID !== id) pendingReportIdRef.current = null
     let cancelled = false
-    // 报告 session：taskForSession 与验证反查都不解析，只能经 reports?session_id= 反查；
+    // 报告 session：taskForSession 与验证/复测反查都不解析，只能经 reports?session_id= 反查；
     // 只有真实 404 算无报告，网络/服务端错误可见。
     const resolveReport = async () => {
       try {
@@ -135,6 +138,27 @@ export default function App({ services }: { services: HubServices }) {
         if (!(rerr instanceof APIError) || rerr.status !== 404) {
           setWebApiTaskError(rerr instanceof Error ? rerr.message : String(rerr))
         }
+      }
+    }
+    // 复测 session：taskForSession 回父任务 200，验证反查 404 后先试复测再落报告。
+    const resolveRetest = async () => {
+      try {
+        const retest = await getWebApiRetestBySession(id)
+        if (cancelled) return
+        if (retest.session_id === id) {
+          setActiveWebApiRetest(retest)
+          setWorkspaceView('execution')
+        }
+      } catch (rterr: unknown) {
+        if (cancelled) return
+        setActiveWebApiRetest(null)
+        setWorkspaceView('execution')
+        // 只有真实 404 算无复测；网络/服务端错误可见，不静默吞掉。无复测时再试报告。
+        if (!(rterr instanceof APIError) || rterr.status !== 404) {
+          setWebApiTaskError(rterr instanceof Error ? rterr.message : String(rterr))
+          return
+        }
+        await resolveReport()
       }
     }
     const resolveVerification = async () => {
@@ -149,12 +173,12 @@ export default function App({ services }: { services: HubServices }) {
         if (cancelled) return
         setActiveWebApiVerification(null)
         setWorkspaceView('execution')
-        // 只有真实 404 算无验证；网络/服务端错误可见，不静默吞掉。无验证时再试报告。
+        // 只有真实 404 算无验证；网络/服务端错误可见，不静默吞掉。无验证时再试复测/报告。
         if (!(verr instanceof APIError) || verr.status !== 404) {
           setWebApiTaskError(verr instanceof Error ? verr.message : String(verr))
           return
         }
-        await resolveReport()
+        await resolveRetest()
       }
     }
     getWebApiTaskBySession(id)
@@ -173,19 +197,19 @@ export default function App({ services }: { services: HubServices }) {
             pendingReportIdRef.current = null
           }
         } else {
-          // 验证 session 被后端 taskForSession 回父 Task 200：只读查回验证显示 Bar，不再等 404。
+          // 验证/复测 session 被后端 taskForSession 回父 Task 200：只读查回该记录显示 Bar，不再等 404。
           void resolveVerification()
         }
       })
       .catch(async (err: unknown) => {
         if (cancelled) return
-        // 只有真实 404 才当普通会话/验证/报告会话；其它错误可见，不全 catch 静默隐藏。
+        // 只有真实 404 才当普通会话/验证/复测/报告会话；其它错误可见，不全 catch 静默隐藏。
         if (err instanceof APIError && err.status !== 404) {
           setWebApiTaskError(err instanceof Error ? err.message : String(err))
           return
         }
         if (err instanceof APIError && err.status === 404) {
-          // 非任务会话：按验证 session 只读查回固定来源/结果，404 再试报告反查。
+          // 非任务会话：按验证 session 只读查回固定来源/结果，404 再试复测、再试报告反查。
           await resolveVerification()
           return
         }
@@ -221,6 +245,20 @@ export default function App({ services }: { services: HubServices }) {
   }, [activeWebApiReport, chat.activeSessionID])
   usePolling(refreshActiveReport, 8000,
     webapiEnabled && !!activeWebApiReport && activeWebApiReport.session_id === chat.activeSessionID && !activeWebApiReport.has_draft)
+
+  // 复测 Bar 首次 result 可能为 null：沿原生执行结束变化做只读轮询，直到出现真实结论。
+  const refreshActiveRetest = useCallback(async () => {
+    const retest = activeWebApiRetest
+    if (!retest || retest.session_id !== chat.activeSessionID || retest.result) return
+    try {
+      const fresh = await getWebApiRetestBySession(retest.session_id)
+      if (fresh.session_id !== chat.activeSessionID) return
+      setActiveWebApiRetest((current) =>
+        current && current.retest_id === fresh.retest_id ? fresh : current)
+    } catch { /* 轮询失败不覆盖已有；下一次再试 */ }
+  }, [activeWebApiRetest, chat.activeSessionID])
+  usePolling(refreshActiveRetest, 5000,
+    webapiEnabled && !!activeWebApiRetest && activeWebApiRetest.session_id === chat.activeSessionID && !activeWebApiRetest.result)
   const openSettings = useCallback((section: 'llm' | 'jev' = 'llm') => services.panels.open('settings', { section }), [services])
   const openIOAConsole = useCallback((target?: IOAConsoleTarget) => services.panels.open('ioa', { target }), [services])
 
@@ -392,6 +430,21 @@ export default function App({ services }: { services: HubServices }) {
     }
   }
 
+  // 从复测 session 返回原候选：定位到父任务 finding，而不是只给侧栏说明。
+  async function handleReturnToFindingFromRetest() {
+    if (!activeWebApiRetest) return
+    const retest = activeWebApiRetest
+    try {
+      const parent = await getWebApiTask(retest.task_id)
+      if (activeSessionIDRef.current !== retest.session_id) return
+      pendingFindingIdRef.current = { sessionID: parent.initial_session_id, findingID: retest.finding_id }
+      setActiveWebApiRetest(null)
+      void chat.selectSession(parent.initial_session_id)
+    } catch (err) {
+      if (activeSessionIDRef.current === retest.session_id) setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   useLayoutEffect(() => {
     services.workbench.publish({ chat, serverStatus, capabilityIDs, ioaEnabled, observationCount: observations.length,
       assetCount: scoNodes.length, refreshStatus, refreshAssets: refreshSCONodes, sendToChat: handleAssetSendToChat })
@@ -402,6 +455,7 @@ export default function App({ services }: { services: HubServices }) {
   const webApiTaskActive = webapiEnabled && !!activeWebApiTask && activeWebApiTask.initial_session_id === chat.activeSessionID
   const webApiVerificationActive = webapiEnabled && !!activeWebApiVerification && activeWebApiVerification.session_id === chat.activeSessionID
   const webApiReportActive = webapiEnabled && !!activeWebApiReport && activeWebApiReport.session_id === chat.activeSessionID
+  const webApiRetestActive = webapiEnabled && !!activeWebApiRetest && activeWebApiRetest.session_id === chat.activeSessionID
 
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
@@ -482,6 +536,9 @@ export default function App({ services }: { services: HubServices }) {
             {webApiReportActive && activeWebApiReport && (
               <WebApiReportBar report={activeWebApiReport} onReturnToReport={handleReturnToReport} />
             )}
+            {webApiRetestActive && activeWebApiRetest && (
+              <WebApiRetestBar retest={activeWebApiRetest} onReturnToFinding={handleReturnToFindingFromRetest} />
+            )}
             {/* 任务视图行：≥1100px 为 导航168px | 面板 的水平行；<1100px 改为
                 垂直堆叠（导航横向分段在上、面板占满在下），主内容不再被挤出视口。
                 断点与 index.css 的 .webapi-task-nav 媒体查询（1099px）保持一致；
@@ -496,13 +553,18 @@ export default function App({ services }: { services: HubServices }) {
               <WebApiFindingsPanel
                 task={activeWebApiTask}
                 onStartVerification={chat.startWebApiVerification}
+                onStartRetest={chat.startWebApiRetest}
                 onViewExecution={chat.selectSession}
                 verificationLaunch={chat.verificationLaunch}
                 onDismissVerificationLaunch={chat.dismissVerificationLaunch}
                 onResetVerificationLaunch={chat.resetVerificationLaunch}
+                retestLaunch={chat.retestLaunch}
+                onDismissRetestLaunch={chat.dismissRetestLaunch}
+                onResetRetestLaunch={chat.resetRetestLaunch}
                 focusFindingId={focusFindingId}
                 onFocusConsumed={() => setFocusFindingId(null)}
                 onVerificationStarted={bumpWebApiCountsRevision}
+                onRetestStarted={bumpWebApiCountsRevision}
               />
             ) : webApiTaskActive && activeWebApiTask && workspaceView === 'reports' ? (
               <WebApiReportsPanel

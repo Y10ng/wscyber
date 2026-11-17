@@ -157,6 +157,8 @@ export default function WebApiVerificationSection({ task, finding, onStartVerifi
     void loadList()
   }, [loadList])
 
+  // 发起成功后刷新列表：新验证行（尚无判读）会出现并触发轮询；有候选行未收起时
+  // 顺带刷新其详情。与复测区块的发起路径一致（发起即见新行，不等轮询）。
   const handleLaunch = useCallback(async () => {
     if (launching) return
     setLaunching(true)
@@ -165,12 +167,13 @@ export default function WebApiVerificationSection({ task, finding, onStartVerifi
       await onStartVerification({ taskID: task.id, findingID: finding.finding_id, origins: task.origins, source: finding })
       setDialogOpen(false)
       onVerificationStarted?.()
+      await loadList()
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : String(err))
     } finally {
       setLaunching(false)
     }
-  }, [launching, onStartVerification, task.id, task.origins, finding, onVerificationStarted])
+  }, [launching, onStartVerification, task.id, task.origins, finding, onVerificationStarted, loadList])
 
   return (
     <section className="mb-4">

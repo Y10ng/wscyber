@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileText, Globe, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, Monitor,
-  List, MessageSquare, MoreHorizontal, Plus, Trash2,
+  List, MessageSquare, MoreHorizontal, Plus, RefreshCw, Trash2,
   Archive, ArchiveRestore, Pencil, Check, X, ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -15,6 +15,7 @@ import LanguageToggle from './LanguageToggle'
 import {
   APIError,
   getWebApiReportBySession,
+  getWebApiRetestBySession,
   getWebApiTaskBySession,
   getWebApiVerificationBySession,
   type AgentView, type SessionRecord, type SessionFilters,
@@ -49,13 +50,15 @@ const WEB_API_BADGE_NULL_TTL_MS = 30_000
 function badgeIcon(kind: WebApiSessionKind): LucideIcon {
   if (kind === 'verification') return ShieldCheck
   if (kind === 'report') return FileText
+  if (kind === 'retest') return RefreshCw
   return Globe
 }
 
-// 复测预留：下一片接入复测反查接口后在此返回 `复测 · WSC-xxxx`。
-// function retestBadge(findingNumber: string): WebApiSessionBadge {
-//   return { kind: 'retest', label: `${i18n.t('webapi.retestTitle', { ns: 'chat' })} · ${findingNumber}`, icon: RefreshCw }
-// }
+// 复测侧栏标题：`复测 · WSC-xxxx 标题`（编号与标题保留空格分隔）。
+function retestBadge(findingNumber: string, findingTitle: string): WebApiSessionBadge {
+  const parts = [i18n.t('webapi.retestTitle', { ns: 'chat' }), findingNumber, findingTitle].filter(Boolean)
+  return { kind: 'retest', label: parts.length > 1 ? `${parts[0]} · ${parts.slice(1).join(' ')}` : parts[0] || '', icon: badgeIcon('retest') }
+}
 
 function firstLine(text: string): string {
   const line = text.split('\n').map((part) => part.trim()).find(Boolean)
@@ -68,7 +71,7 @@ interface BadgeResolution {
   transient: boolean
 }
 
-// 反查顺序：任务 → 验证 → 报告。任务接口对验证 session 也 200 回父任务，
+// 反查顺序：任务 → 验证 → 报告 → 复测。任务接口对验证/复测 session 也 200 回父任务，
 // 必须比对 initial_session_id；真实 404 视为「非业务会话」，网络错误标记 transient。
 async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
   const chatNS = { ns: 'chat' } as const
@@ -100,6 +103,14 @@ async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
     if (report.session_id === sessionID) {
       const title = report.draft?.payload?.title?.trim() || i18n.t('webapi.reportUntitled', chatNS)
       return { badge: { kind: 'report', label: `${i18n.t('webapi.reports', chatNS)} · ${title}`, icon: badgeIcon('report') }, transient: false }
+    }
+  } catch (err) {
+    transient = transient || !isNotFound(err)
+  }
+  try {
+    const retest = await getWebApiRetestBySession(sessionID)
+    if (retest.session_id === sessionID) {
+      return { badge: retestBadge(retest.source?.number || '', retest.source?.content?.title || ''), transient: false }
     }
   } catch (err) {
     transient = transient || !isNotFound(err)

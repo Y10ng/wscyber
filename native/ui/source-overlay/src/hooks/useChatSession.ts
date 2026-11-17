@@ -14,6 +14,7 @@ import {
   executeChatCommand,
   getChatSession,
   getWebApiReport,
+  getWebApiRetest,
   getWebApiVerification,
   listAgents,
   listChatEvents,
@@ -23,12 +24,13 @@ import {
   type SessionFilters,
   resetChatSession,
   saveWebApiReport,
+  saveWebApiRetest,
   saveWebApiTask,
   saveWebApiVerification,
   sendChatMessage,
   subscribeAOPEvents,
 } from '../api'
-import type { AgentView, AOPEvent, AOPSession, ChatSendOptions, SessionRecord, WebApiFindingDetail, WebApiReportDetail, WebApiReportItem, WebApiReportSaveResult, WebApiReportSummary, WebApiTask, WebApiVerificationDetail, WebApiVerificationSaveResult, WebApiVerificationSummary } from '../api'
+import type { AgentView, AOPEvent, AOPSession, ChatSendOptions, SessionRecord, WebApiFindingDetail, WebApiReportDetail, WebApiReportItem, WebApiReportSaveResult, WebApiReportSummary, WebApiRetestDetail, WebApiRetestSaveResult, WebApiRetestSummary, WebApiTask, WebApiVerificationDetail, WebApiVerificationSaveResult, WebApiVerificationSummary } from '../api'
 import {
   isRootPath,
   parseRoute,
@@ -37,6 +39,7 @@ import {
 } from '../lib/route'
 import { findAgentByNode, findWebApiHttpNode, isLocalModelAgent } from '../lib/session-agent'
 import { buildWebApiReportFirstMessage } from '../lib/report-message'
+import { buildWebApiRetestFirstMessage } from '../lib/retest-message'
 
 function aopExtension(event: AOPEvent): Record<string, unknown> | undefined {
   for (const extension of event.extensions) {
@@ -309,6 +312,20 @@ async function saveWebApiReportReconciled(
   assertReportIdentity(saved.report, input, launch)
   launch.saveConfirmed = true
   return saved
+}
+
+// 稳定展示层：发起未决/失败时复测区块仍可显示状态入口；关闭/切页由 hook 持有。
+export interface RetestLaunchView {
+  findingKey: string
+  retestID: string
+  sessionID: string | null
+  status: 'pending' | 'error'
+  error: string
+  source: WebApiFindingDetail
+  origins: string[]
+  dismissed?: boolean
+  // 原 ID 确认不存在，且从未进入可能已接收 Open/Run 或未知保存路径。
+  canStartFresh?: boolean
 }
 
 export function useChatSession() {
@@ -1132,6 +1149,186 @@ export function useChatSession() {
     }
   }
 
+  // 复测发起：逐条对齐独立验证（冻结发起身份 + 幂等 PUT + 失联核对 + 原生 Open/Run），
+  // 区别只在记录（webapi_retests）、固定修订语义（只能显式复测候选当前 revision，
+  // 过期 409 由后端拒绝）与首条消息（retest-message）。同一 finding 同时至多一个未决复测。
+  interface RetestLaunchIdentity {
+    retestID: string
+    sourceRevisionID: string
+    source: WebApiFindingDetail
+    origins: string[]
+    openRequestID: string
+    saveUnknown: boolean
+    saveConfirmed: boolean
+    mayHaveOpened: boolean
+  }
+
+  function retestSummaryFromDetail(detail: WebApiRetestDetail): WebApiRetestSummary {
+    return {
+      retest_id: detail.retest_id,
+      task_id: detail.task_id,
+      finding_id: detail.finding_id,
+      source_revision_id: detail.source_revision_id,
+      session_id: detail.session_id,
+      created_at: detail.created_at,
+    }
+  }
+
+  class RetestNotSaved extends Error {}
+
+  // 核对回执和固定身份，绝不把另一条来源当成原发起依据。
+  function assertRetestIdentity(value: WebApiRetestSummary, input: { taskID: string; findingID: string }, launch: RetestLaunchIdentity) {
+    if (value.retest_id !== launch.retestID || value.task_id !== input.taskID ||
+        value.finding_id !== input.findingID || value.source_revision_id !== launch.sourceRevisionID) {
+      launch.saveUnknown = true
+      throw new Error('复测回执与原发起身份或固定来源不一致，未启动。')
+    }
+  }
+
+  async function saveWebApiRetestReconciled(
+    input: { taskID: string; findingID: string },
+    launch: RetestLaunchIdentity,
+  ): Promise<WebApiRetestSaveResult> {
+    let saved: WebApiRetestSaveResult
+    try {
+      saved = await saveWebApiRetest(input.taskID, input.findingID, launch.retestID, launch.sourceRevisionID)
+    } catch (err) {
+      // 400/404/409 均属确定未保存（服务端校验拒绝/不存在/冲突）；其它错误先核对再定性。
+      const rejected = err instanceof APIError && (err.status === 400 || err.status === 404 || err.status === 409)
+      if (!rejected) launch.saveUnknown = true
+      let existing: WebApiRetestDetail
+      try {
+        existing = await getWebApiRetest(input.taskID, input.findingID, launch.retestID)
+      } catch (getErr) {
+        if (rejected && getErr instanceof APIError && getErr.status === 404 && !launch.saveUnknown && !launch.saveConfirmed && !launch.mayHaveOpened) {
+          throw new RetestNotSaved(err instanceof Error ? err.message : String(err))
+        }
+        throw new Error('保存复测结果未知或暂不能核对，请重试；不会盲发新复测。')
+      }
+      assertRetestIdentity(existing, input, launch)
+      if (existing.source.task_id !== input.taskID || existing.source.finding_id !== input.findingID || existing.source.revision_id !== launch.sourceRevisionID) {
+        launch.saveUnknown = true
+        throw new Error('复测回读来源与原发起身份不一致，未启动。')
+      }
+      launch.saveConfirmed = true
+      return { retest: retestSummaryFromDetail(existing), created: false, idempotent: true }
+    }
+    assertRetestIdentity(saved.retest, input, launch)
+    launch.saveConfirmed = true
+    return saved
+  }
+
+  const retestLaunchRef = useRef(new Map<string, RetestLaunchIdentity>())
+  const submittingRetests = useRef(new Set<string>())
+  const [retestLaunch, setRetestLaunch] = useState<Record<string, RetestLaunchView>>({})
+
+  function patchRetestLaunch(findingKey: string, patch: Partial<RetestLaunchView>) {
+    setRetestLaunch((prev) => {
+      const launch = retestLaunchRef.current.get(findingKey)
+      if (!launch) return prev
+      const current = prev[findingKey] ?? { findingKey, retestID: launch.retestID, sessionID: null, status: 'pending' as const, error: '', source: launch.source, origins: launch.origins }
+      return { ...prev, [findingKey]: { ...current, ...patch, findingKey } }
+    })
+  }
+
+  // 关闭/切页只隐藏提示，保留冻结身份（ID/来源/授权/Open requestID）；重试仍同一次。
+  function dismissRetestLaunch(findingKey: string) {
+    setRetestLaunch((prev) => prev[findingKey]
+      ? { ...prev, [findingKey]: { ...prev[findingKey], dismissed: true } }
+      : prev)
+  }
+
+  // 仅本次 accepted 或确定未保存后的显式重读才清除。
+  function clearRetestLaunch(findingKey: string) {
+    retestLaunchRef.current.delete(findingKey)
+    setRetestLaunch((prev) => {
+      if (!(findingKey in prev)) return prev
+      const next = { ...prev }
+      delete next[findingKey]
+      return next
+    })
+  }
+
+  function resetRetestLaunch(findingKey: string) {
+    const launch = retestLaunchRef.current.get(findingKey)
+    if (!launch || submittingRetests.current.has(findingKey) || !retestLaunch[findingKey]?.canStartFresh || launch.saveUnknown || launch.saveConfirmed || launch.mayHaveOpened) return
+    clearRetestLaunch(findingKey)
+  }
+
+  // 保存复测（幂等 PUT，同 ID 同来源回放；过期修订/异来源 409 由后端拒绝）→ 以服务端
+  // session_id 创建/复用原生会话 → 后台发送首条复测消息（不激活/不跳转，复测区块显示
+  // 已启动状态，用户可点列表行「查看执行」显式进入）。Open/Run 沿用 startWebApiTask
+  // 的核对与稳定 requestID 机制，不伪造 initial_session_id，不造第二协议/运行循环。
+  async function startWebApiRetest(input: { taskID: string; findingID: string; origins: string[]; source: WebApiFindingDetail }): Promise<{ retest: WebApiRetestSummary; sessionID: string }> {
+    const findingKey = `${input.taskID}\u0000${input.findingID}`
+
+    // 防重守卫必须在任何发起状态变更之前。
+    if (submittingRetests.current.has(findingKey)) {
+      throw new Error('复测正在发起，请勿重复提交')
+    }
+    submittingRetests.current.add(findingKey)
+    try {
+      // 冻结发起身份：只在此次显式发起时创建；props 变化不替换未决身份。
+      let launch = retestLaunchRef.current.get(findingKey)
+      if (!launch) {
+        launch = {
+          retestID: safeUUID(),
+          sourceRevisionID: input.source.revision_id,
+          source: input.source,
+          origins: [...input.origins],
+          openRequestID: safeUUID(),
+          saveUnknown: false,
+          saveConfirmed: false,
+          mayHaveOpened: false,
+        }
+        retestLaunchRef.current.set(findingKey, launch)
+      }
+      patchRetestLaunch(findingKey, { retestID: launch.retestID, source: launch.source, origins: launch.origins, status: 'pending', error: '', dismissed: false, canStartFresh: false })
+
+      const saved = await saveWebApiRetestReconciled({ taskID: input.taskID, findingID: input.findingID }, launch)
+
+      const sessionID = saved.retest.session_id
+      patchRetestLaunch(findingKey, { sessionID, status: 'pending' })
+
+      // 只选已明确提供 webapi_http 工具的就绪节点；普通远端节点不视为可用 HTTP 研究节点。
+      const nodeID = findWebApiHttpNode(agents, selectedNodeID)?.hello?.nodeId
+      if (!nodeID) {
+        throw new Error('当前没有已提供 webapi_http 工具的可用节点，普通远端节点不能当作可用的 HTTP 研究节点。请先连接一个已安装该工具的本机节点。')
+      }
+
+      // Open 的 requestID 冻结在该 launch 身份内，A→B→重试 A 各自稳定。
+      let session: AOPSession | null
+      try {
+        session = await lookupChatSession(sessionID)
+      } catch {
+        throw new Error('已保存复测但暂不能核对原生会话状态，请重试；不会重复 Open 或盲发新 Run。')
+      }
+
+      // 进入可能接收 Open/Run 的路径后，即使后续重试 PUT 失败也不得换身份。
+      launch.mayHaveOpened = true
+      const boundNodeID = session?.nodeId || nodeID
+      if (!session) {
+        session = await createChatSession(nodeID, undefined, undefined, { sessionID, requestID: launch.openRequestID })
+      }
+      sessionNodeRef.current.set(session.id, boundNodeID)
+      await refreshSessions()
+
+      // 首条消息用冻结来源 + 父任务授权组装；后台发送（不激活/不跳转），Run 签名稳定，
+      // 不自动载入原研究全部聊天/旧原件。复测历史在候选右栏区块轮询呈现。
+      const sent = await handleSendMessage(buildWebApiRetestFirstMessage(launch.origins, launch.source), { sessionID: session.id })
+      if (!sent) throw new Error('已保存复测但启动未完成，请重试；不会重复创建会话或盲发新 Run。')
+
+      // 已 accepted：本次发起结束，清除身份与视图；下一次显式点击生成新复测/session。
+      clearRetestLaunch(findingKey)
+      return { retest: saved.retest, sessionID: session.id }
+    } catch (err) {
+      patchRetestLaunch(findingKey, { status: 'error', error: err instanceof Error ? err.message : String(err), canStartFresh: err instanceof RetestNotSaved })
+      throw err
+    } finally {
+      submittingRetests.current.delete(findingKey)
+    }
+  }
+
   useEffect(() => {
     const applyRoute = () => {
       const route = parseRoute(window.location.pathname)
@@ -1187,12 +1384,16 @@ export function useChatSession() {
     startWebApiTask,
     startWebApiVerification,
     startWebApiReport,
+    startWebApiRetest,
     verificationLaunch,
     dismissVerificationLaunch,
     resetVerificationLaunch,
     reportLaunch,
     dismissReportLaunch,
     resetReportLaunch,
+    retestLaunch,
+    dismissRetestLaunch,
+    resetRetestLaunch,
     cancelMessage: handleCancelMessage,
     clearError,
   }

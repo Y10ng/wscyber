@@ -16,25 +16,32 @@ import {
 } from '../api'
 import { decodeFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
 import WebApiVerificationSection, { type StartVerification } from './WebApiVerification'
-import type { VerificationLaunchView } from '../hooks/useChatSession'
+import WebApiRetestSection, { type StartRetest } from './WebApiRetest'
+import type { VerificationLaunchView, RetestLaunchView } from '../hooks/useChatSession'
 import { buildFindingDraft } from '../lib/finding-draft'
 import './WebApiFindingsPanel.css'
 
 interface Props {
   task: WebApiTask
   onStartVerification: StartVerification
+  onStartRetest: StartRetest
   onViewExecution: (sessionID: string) => void
   verificationLaunch: Record<string, VerificationLaunchView>
   onDismissVerificationLaunch: (findingKey: string) => void
   onResetVerificationLaunch: (findingKey: string) => void
+  retestLaunch: Record<string, RetestLaunchView>
+  onDismissRetestLaunch: (findingKey: string) => void
+  onResetRetestLaunch: (findingKey: string) => void
   focusFindingId: string | null
   onFocusConsumed: () => void
   /** 新建验证成功后通知 App bump 导航计数（fix-1 #5）。 */
   onVerificationStarted?: () => void
+  /** 发起复测成功后通知 App bump 导航计数。 */
+  onRetestStarted?: () => void
 }
 
 // 只读候选：紧凑列表 + 有限行宽详情；证据引用按需读取本任务真实请求/响应并就近展开。
-export default function WebApiFindingsPanel({ task, onStartVerification, onViewExecution, verificationLaunch, onDismissVerificationLaunch, onResetVerificationLaunch, focusFindingId, onFocusConsumed, onVerificationStarted }: Props) {
+export default function WebApiFindingsPanel({ task, onStartVerification, onStartRetest, onViewExecution, verificationLaunch, onDismissVerificationLaunch, onResetVerificationLaunch, retestLaunch, onDismissRetestLaunch, onResetRetestLaunch, focusFindingId, onFocusConsumed, onVerificationStarted, onRetestStarted }: Props) {
   const { t } = useTranslation('chat')
   const [items, setItems] = useState<WebApiFindingSummary[]>([])
   const [hasMore, setHasMore] = useState(false)
@@ -301,6 +308,7 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
 
   const findingKey = detail ? `${task.id}\u0000${detail.finding_id}` : ''
   const launchView = findingKey ? (verificationLaunch[findingKey] ?? null) : null
+  const retestLaunchView = findingKey ? (retestLaunch[findingKey] ?? null) : null
 
   return (
     <div className="findings-container min-h-0 min-w-0 flex-1">
@@ -392,11 +400,16 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onViewE
             registerEvidenceRef={registerEvidenceRef}
             task={task}
             onStartVerification={onStartVerification}
+            onStartRetest={onStartRetest}
             onViewExecution={onViewExecution}
             launchView={launchView}
             onDismissLaunch={() => { if (findingKey) onDismissVerificationLaunch(findingKey) }}
             onResetLaunch={() => { if (findingKey && detail) { onResetVerificationLaunch(findingKey); void loadDetail(detail.finding_id) } }}
             onVerificationStarted={onVerificationStarted}
+            retestLaunchView={retestLaunchView}
+            onDismissRetestLaunch={() => { if (findingKey) onDismissRetestLaunch(findingKey) }}
+            onResetRetestLaunch={() => { if (findingKey && detail) { onResetRetestLaunch(findingKey); void loadDetail(detail.finding_id) } }}
+            onRetestStarted={onRetestStarted}
           />
         ) : null}
       </div>
@@ -420,11 +433,16 @@ function FindingDetailBody({
   registerEvidenceRef,
   task,
   onStartVerification,
+  onStartRetest,
   onViewExecution,
   launchView,
   onDismissLaunch,
   onResetLaunch,
   onVerificationStarted,
+  retestLaunchView,
+  onDismissRetestLaunch,
+  onResetRetestLaunch,
+  onRetestStarted,
 }: {
   scrollRef: RefObject<HTMLDivElement>
   onScroll: (event: UIEvent<HTMLDivElement>) => void
@@ -440,11 +458,16 @@ function FindingDetailBody({
   registerEvidenceRef: (evidenceId: string, el: HTMLButtonElement | null) => void
   task: WebApiTask
   onStartVerification: StartVerification
+  onStartRetest: StartRetest
   onViewExecution: (sessionID: string) => void
   launchView: VerificationLaunchView | null
   onDismissLaunch: () => void
   onResetLaunch: () => void
   onVerificationStarted?: () => void
+  retestLaunchView: RetestLaunchView | null
+  onDismissRetestLaunch: () => void
+  onResetRetestLaunch: () => void
+  onRetestStarted?: () => void
 }) {
   const { t } = useTranslation('chat')
   const [exportError, setExportError] = useState('')
@@ -559,17 +582,22 @@ function FindingDetailBody({
               这里是 <1240 的唯一渲染点；≥1240 此块（含证据）整体 display:none，
               由右栏（.findings-aside）渲染。 */}
           <div className="findings-reading-tail mt-6">
-            {/* <1240px：独立验证（含发起与历史）与证据引用排同一阅读列。 */}
+            {/* <1240px：独立验证、复测与证据引用排同一阅读列。 */}
             <div className="findings-aside-inline">
               <FindingAside
                 task={task}
                 detail={detail}
                 onStartVerification={onStartVerification}
+                onStartRetest={onStartRetest}
                 onViewExecution={onViewExecution}
                 launchView={launchView}
                 onDismissLaunch={onDismissLaunch}
                 onResetLaunch={onResetLaunch}
                 onVerificationStarted={onVerificationStarted}
+                retestLaunchView={retestLaunchView}
+                onDismissRetestLaunch={onDismissRetestLaunch}
+                onResetRetestLaunch={onResetRetestLaunch}
+                onRetestStarted={onRetestStarted}
                 expandedEvidenceId={expandedEvidenceId}
                 evidenceLoading={evidenceLoading}
                 evidenceError={evidenceError}
@@ -583,18 +611,23 @@ function FindingDetailBody({
         </div>
       </div>
 
-      {/* ≥1240px：右栏 380px 独立滚动（fix-1 #2）：证据引用 → 独立验证（唯一渲染点）。 */}
+      {/* ≥1240px：右栏 380px 独立滚动（fix-1 #2）：证据引用 → 独立验证 → 复测。 */}
       <aside className="findings-aside min-h-0 min-w-0 flex-col">
         <div className="min-w-0 px-3 py-3">
           <FindingAside
             task={task}
             detail={detail}
             onStartVerification={onStartVerification}
+            onStartRetest={onStartRetest}
             onViewExecution={onViewExecution}
             launchView={launchView}
             onDismissLaunch={onDismissLaunch}
             onResetLaunch={onResetLaunch}
             onVerificationStarted={onVerificationStarted}
+            retestLaunchView={retestLaunchView}
+            onDismissRetestLaunch={onDismissRetestLaunch}
+            onResetRetestLaunch={onResetRetestLaunch}
+            onRetestStarted={onRetestStarted}
             expandedEvidenceId={expandedEvidenceId}
             evidenceLoading={evidenceLoading}
             evidenceError={evidenceError}
@@ -609,17 +642,22 @@ function FindingDetailBody({
   )
 }
 
-// 右栏/正文尾部的证据引用 + 独立验证（含发起）。证据引用的唯一渲染组件（fix-2 #1）：
+// 右栏/正文尾部的证据引用 + 独立验证 + 复测（含发起）。证据引用的唯一渲染组件（fix-2 #1）：
 // 右栏（≥1240）与正文尾部（<1240）同一组件，由 CSS 决定哪份可见，正文不再单独渲染。
 function FindingAside({
   task,
   detail,
   onStartVerification,
+  onStartRetest,
   onViewExecution,
   launchView,
   onDismissLaunch,
   onResetLaunch,
   onVerificationStarted,
+  retestLaunchView,
+  onDismissRetestLaunch,
+  onResetRetestLaunch,
+  onRetestStarted,
   expandedEvidenceId,
   evidenceLoading,
   evidenceError,
@@ -631,11 +669,16 @@ function FindingAside({
   task: WebApiTask
   detail: WebApiFindingDetail
   onStartVerification: StartVerification
+  onStartRetest: StartRetest
   onViewExecution: (sessionID: string) => void
   launchView: VerificationLaunchView | null
   onDismissLaunch: () => void
   onResetLaunch: () => void
   onVerificationStarted?: () => void
+  retestLaunchView: RetestLaunchView | null
+  onDismissRetestLaunch: () => void
+  onResetRetestLaunch: () => void
+  onRetestStarted?: () => void
   expandedEvidenceId: string | null
   evidenceLoading: boolean
   evidenceError: string
@@ -671,7 +714,7 @@ function FindingAside({
         </section>
       )}
       <WebApiVerificationSection
-        key={detail.finding_id}
+        key={`verify-${detail.finding_id}`}
         task={task}
         finding={detail}
         onStartVerification={onStartVerification}
@@ -680,6 +723,17 @@ function FindingAside({
         onDismissLaunch={onDismissLaunch}
         onResetLaunch={onResetLaunch}
         onVerificationStarted={onVerificationStarted}
+      />
+      <WebApiRetestSection
+        key={`retest-${detail.finding_id}`}
+        task={task}
+        finding={detail}
+        onStartRetest={onStartRetest}
+        onViewExecution={onViewExecution}
+        launchView={retestLaunchView}
+        onDismissLaunch={onDismissRetestLaunch}
+        onResetLaunch={onResetRetestLaunch}
+        onRetestStarted={onRetestStarted}
       />
     </>
   )

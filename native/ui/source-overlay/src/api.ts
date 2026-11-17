@@ -843,6 +843,102 @@ export async function getWebApiVerificationBySession(sessionID: string): Promise
   )
 }
 
+// --- Web/API 复测（固定修订复测是否仍可复现；结论不可变，不覆盖原候选/验证/报告） ---
+// 类型与验证一一对应；conclusion 词汇不同（reproducible/fixed_in_scope/inconclusive）。
+
+export interface WebApiRetestSummary {
+  retest_id: string
+  task_id: string
+  finding_id: string
+  source_revision_id: string
+  session_id: string
+  created_at: string
+  conclusion?: string
+}
+
+export interface WebApiRetestPayload {
+  conclusion: string
+  method: string
+  preconditions?: string
+  summary: string
+  limitations?: string
+  evidence?: WebApiVerificationEvidenceInput[]
+}
+
+export interface WebApiRetestResult {
+  session_id: string
+  turn_id: string
+  call_id: string
+  payload: WebApiRetestPayload
+  evidence: WebApiFindingEvidenceSnapshot[]
+  created_at: string
+}
+
+export interface WebApiRetestDetail {
+  retest_id: string
+  task_id: string
+  finding_id: string
+  source_revision_id: string
+  session_id: string
+  created_at: string
+  conclusion?: string
+  source: WebApiFindingDetail
+  result: WebApiRetestResult | null
+}
+
+export interface WebApiRetestList {
+  task_id: string
+  items: WebApiRetestSummary[]
+  limit: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface WebApiRetestSaveResult {
+  retest: WebApiRetestSummary
+  created: boolean
+  idempotent: boolean
+}
+
+// 同 ID 同来源由后端幂等返回同一复测；异来源 409、固定非当前修订 409、错归属 404。
+// 客户端只生成一次 retest ID，重试复用同一 ID，不自行换 revision/换 ID 提交。
+export async function saveWebApiRetest(taskID: string, findingID: string, retestID: string, sourceRevisionID: string): Promise<WebApiRetestSaveResult> {
+  return apiJSON<WebApiRetestSaveResult>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/retests/${encodeURIComponent(retestID)}`,
+    'Failed to save retest',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_revision_id: sourceRevisionID }),
+    },
+  )
+}
+
+export async function getWebApiRetest(taskID: string, findingID: string, retestID: string): Promise<WebApiRetestDetail> {
+  return apiJSON<WebApiRetestDetail>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/retests/${encodeURIComponent(retestID)}`,
+    'Failed to load retest',
+  )
+}
+
+export async function listWebApiRetests(taskID: string, findingID: string, limit = 25, cursor?: string): Promise<WebApiRetestList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiRetestList>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/findings/${encodeURIComponent(findingID)}/retests?${query.toString()}`,
+    'Failed to load retests',
+  )
+}
+
+// 复测 session 反查详情；不存在 404。App 按 session 恢复复测条只用真实 404 判无复测。
+export async function getWebApiRetestBySession(sessionID: string): Promise<WebApiRetestDetail> {
+  return apiJSON<WebApiRetestDetail>(
+    `/api/webapi/retests?session_id=${encodeURIComponent(sessionID)}`,
+    'Failed to load retest by session',
+  )
+}
+
 // --- Web/API 报告（固定若干候选修订 + 可附验证；草稿由报告会话模型写入，不可变） ---
 // 报告 session 不被 taskForSession 解析，只能经 GET /api/webapi/reports?session_id= 反查。
 
