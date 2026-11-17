@@ -32,7 +32,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 下一步（按顺序）
 
-1. **执行复盘（R2）**：执行视图可读性（下见）。
+1. **执行复盘（R2，进行中，GLM）**：执行时间线视图（左筛选 | 时间线 | 详情，call_id 配对，跳转流量/候选）+ 侧栏徽标语言修复（`var/r2-timeline/task.md`）。
 2. **真实验证链（R1，挂起）**：需用户授权真实模型/靶场，跑通 建任务→候选→验证→报告→复测。
 3. 首版验收：靶场完整链跑通（product.md §6）。
 
@@ -46,5 +46,5 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-- 无。
+- `wscyber-r2-timeline`（`wangsu-glm-latest`）：R2 执行时间线。
 
