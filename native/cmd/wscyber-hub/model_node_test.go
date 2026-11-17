@@ -22,6 +22,7 @@ import (
 	agentsession "github.com/chainreactors/cyber/agent/session"
 	"github.com/chainreactors/cyber/aop"
 	ptypb "github.com/chainreactors/cyber/aop/pty"
+	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
 	"github.com/chainreactors/cyber/core/types"
 	"github.com/chainreactors/cyber/pkg/aopws"
@@ -32,8 +33,6 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
-
-	"wscyber/native/webapi"
 )
 
 const (
@@ -149,10 +148,7 @@ func TestModelNodeProfileAdmissionAndOwnership(t *testing.T) {
 	}))
 	defer server.Close()
 	endpoint := server.URL + "/v1"
-	webapiCapability, err := webapi.NewCapability(filepath.Join(t.TempDir(), "hub.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	webapiCapability := newSchemaCapability(t)
 	defer webapiCapability.Close(context.Background())
 	p, err := newModelNodeProfile(profile.Request{ProviderMode: provider.StartupDisabled, Session: &agentsession.Config{}}, t.TempDir(), endpoint, webapiCapability)
 	if err != nil {
@@ -237,8 +233,10 @@ func TestModelNodeProfileAdmissionAndOwnership(t *testing.T) {
 
 	tools, _ := p.Tools()
 	// 实际走shell展开→原生registry→BeforeCommand，不只是手动调用hook。
+	// 任务显式关闭审批，避免执行前的动态展开审批先拦截，只验证原生命令边界。
+	commandCtx := operation.ContextWithInvocation(t.Context(), operation.Invocation{SessionID: approvalOffSession(t, webapiCapability), TurnID: "tmux-turn", CallID: "tmux-call"})
 	args, _ := json.Marshal(map[string]any{"command": "control=tmux; \"$control\" send-keys -t main-repl '/model other' Enter", "timeout": 2})
-	result, toolErr := tools.ExecuteTool(t.Context(), "bash", string(args))
+	result, toolErr := tools.ExecuteTool(commandCtx, "bash", string(args))
 	if !strings.Contains(coretool.ResultText(result)+fmt.Sprint(toolErr), "暂不支持tmux") {
 		t.Fatal("expanded tmux was not denied at native command boundary")
 	}

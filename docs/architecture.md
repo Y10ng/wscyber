@@ -33,7 +33,8 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run |
+| PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` |
+| PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |
 | GET | `/tasks/{id}/findings[/{fid}[/history\|/revisions/{rid}]]` | 候选、修订 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/verifications[/{vid}]` | 发起/读取独立验证（客户端稳定 UUID，幂等） |
@@ -45,13 +46,14 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET | `/retests?session_id=` | 由复测会话反查上下文 |
 | GET | `/usage?task_id=&from=&to=` | 只读 token 用量汇总（按日/模型，全局按任务、任务内按会话角色）；解 `chat_aop_events` 中 `Event_Usage`，不含费用，见 `native/USAGE.md` |
 
-工具：`webapi_http`（只发授权 origins，保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
+工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 
 ## 4. 关键约束与已知缺口
 
-- 授权：`webapi_http` 强制 origin；原生终端等工具**没有**强制出口。
+- 授权：`webapi_http` 按任务测试策略强制 origin（scope=unrestricted 时不限制、仍完整记录）；原生终端等工具**没有**强制出口。
+- 审批：任务测试策略 approval（默认 high_risk）经原生 `tool.before` 挂起高危 `webapi_http` / 终端命令（all 时还有全部非只读 HTTP、终端与 `write`），以 `guardrail.Review` 事件出卡片，人经 Hub guardrail 命名空间 Pending/Resolve 批准；拒绝/超时（10 分钟）不执行，HTTP 记 `review_denied/review_expired` 未发送。终端规则是静态表，见 `native/POLICY.md`。
 - unknown：同任务相同请求指纹的发送未知状态阻止自动重发。
-- 旧库升级：新 Hub 打开已知旧结构库时事务性新增验证两表；其他结构报错。没有通用迁移框架。
+- 旧库升级：新 Hub 打开已知旧结构库（四/六/八/十表阶段）时事务性补齐到完整结构（含测试策略两表）；其他结构报错。没有通用迁移框架。
 - 未做：全工具流量捕获、模型报告、复测、用量/原文记录、资料库接入、图谱/时间线。
 
 ## 5. 扩展原则

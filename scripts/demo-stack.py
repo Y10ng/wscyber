@@ -6,6 +6,7 @@
   python3 scripts/demo-stack.py status
   python3 scripts/demo-stack.py fix on|off        切换模拟目标“已修复”模式
   python3 scripts/demo-stack.py selftest [--chain] 经 Hub API 跑一遍研究（--chain 再跑验证/报告/复测）
+  python3 scripts/demo-stack.py approval-demo     经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
@@ -74,6 +75,7 @@ HOME_PAGE = '''<!doctype html>
 <li>GET /api/health</li>
 <li>GET /api/items?page=1&amp;size=20</li>
 <li>GET /api/items/{id}</li>
+<li>DELETE /api/items/{id}（审批演示用，只返回测试 JSON）</li>
 </ul>
 </body></html>
 '''
@@ -155,10 +157,18 @@ class TargetHandler(BaseHTTPRequestHandler):
 
     do_HEAD = do_GET
 
-    def _method_not_allowed(self):
-        self._json(405, {'error': '演示服务只支持 GET'}, {'Allow': 'GET, HEAD'})
+    def do_DELETE(self):
+        # 仅供审批演示：不改任何状态，只回 200 测试 JSON。
+        match = re.fullmatch(r'/api/items/(\d+)', urlparse.urlsplit(self.path).path)
+        if match:
+            return self._json(200, {'deleted': False, 'demo': True, 'id': int(match.group(1)),
+                                    'note': '演示服务：DELETE 只返回测试 JSON，不删除任何数据'})
+        return self._method_not_allowed()
 
-    do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = _method_not_allowed
+    def _method_not_allowed(self):
+        self._json(405, {'error': '演示服务只支持 GET（DELETE 仅 /api/items/{id} 演示）'}, {'Allow': 'GET, HEAD, DELETE'})
+
+    do_POST = do_PUT = do_PATCH = do_OPTIONS = _method_not_allowed
 
 
 def serve_target(fix_flag):
@@ -372,11 +382,34 @@ def research_findings(origin, by_key):
     return findings, skipped
 
 
+APPROVAL_MARK = '审批演示'
+APPROVAL_DELETE_PATH = '/api/items/42'
+APPROVAL_COMMAND = 'rm -rf /tmp/wscyber-approval-demo-not-exist'
+
+
+def script_approval(conv, origin):
+    """可选剧本（首条消息含“审批演示”）：先发一条测试 DELETE 和一条命中高危规则但无害的命令。"""
+    http_results, bash_results = conv.of('webapi_http'), conv.of('bash')
+    if not http_results and not bash_results:
+        return {'text': '审批演示：发出一条测试 DELETE 请求，并执行一条命中高危规则但对不存在路径无害的删除命令；两者都应等待人工审批。',
+                'calls': [http_call(origin, 'DELETE', APPROVAL_DELETE_PATH), ('bash', {'command': APPROVAL_COMMAND})]}
+    lines = ['审批演示结束：']
+    for result in http_results:
+        value = result['value'] or {}
+        lines.append(f'- DELETE {APPROVAL_DELETE_PATH}：status={value.get("status", "?")} sent={value.get("sent")}'
+                     + ('' if value else f'（{(result["raw"] or "")[:160]}）'))
+    for result in bash_results:
+        lines.append(f'- 命令 {APPROVAL_COMMAND}：{(result["raw"] or "（无输出）")[:160]}')
+    return {'text': '\n'.join(lines)}
+
+
 def script_research(conv):
     origins = conv.origins()
     if not origins:
         return {'text': '演示模型未能从首条消息解析到授权 origin，不发送任何请求。'}
     origin = origins[0]
+    if APPROVAL_MARK in conv.first_user:
+        return script_approval(conv, origin)
     http_results, finding_results = conv.of('webapi_http'), conv.of('webapi_finding')
     if not http_results:
         lines = [f'先在授权 origin {origin} 内做一轮只读摸底，共 {len(RESEARCH_PLAN)} 个 GET 请求：']
@@ -981,9 +1014,13 @@ class AOPSocket:
             payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         return first & 0x0f, payload
 
-    def request(self, protocol_message):
+    def request(self, protocol_message, type_url='type.googleapis.com/aop.ProtocolMessage'):
+        return pb_decode(self.request_any(protocol_message, type_url)[1])
+
+    def request_any(self, protocol_message, type_url):
+        """发送一个命名空间消息，返回回执 Any 的 (type_url, value)。"""
         envelope_id = str(uuid.uuid4())
-        any_value = pb_bytes(1, 'type.googleapis.com/aop.ProtocolMessage') + pb_bytes(2, protocol_message)
+        any_value = pb_bytes(1, type_url) + pb_bytes(2, protocol_message)
         self._send_frame(2, pb_bytes(1, envelope_id) + pb_bytes(4, any_value))
         while True:
             opcode, payload = self._recv_frame()
@@ -997,7 +1034,8 @@ class AOPSocket:
             envelope = pb_decode(payload)
             if pb_str(envelope, 2) != envelope_id or 4 not in envelope:
                 continue
-            return pb_decode(pb_decode(envelope[4][0]).get(2, [b''])[0])
+            reply = pb_decode(envelope[4][0])
+            return pb_str(reply, 1), reply.get(2, [b''])[0]
 
 
 def core_outcome(message, response_field, label):
@@ -1171,6 +1209,89 @@ def cmd_selftest(args):
         cmd_fix(argparse.Namespace(mode='off'))
 
 
+# ---------------------------------------------------------------------------
+# approval-demo：经 Hub 原生 guardrail 命名空间（Pending/Resolve）走审批链
+# ---------------------------------------------------------------------------
+
+GUARDRAIL_TYPE = 'type.googleapis.com/cyber.guardrail.ProtocolMessage'
+REVIEW_STATES = {1: 'PENDING', 2: 'APPROVED', 3: 'REJECTED', 4: 'EXPIRED', 5: 'CANCELED'}
+
+
+def guardrail_request(message):
+    sock = AOPSocket()
+    try:
+        type_url, value = sock.request_any(message, GUARDRAIL_TYPE)
+    finally:
+        sock.close()
+    fields = pb_decode(value)
+    if not type_url.endswith('cyber.guardrail.ProtocolMessage'):
+        error = pb_decode(fields.get(41, [b''])[0])
+        raise RuntimeError(f'guardrail 请求失败 {pb_str(error, 1)}: {pb_str(error, 2)}')
+    return fields
+
+
+def pending_reviews(session_id):
+    fields = guardrail_request(pb_bytes(1, pb_bytes(1, session_id)))
+    reviews = []
+    for raw in pb_decode(fields.get(2, [b''])[0]).get(1, []):
+        review = pb_decode(raw)
+        call, ref, decision = (pb_decode(review.get(n, [b''])[0]) for n in (1, 2, 4))
+        reviews.append({'tool': pb_str(call, 2), 'arguments': pb_decode(call.get(4, [b''])[0]).get(1, [b''])[0].decode('utf-8', 'replace'),
+                        'operation_id': pb_str(ref, 2), 'reason': pb_str(decision, 2),
+                        'state': REVIEW_STATES.get(review.get(5, [0])[0], '?')})
+    return reviews
+
+
+def resolve_review(session_id, operation_id, approve):
+    message = pb_bytes(1, session_id) + pb_bytes(2, operation_id) + (pb_uint(3, 1) if approve else b'')
+    fields = guardrail_request(pb_bytes(3, message))
+    if 4 not in fields:
+        raise RuntimeError('Resolve 回执缺少 resolved')
+
+
+def approval_round(node_id, approve):
+    label = '批准' if approve else '拒绝'
+    task_id = 'demo-approval-' + uuid.uuid4().hex[:8]
+    task = api('PUT', f'/api/webapi/tasks/{task_id}', {
+        'known_info': f'本地演示库存 API，地址 {ORIGIN}，全部为测试数据。', 'objective': f'{APPROVAL_MARK}：验证危险操作挂起等待人工审批。',
+        'authorization': {'confirmed': True, 'origins': [ORIGIN]}})['task']
+    policy = task.get('policy') or {}
+    log(f'[审批演示·{label}] task={task_id} 策略 scope={policy.get("scope")} approval={policy.get("approval")} is_default={policy.get("is_default")}')
+    session_id = task['initial_session_id']
+    first = '\n'.join(['开始探索任务。', '', f'目标／已知信息：{task["known_info"]}', f'希望达到的目标：{task["objective"]}', '',
+                       'HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：', *[f'- {o}' for o in task['origins']]])
+    open_and_run(session_id, node_id, first)
+    resolved = set()
+    deadline = time.time() + 60
+    while len(resolved) < 2 and time.time() < deadline:
+        for review in pending_reviews(session_id):
+            if review['operation_id'] in resolved:
+                continue
+            log(f'[审批演示·{label}] Pending：{review["tool"]} {review["arguments"][:120]} —— {review["reason"]}')
+            resolve_review(session_id, review['operation_id'], approve)
+            resolved.add(review['operation_id'])
+            log(f'[审批演示·{label}] Resolve approve={approve} 完成')
+        time.sleep(0.5)
+    if len(resolved) < 2:
+        raise RuntimeError(f'60 秒内只出现 {len(resolved)} 条待审批')
+    ended = wait_turn_end(session_id)
+    log(f'[审批演示·{label}] turn_ended={bool(ended)} stop_reason={(ended or {}).get("stopReason", "")}')
+    for item in list_all(f'/api/webapi/tasks/{task_id}/evidence'):
+        log(f'[审批演示·{label}] 证据 {item["method"]} {item["url"]} status={item["status"]} sent={item["sent"]} '
+            f'http_status={item.get("http_status", "-")} reason={item["reason"][:80]}')
+    events = rpc('cyber.rpc.chat.SessionService/ListEvents', {'sessionId': session_id, 'limit': 1000}).get('events', [])
+    emitters = [d.get('event', {}).get('emitter') for d in events]
+    log(f'[审批演示·{label}] 会话事件中 guardrail 事件 {emitters.count("guardrail")} 条')
+
+
+def cmd_approval_demo(_args):
+    node = demo_node()
+    if not node:
+        sys.exit('没有已应用演示模型配置且提供 webapi_http 的节点；先 up 并查看 status')
+    for approve in (True, False):
+        approval_round(node['hello']['nodeId'], approve)
+
+
 def main():
     parser = argparse.ArgumentParser(description='wscyber 本地演示环境（测试数据）')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1182,6 +1303,7 @@ def main():
     fix.add_argument('mode', choices=['on', 'off'])
     selftest = sub.add_parser('selftest')
     selftest.add_argument('--chain', action='store_true', help='研究后继续跑验证、报告与两次复测')
+    sub.add_parser('approval-demo')
     target = sub.add_parser('_target')
     target.add_argument('--fix-flag', required=True)
     sub.add_parser('_model')
@@ -1190,7 +1312,7 @@ def main():
         return serve_target(args.fix_flag)
     if args.command == '_model':
         return serve_model()
-    {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest}[args.command](args)
+    {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest, 'approval-demo': cmd_approval_demo}[args.command](args)
 
 
 if __name__ == '__main__':

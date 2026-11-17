@@ -44,9 +44,10 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 \
 - Hub 二进制默认用 `var/demo/wscyber-hub`，不存在时用 `var/wscyber-hub`，也可用 `--hub` 指定。日志在 `var/demo/{target,model,hub}.log`，pid 在 `var/demo/pids.json`。
 - `status`；`fix on|off` 切换目标“已修复”模式（`/api/admin/config` 返回 401 或 200，供复测得出两种结论）；`down` 停止全部进程并释放端口。
 - `selftest [--chain]`：经 Hub API 跑一遍研究，加 `--chain` 时再跑验证、报告和两次复测，只输出数量和状态。
+- `approval-demo`：经 Hub API 跑“审批演示”剧本（模拟模型并行发一条测试 DELETE 与一条命中高危规则的无害命令），一轮全部批准、一轮全部拒绝，输出审批与请求状态。页面上首条目标文本含“审批演示”即触发同一剧本。
 - 模拟模型按首条消息识别会话类型（研究/独立验证/报告/复测，复测首行须含“复测”），在原生 3 回合上限内推进：同一阶段的工具调用并行发出。不读写 `var/preview`，不连接真实模型。
 
 ## 5. 限制
 
-- `webapi_http` 只发任务授权 origins；原生终端等工具无强制出口。
+- `webapi_http` 按任务测试策略：scope=origins（默认）只发授权 origins，unrestricted 不限；危险操作审批见 `native/POLICY.md`。原生终端等工具无强制出口（审批只按命令静态规则挂起）。
 - 正式入口不自动恢复/重放历史任务。

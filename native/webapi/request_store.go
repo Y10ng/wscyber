@@ -26,6 +26,15 @@ type requestSpec struct {
 	flow                     *traffic.Flow
 }
 
+// unsentRequestStatus 是发送前即终止的状态：sent=false，记录即完成。
+func unsentRequestStatus(status string) bool {
+	switch status {
+	case "denied", "review_required", requestReviewDenied, requestReviewExpired, requestReviewCanceled:
+		return true
+	}
+	return false
+}
+
 func newRequestID() string { return "we_" + newSessionID() + newSessionID() }
 
 func (s *taskStore) taskForSession(ctx context.Context, sessionID string) (*Task, error) {
@@ -68,7 +77,8 @@ func (s *taskStore) claim(ctx context.Context, inv operation.Invocation, taskID 
 		return nil, false, err
 	}
 	sent := sql.NullBool{}
-	if status == "denied" || status == "review_required" {
+	unsent := unsentRequestStatus(status)
+	if unsent {
 		sent = sql.NullBool{Bool: false, Valid: true}
 	}
 	model := &requestModel{
@@ -77,7 +87,7 @@ func (s *taskStore) claim(ctx context.Context, inv operation.Invocation, taskID 
 		Status: status, Reason: reason, Sent: sent, Preview: []byte("请求尚未获得目标响应"),
 		FlowPB: flowPB, CreatedAt: now,
 	}
-	if status == "review_required" || status == "denied" {
+	if unsent {
 		model.CompletedAt = sql.NullString{String: now, Valid: true}
 	}
 	var inserted int64

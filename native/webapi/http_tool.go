@@ -44,14 +44,17 @@ type httpToolArguments struct {
 	Body    string            `json:"body,omitempty" jsonschema:"description=Literal request body bytes as UTF-8 text"`
 }
 
-type httpTool struct{ store *taskStore }
+type httpTool struct {
+	store     *taskStore
+	approvals *approvalRuntime // 为空时视为无人批准：需审批的请求一律记 review_required，0发送。
+}
 
 // ToolExtension 在原生Harness工具集中注册，复用Capability同一store。
 func (c *Capability) ToolExtension() extension.Extension {
 	var subscriptions []*corehooks.Subscription
 	return extension.Func{
 		LoadFunc: func(scope *extension.Scope) error {
-			if err := extension.Add[coretool.Tool](scope, &httpTool{store: c.store}); err != nil {
+			if err := extension.Add[coretool.Tool](scope, &httpTool{store: c.store, approvals: c.approvals}); err != nil {
 				return err
 			}
 			if err := extension.Add[coretool.Tool](scope, &findingTool{store: c.store}); err != nil {
@@ -255,16 +258,22 @@ func (t *httpTool) Execute(ctx context.Context, arguments string) (*aop.ToolResu
 	if err != nil || task == nil {
 		return stopTool("session无已保存任务授权；0发送"), nil
 	}
+	// 测试策略每次调用现读，保存即生效；只由人经鉴权 API 设置。
+	policy, err := t.store.policyForTask(ctx, task.ID)
+	if err != nil {
+		return stopTool("无法读取任务测试策略；0发送"), nil
+	}
 	body := []byte(args.Body)
 	req, err := buildHTTPRequest(args.Method, args.URL, args.Headers, body)
 	if err != nil {
 		return stopTool(err.Error() + "；0发送"), nil
 	}
-	if !originAllowed(req.URL.String(), task.Origins) {
-		return t.recordUnsent(ctx, inv, task.ID, req, body, "denied", "实际origin不在持久授权内")
+	if policy.Scope != ScopeUnrestricted && !originAllowed(req.URL.String(), task.Origins) {
+		return t.recordUnsent(ctx, inv, task.ID, req, body, "denied", "实际origin不在持久授权内（测试策略 scope=origins）")
 	}
-	if reason := requestReview(req.Method, req.URL.String(), args.Headers, body); reason != "" {
-		return t.recordUnsent(ctx, inv, task.ID, req, body, "review_required", requestPolicyVersion+"："+reason)
+	// 审批由原生 tool.before 挂起处理；这里只拒绝未经人工批准却需审批的调用（如无审批扩展的装配）。
+	if reason := httpReviewReason(policy.Approval, req.Method, req.URL.String(), args.Headers, body); reason != "" && !t.approvals.isApproved(inv) {
+		return t.recordUnsent(ctx, inv, task.ID, req, body, "review_required", reason+"；未经人工审批")
 	}
 	id := newRequestID()
 	flow := traffic.FlowFromHTTP(req, nil, body, nil)

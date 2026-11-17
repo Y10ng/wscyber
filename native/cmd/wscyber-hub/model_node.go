@@ -144,6 +144,7 @@ type modelNodeClient struct {
 type modelNodeProfile struct {
 	*harness.Harness
 	endpoint   string
+	capability *businesswebapi.Capability
 	protocols  *extension.Set
 	namespaces *namespaces.Registry
 	runtime    *agentsession.Runtime
@@ -167,7 +168,7 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 	if request.ProviderMode != provider.StartupDisabled || request.Session == nil || !modelEndpointAllowed(endpoint) || capability == nil {
 		return nil, errors.New("本机模型节点只接受禁用Provider的原生Profile装配及现有webapi能力")
 	}
-	p := &modelNodeProfile{endpoint: endpoint}
+	p := &modelNodeProfile{endpoint: endpoint, capability: capability}
 	session := *request.Session
 	session.NodeName, session.SkipBaseSkills, session.Logger = modelNodeID, true, telemetry.NopLogger()
 	session.MaxPending = 1
@@ -177,7 +178,7 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(),
 			Terminal: terminalext.Config{Timeout: 5, MaximumTimeout: 5 * time.Second},
 		},
-		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension()}, Session: &session,
+		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,
 	})
 	if err != nil {
 		return nil, err
@@ -203,6 +204,8 @@ func (p *modelNodeProfile) Load(ctx context.Context) error {
 		return extension.Add(scope,
 			aop.Shared(&aop.ProtocolMessage{}, p.handleCore),
 			aop.Shared(&types.CommandProtocolMessage{}, modelNodeCommandDenied),
+			// 测试策略审批的 Pending/Resolve；上游 guardrail 保持 provider=none，不绑定其 NewProtocol。
+			p.capability.ApprovalBinding(),
 		)
 	}})
 	if err != nil {

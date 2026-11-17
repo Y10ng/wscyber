@@ -32,6 +32,8 @@ type Task struct {
 	Origins          []string `json:"origins"`
 	InitialSessionID string   `json:"initial_session_id"`
 	CreatedAt        string   `json:"created_at"`
+	// Policy 只在接口响应中附带当前测试策略，不进入任务规范比较。
+	Policy *TaskPolicy `json:"policy,omitempty"`
 }
 
 // taskAuthorization 是规范保存的授权部分（已规范化 origins）。
@@ -209,6 +211,12 @@ func (c *Capability) handlePutTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存任务失败"})
 		return
 	}
+	task, err := c.store.withPolicy(r.Context(), result.Task)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取测试策略失败"})
+		return
+	}
+	result.Task = task
 	switch {
 	case result.Conflict:
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "任务已存在且内容不同", "conflict": true, "task": result.Task})
@@ -236,6 +244,10 @@ func (c *Capability) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在"})
 		return
 	}
+	if task, err = c.store.withPolicy(r.Context(), task); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取测试策略失败"})
+		return
+	}
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -254,12 +266,17 @@ func (c *Capability) handleGetTaskBySession(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, 404, map[string]string{"error": "会话无已保存任务"})
 		return
 	}
+	if task, err = c.store.withPolicy(r.Context(), task); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "读取测试策略失败"})
+		return
+	}
 	writeJSON(w, 200, task)
 }
 
 // Capability 是原生 Web Capability：任务与受保护HTTP证据业务表 + 鉴权内路由。
 type Capability struct {
-	store *taskStore
+	store     *taskStore
+	approvals *approvalRuntime
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -268,7 +285,7 @@ func NewCapability(database string) (*Capability, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	return &Capability{store: store}, nil
+	return &Capability{store: store, approvals: newApprovalRuntime()}, nil
 }
 
 func (c *Capability) ID() string { return "webapi" }
@@ -288,6 +305,7 @@ func (c *Capability) Routes(_ *managementapi.API) []web.Route {
 		{Pattern: "PUT /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handlePutTask)},
 		{Pattern: "GET /api/webapi/tasks", Handler: http.HandlerFunc(c.handleGetTaskBySession)},
 		{Pattern: "GET /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handleGetTask)},
+		{Pattern: "PUT /api/webapi/tasks/{id}/policy", Handler: http.HandlerFunc(c.handlePutPolicy)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence", Handler: http.HandlerFunc(c.handleEvidenceList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence/{evidence_id}", Handler: http.HandlerFunc(c.handleEvidenceGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/findings", Handler: http.HandlerFunc(c.handleFindingList)},

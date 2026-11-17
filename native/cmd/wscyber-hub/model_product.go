@@ -39,6 +39,7 @@ type productModelClient struct {
 // productModelProfile 只组合原生 Harness/Runtime，不实现另一套会话或运行循环。
 type productModelProfile struct {
 	*harness.Harness
+	capability *businesswebapi.Capability
 	namespaces *namespaces.Registry
 	protocols  *extension.Set
 	processes  *coreproc.Manager
@@ -65,12 +66,12 @@ func newProductModelProfile(request profile.Request, directory string, capabilit
 			Directory: directory, Logger: telemetry.NopLogger(),
 			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(),
 		},
-		Extensions: []extension.Extension{capability.ToolExtension()}, Session: &session,
+		Extensions: []extension.Extension{capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &productModelProfile{Harness: h}, nil
+	return &productModelProfile{Harness: h, capability: capability}, nil
 }
 
 func (p *productModelProfile) Load(ctx context.Context) error {
@@ -87,7 +88,8 @@ func (p *productModelProfile) Load(ctx context.Context) error {
 	}
 	p.namespaces = namespaces.New()
 	set, err := extension.New(p.namespaces, extension.Func{LoadFunc: func(scope *extension.Scope) error {
-		return extension.Add(scope, runtime.NamespaceBindings()...)
+		// 原生会话绑定 + 测试策略审批 Pending/Resolve（不绑定上游 guardrail.NewProtocol）。
+		return extension.Add(scope, append(runtime.NamespaceBindings(), p.capability.ApprovalBinding())...)
 	}})
 	if err != nil {
 		return err
