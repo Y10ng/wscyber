@@ -34,6 +34,8 @@ type sessionLauncher interface {
 	RunTurn(ctx context.Context, requestID string, request *aop.RunTurnRequest) (*aop.RunTurnResponse, error)
 	// UserTurn 判断会话里是否已有用户首条消息（Run 已被接受）。
 	UserTurn(ctx context.Context, sessionID string) (turnID string, found bool, err error)
+	// SessionRunning 判断会话是否仍有进行中的轮次（周期调度“上一次仍在运行”用）。
+	SessionRunning(ctx context.Context, sessionID string) (bool, error)
 }
 
 type apiLauncher struct{ api *managementapi.API }
@@ -88,6 +90,55 @@ func (l apiLauncher) UserTurn(ctx context.Context, sessionID string) (string, bo
 		}
 	}
 	return "", false, nil
+}
+
+// sessionRunningPage 是扫描会话事件判定进行中轮次的分页大小。
+const sessionRunningPage = 1000
+
+// SessionRunning 依据原生会话状态判定“仍在运行”，三者同时成立才算：
+//  1. 会话存在；
+//  2. 会话绑定节点当前在线且 AgentView.Busy（原生 Agent 池中该连接有已派发未结束的轮次）；
+//  3. 持久化事件里存在已开始（用户消息或 TurnStarted）但没有 TurnEnded 的轮次。
+//
+// 原生 RunTurn 先持久化用户消息再派发，轮次结束（含断连/派发失败/取消）由运行时写 TurnEnded。
+// Hub 重启后旧轮次可能缺 TurnEnded，但重连后的节点连接不再 Busy，故条件 2 避免永久误判为运行中。
+func (l apiLauncher) SessionRunning(ctx context.Context, sessionID string) (bool, error) {
+	session, err := l.Session(ctx, sessionID)
+	if err != nil || session == nil {
+		return false, err
+	}
+	node := findAgent(l.Agents(), session.GetNodeId())
+	if node == nil || !node.GetBusy() {
+		return false, nil
+	}
+	open := map[string]bool{}
+	cursor := ""
+	for {
+		response, err := l.api.Sessions.ListEvents(ctx, &aop.ListEventsRequest{SessionId: sessionID, AfterCursor: cursor, Limit: sessionRunningPage})
+		if err != nil {
+			return false, err
+		}
+		for _, delivery := range response.GetEvents() {
+			event := delivery.GetEvent()
+			turnID := event.GetTurnId()
+			if turnID == "" {
+				continue
+			}
+			switch {
+			case event.GetTurnEnded() != nil:
+				delete(open, turnID)
+			case event.GetTurnStarted() != nil:
+				open[turnID] = true
+			case event.GetMessage() != nil && event.GetMessage().GetRole() == "user":
+				open[turnID] = true
+			}
+		}
+		if len(response.GetEvents()) < sessionRunningPage || response.GetNextCursor() == "" || response.GetNextCursor() == cursor {
+			break
+		}
+		cursor = response.GetNextCursor()
+	}
+	return len(open) > 0, nil
 }
 
 // AssetLaunchOptions 覆盖资产默认值；空串＝用资产的 objective/scope/approval。

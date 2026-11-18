@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	aop "github.com/chainreactors/cyber/aop"
 	"github.com/chainreactors/cyber/pkg/web"
@@ -286,6 +287,10 @@ type Capability struct {
 	// launcher 由 Routes 从原生管理 API 注入（从资产发起任务用）；测试可替换。
 	launcher    sessionLauncher
 	launchLocks sync.Map
+	// 周期计划调度器（Routes 拿到原生管理 API 时启动，Close 停止）；测试可注入时钟与时区。
+	sched       scheduler
+	scheduleNow func() time.Time
+	scheduleLoc *time.Location
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -312,6 +317,7 @@ func (c *Capability) SchemaModules() []webservice.SchemaModule {
 func (c *Capability) Routes(api *managementapi.API) []web.Route {
 	if api != nil {
 		c.launcher = apiLauncher{api: api}
+		c.startScheduler()
 	}
 	return []web.Route{
 		{Pattern: "PUT /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handlePutTask)},
@@ -345,6 +351,11 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "DELETE /api/webapi/assets/{id}/credentials/{cid}", Handler: http.HandlerFunc(c.handleCredentialDelete)},
 		{Pattern: "GET /api/webapi/assets/{id}/tasks", Handler: http.HandlerFunc(c.handleAssetTasks)},
 		{Pattern: "PUT /api/webapi/assets/{id}/tasks/{task_id}", Handler: http.HandlerFunc(c.handleAssetLaunch)},
+		{Pattern: "GET /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleScheduleGet)},
+		{Pattern: "PUT /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleSchedulePut)},
+		{Pattern: "DELETE /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleScheduleDelete)},
+		{Pattern: "GET /api/webapi/assets/{id}/schedule/runs", Handler: http.HandlerFunc(c.handleScheduleRuns)},
+		{Pattern: "GET /api/webapi/schedules", Handler: http.HandlerFunc(c.handleScheduleList)},
 	}
 }
 
@@ -352,6 +363,7 @@ func (c *Capability) RegisterNamespaces(_ *aop.NamespaceMux) error { return nil 
 
 // Close 生命周期跟随原生 Capability.Close，关闭自有连接。
 func (c *Capability) Close(_ context.Context) error {
+	c.stopScheduler()
 	if c.store != nil {
 		return c.store.Close()
 	}

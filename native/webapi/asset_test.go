@@ -299,10 +299,14 @@ type fakeLauncher struct {
 	opens     []*aop.OpenSessionRequest
 	runs      []fakeRun
 	runReject *aop.Rejection
+	// running 标记仍在运行的会话（SessionRunning 替身）；runningErr 非空时报错。
+	running    map[string]bool
+	runningAll bool
+	runningErr error
 }
 
 func newFakeLauncher(agents ...*types.AgentView) *fakeLauncher {
-	return &fakeLauncher{agents: agents, sessions: map[string]*aop.Session{}, userTurns: map[string]string{}}
+	return &fakeLauncher{agents: agents, sessions: map[string]*aop.Session{}, userTurns: map[string]string{}, running: map[string]bool{}}
 }
 
 func productAgent(id string) *types.AgentView {
@@ -346,6 +350,12 @@ func (l *fakeLauncher) UserTurn(_ context.Context, sessionID string) (string, bo
 	defer l.mu.Unlock()
 	turn, ok := l.userTurns[sessionID]
 	return turn, ok, nil
+}
+
+func (l *fakeLauncher) SessionRunning(_ context.Context, sessionID string) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.running[sessionID] || l.runningAll && l.sessions[sessionID] != nil, l.runningErr
 }
 
 func runText(run fakeRun) string {

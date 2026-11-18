@@ -316,10 +316,10 @@ func snapshotResultEvidence(evidence []requestModel, refs []verificationEvidence
 }
 
 // webapiTableOrder 与SchemaModule().Models顺序一致；已知历史阶段都是其前缀。
-var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts", "webapi_retests", "webapi_retest_results", "webapi_task_policies", "webapi_task_policy_events", "webapi_assets", "webapi_asset_credentials", "webapi_asset_tasks"}
+var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts", "webapi_retests", "webapi_retest_results", "webapi_task_policies", "webapi_task_policy_events", "webapi_assets", "webapi_asset_credentials", "webapi_asset_tasks", "webapi_asset_schedules", "webapi_schedule_runs"}
 
-// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表、含报告八表、含复测十表、含测试策略十二表。
-var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}, {8, 10}, {10, 12}, {12, 13}}
+// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表、含报告八表、含复测十表、含测试策略十二表、含资产十五表。
+var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}, {8, 10}, {10, 12}, {12, 13}, {15, 15}}
 
 func webapiSchemaStage(models, indexes int) webservice.SchemaModule {
 	module := SchemaModule()

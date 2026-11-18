@@ -16,3 +16,23 @@
   - 响应：201（本次新建任务）/200（续完或 `idempotent:true`）`{asset_id, task, session_id, node_id, turn_id, progress:{task_created,session_opened,turn_started}, created, idempotent}`。失败 `{error, stage, progress, task, session_id, node_id}`：无可用节点/绑定节点离线/节点拒绝 UNAVAILABLE/本机模型未配置 → 409；资产不存在 404；参数 400；密钥问题 `stage=first_message` 500；会话服务异常 502/503。
 - `GET /assets/{id}/tasks` → `{asset_id, tasks:[{task_id, objective, initial_session_id, created_at, finding_count}]}`，最近在前。任务 GET（含 `?session_id=` 与 PUT 响应）带 `asset:{id,name}|null`。
 - 已知限制：测试账号明文进入首条用户消息，因而随原生会话事件（`chat_aop_events`）持久化并在执行视图可见；禁止行为只是提示词约束。
+
+## 周期计划（C2a 后端）
+
+每资产一个计划（`webapi_asset_schedules`），到点由 Hub 自动从资产发起任务（复用 `LaunchAssetTask`，资产默认 objective/scope/approval）。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
+
+- `PUT /assets/{id}/schedule` `{cron, enabled?}`（未知字段 400；enabled 省略＝true）：cron 用上游 `agent.ParseCron`（5 字段：分 时 日 月 周，支持 `*`、`*/n`、`a-b[/n]`、列表），按 **Hub 本地时区**解释，4 年内无触发（如 `0 0 30 2 *`）400。保存即生效：按当前时间重算 `next_run_at`（停用为 null）。新建 201、覆盖 200。资产不存在 404。
+- 响应/`GET` = `{asset_id, cron, enabled, next_run_at, upcoming[≤3], timezone, updated_at, last_run}`；时间均为 UTC RFC3339（`...Z`），`timezone` 如 `Local (+08:00)`。未设置计划 GET 404。`DELETE` 删除计划（运行记录保留），不存在 404。
+- `GET /assets/{id}/schedule/runs?limit=1..200(默认50)&cursor=` → `{items:[{id, asset_id, scheduled_for, task_id, status, error, created_at}], has_more, next_cursor}`，按 `scheduled_for` 倒序。`GET /schedules` → `{schedules:[计划视图 + asset_name, asset_archived], timezone}`，启用且最早到期在前。
+- 运行记录 `webapi_schedule_runs`，`(asset_id, scheduled_for)` 唯一：
+  - `launched`：任务已建并 Run 被接受；`task_id` 为该任务。
+  - `failed`：`LaunchAssetTask` 失败，`error` = `阶段：文案`（如 `select_node：当前没有…在线节点…`）；任务已建时带 `task_id`（可在资产任务列表里查看/手动经 `PUT /assets/{id}/tasks/{task_id}` 续完），校验阶段失败为空。**不自动重试**，`next_run_at` 照常推进。
+  - `skipped`：资产已归档 / 上一次计划任务仍在运行（error 带其 task_id）/ 计划在检查过程中被停用。不排队。
+- 调度器：`Routes` 拿到原生管理 API 时启动、`Capability.Close` 停止的单 goroutine，每 30s 检查 `enabled 且 next_run_at ≤ now` 的计划（Hub 启动后第一次检查在 30s 后）：
+  - `task_id` = UUIDv5(固定命名空间, `asset_id + "\n" + scheduled_for`)：重复检查、发起后写记录前中断等情况下同一应运行时间只对应一个任务，依赖 `LaunchAssetTask` 按 task_id 幂等/续完；记录插入 `ON CONFLICT DO NOTHING`。
+  - Hub 停机错过多次：只补最近一次应运行时间（`scheduled_for` 记该时间），然后 `next_run_at` = cron 在当前时间之后的下一次。
+  - “上一次仍在运行”判定（`apiLauncher.SessionRunning`，查原生会话状态）：上一次 `launched` 任务的研究会话（`initial_session_id`）存在 **且** 其绑定节点在线且原生 `AgentView.Busy`（该连接有已派发未结束的轮次）**且** 会话持久化事件里有已开始（用户消息/TurnStarted）却无 `TurnEnded` 的轮次。Busy 条件用来排除 Hub 重启后遗留的无终态旧轮次。Busy 是节点级：同节点另有会话在跑时，本会话只要事件里也有未结束轮次才会算运行中。无法核对（读取出错）时本轮不发起、保持到期、不记 run。
+  - 全局并发上限 2：统计各资产最近一次 `launched` 计划任务中仍在运行的数量（无法核对按运行中计）；达到上限本轮不发起、保持到期、不记 run，下轮再试。只计计划任务，不含手动发起的任务。
+  - 归档资产记 skipped；`enabled=false` 不会到期（`next_run_at` 为空），不发起不记录。期间人为重新保存计划时，按新的 `next_run_at` 处理，不覆盖。
+  - Hub 关闭打断进行中的发起：不记 failed，`next_run_at` 不推进，重启后同一 `scheduled_for`（若期间未跨过下一次触发）用同 task_id 续完。
+- 计划任务的审批沿用任务策略（资产默认）；无人值守时待审批 10 分钟超时拒绝（B1 现状）。
