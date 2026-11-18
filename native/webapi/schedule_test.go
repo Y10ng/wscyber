@@ -402,4 +402,18 @@ func TestWebAPIScheduleSessionRunningRealSessions(t *testing.T) {
 	if running, err := launcher.SessionRunning(t.Context(), "s1"); err != nil || running {
 		t.Fatalf("offline node session = %v %v", running, err)
 	}
+	// TurnEnded（计划后续“研究已结束”）：不存在会话/只有用户消息 → false；有 TurnEnded → true。
+	if ended, err := launcher.TurnEnded(t.Context(), "missing"); err != nil || ended {
+		t.Fatalf("missing session ended = %v %v", ended, err)
+	}
+	if ended, err := launcher.TurnEnded(t.Context(), "s1"); err != nil || ended {
+		t.Fatalf("open turn ended = %v %v", ended, err)
+	}
+	end := &aop.Event{SessionId: "s1", TurnId: "turn-1", Id: "ev-2", Emitter: "cyber.web", Payload: &aop.Event_TurnEnded{TurnEnded: &aop.TurnEnded{StopReason: "end_turn"}}}
+	if _, _, err := store.AppendAOPEvent(t.Context(), "s1", end); err != nil {
+		t.Fatal(err)
+	}
+	if ended, err := launcher.TurnEnded(t.Context(), "s1"); err != nil || !ended {
+		t.Fatalf("ended turn = %v %v", ended, err)
+	}
 }

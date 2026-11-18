@@ -34,8 +34,10 @@ type sessionLauncher interface {
 	RunTurn(ctx context.Context, requestID string, request *aop.RunTurnRequest) (*aop.RunTurnResponse, error)
 	// UserTurn 判断会话里是否已有用户首条消息（Run 已被接受）。
 	UserTurn(ctx context.Context, sessionID string) (turnID string, found bool, err error)
-	// SessionRunning 判断会话是否仍有进行中的轮次（周期调度“上一次仍在运行”用）。
+	// SessionRunning 判断会话是否仍有进行中的轮次（周期调度“上一次仍在运行”与并发计数用）。
 	SessionRunning(ctx context.Context, sessionID string) (bool, error)
+	// TurnEnded 判断会话事件里是否至少有一个 TurnEnded（计划后续“研究已结束”判定用）。
+	TurnEnded(ctx context.Context, sessionID string) (bool, error)
 }
 
 type apiLauncher struct{ api *managementapi.API }
@@ -112,33 +114,56 @@ func (l apiLauncher) SessionRunning(ctx context.Context, sessionID string) (bool
 		return false, nil
 	}
 	open := map[string]bool{}
+	err = l.scanEvents(ctx, sessionID, func(event *aop.Event) bool {
+		turnID := event.GetTurnId()
+		if turnID == "" {
+			return true
+		}
+		switch {
+		case event.GetTurnEnded() != nil:
+			delete(open, turnID)
+		case event.GetTurnStarted() != nil:
+			open[turnID] = true
+		case event.GetMessage() != nil && event.GetMessage().GetRole() == "user":
+			open[turnID] = true
+		}
+		return true
+	})
+	return len(open) > 0, err
+}
+
+// TurnEnded 判断会话持久化事件里是否至少有一个 TurnEnded（计划后续“研究已结束”判定用）。
+func (l apiLauncher) TurnEnded(ctx context.Context, sessionID string) (bool, error) {
+	session, err := l.Session(ctx, sessionID)
+	if err != nil || session == nil {
+		return false, err
+	}
+	ended := false
+	err = l.scanEvents(ctx, sessionID, func(event *aop.Event) bool {
+		ended = event.GetTurnEnded() != nil
+		return !ended
+	})
+	return ended, err
+}
+
+// scanEvents 按页顺序读取会话持久化事件，visit 返回 false 时提前结束。
+func (l apiLauncher) scanEvents(ctx context.Context, sessionID string, visit func(*aop.Event) bool) error {
 	cursor := ""
 	for {
 		response, err := l.api.Sessions.ListEvents(ctx, &aop.ListEventsRequest{SessionId: sessionID, AfterCursor: cursor, Limit: sessionRunningPage})
 		if err != nil {
-			return false, err
+			return err
 		}
 		for _, delivery := range response.GetEvents() {
-			event := delivery.GetEvent()
-			turnID := event.GetTurnId()
-			if turnID == "" {
-				continue
-			}
-			switch {
-			case event.GetTurnEnded() != nil:
-				delete(open, turnID)
-			case event.GetTurnStarted() != nil:
-				open[turnID] = true
-			case event.GetMessage() != nil && event.GetMessage().GetRole() == "user":
-				open[turnID] = true
+			if !visit(delivery.GetEvent()) {
+				return nil
 			}
 		}
 		if len(response.GetEvents()) < sessionRunningPage || response.GetNextCursor() == "" || response.GetNextCursor() == cursor {
-			break
+			return nil
 		}
 		cursor = response.GetNextCursor()
 	}
-	return len(open) > 0, nil
 }
 
 // AssetLaunchOptions 覆盖资产默认值；空串＝用资产的 objective/scope/approval。
@@ -276,59 +301,70 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 		result.Task = task
 	}
 
-	if c.launcher == nil {
-		return result, launchFail(http.StatusServiceUnavailable, "open_session", "会话服务不可用，任务已保存但未启动；可重试", result)
-	}
-	// 2. 会话：已存在则沿用原绑定节点，不换节点。
-	session, err := c.launcher.Session(ctx, task.InitialSessionID)
+	// 2–4. 会话：已存在沿用原绑定节点；首条消息（解密测试账号）在 Open 前组装，密钥问题不留下空会话。
+	started, err := c.startSession(ctx, task.InitialSessionID, "任务", func() (string, error) { return c.assetFirstMessage(ctx, asset, task) }, result)
 	if err != nil {
-		return result, launchFail(http.StatusInternalServerError, "open_session", "暂不能核对原生会话状态，任务已保存；可重试（不会重复 Open）", result)
+		return result, err
+	}
+	result.Idempotent = started && !created
+	return result, nil
+}
+
+// startSession 是服务端启动原生会话的公共步骤（资产发起任务与计划后续共用），按 sessionID 幂等：
+// 会话已存在则沿用原绑定节点、不再 Open；会话里已有用户消息即视为已启动，不再 Run（返回 started=true）。
+// 否则组装首条消息 → 选节点（在线且提供 webapi_http，按 node_id 取第一个；本机模型须已配置）→ Open → Run。
+// subject 是失败文案里“已保存”的对象（任务/验证/复测）；失败返回 *AssetLaunchError（阶段与进度写入 result）。
+func (c *Capability) startSession(ctx context.Context, sessionID, subject string, buildMessage func() (string, error), result *AssetLaunchResult) (bool, error) {
+	if c.launcher == nil {
+		return false, launchFail(http.StatusServiceUnavailable, "open_session", "会话服务不可用，"+subject+"已保存但未启动；可重试", result)
+	}
+	session, err := c.launcher.Session(ctx, sessionID)
+	if err != nil {
+		return false, launchFail(http.StatusInternalServerError, "open_session", "暂不能核对原生会话状态，"+subject+"已保存；可重试（不会重复 Open）", result)
 	}
 	agents := c.launcher.Agents()
 	if session != nil {
 		result.Progress.SessionOpened = true
 		result.NodeID = session.GetNodeId()
-		turnID, found, err := c.launcher.UserTurn(ctx, task.InitialSessionID)
+		turnID, found, err := c.launcher.UserTurn(ctx, sessionID)
 		if err != nil {
-			return result, launchFail(http.StatusInternalServerError, "run_turn", "暂不能核对首条消息是否已发送，任务与会话已就绪；可重试（不会盲发新 Run）", result)
+			return false, launchFail(http.StatusInternalServerError, "run_turn", "暂不能核对首条消息是否已发送，"+subject+"与会话已就绪；可重试（不会盲发新 Run）", result)
 		}
 		if found {
 			result.Progress.TurnStarted = true
 			result.TurnID = turnID
-			result.Idempotent = !created
-			return result, nil
+			return true, nil
 		}
 	}
 
-	// 3. 首条消息（解密测试账号）在 Open 前组装：密钥问题不留下空会话。
-	message, err := c.assetFirstMessage(ctx, asset, task)
+	message, err := buildMessage()
 	if err != nil {
-		return result, launchFail(http.StatusInternalServerError, "first_message", err.Error(), result)
+		return false, launchFail(http.StatusInternalServerError, "first_message", err.Error(), result)
 	}
 
 	var node *types.AgentView
 	if session != nil {
 		node = findAgent(agents, session.GetNodeId())
 		if node == nil {
-			return result, launchFail(http.StatusConflict, "run_turn", "会话绑定的节点 "+session.GetNodeId()+" 当前不在线，任务与会话已保存但未启动；节点上线后重试", result)
+			return false, launchFail(http.StatusConflict, "run_turn", "会话绑定的节点 "+session.GetNodeId()+" 当前不在线，"+subject+"与会话已保存但未启动；节点上线后重试", result)
 		}
 	} else {
 		node = pickWebAPINode(agents)
 		if node == nil {
-			return result, launchFail(http.StatusConflict, "select_node", "当前没有已提供 webapi_http 工具的在线节点，任务已保存但未启动；请先启动或连接模型节点后重试", result)
+			return false, launchFail(http.StatusConflict, "select_node", "当前没有已提供 webapi_http 工具的在线节点，"+subject+"已保存但未启动；请先启动或连接模型节点后重试", result)
 		}
 	}
 	if hasCapability(node, localModelCapability) && (strings.TrimSpace(node.GetStatus().GetProvider()) == "" || strings.TrimSpace(node.GetStatus().GetModel()) == "") {
-		return result, launchFail(http.StatusConflict, "select_node", "本机模型节点尚未配置模型，任务已保存但未启动；请在设置中配置模型后重试", result)
+		return false, launchFail(http.StatusConflict, "select_node", "本机模型节点尚未配置模型，"+subject+"已保存但未启动；请在设置中配置模型后重试", result)
 	}
 	result.NodeID = node.GetHello().GetNodeId()
 	if session == nil {
-		response, err := c.launcher.OpenSession(ctx, randomRequestID("wa-open-"), &aop.OpenSessionRequest{SessionId: task.InitialSessionID, NodeId: result.NodeID})
+		response, err := c.launcher.OpenSession(ctx, randomRequestID("wa-open-"), &aop.OpenSessionRequest{SessionId: sessionID, NodeId: result.NodeID})
 		if err != nil {
-			return result, launchFail(http.StatusBadGateway, "open_session", "创建原生会话失败："+err.Error(), result)
+			return false, launchFail(http.StatusBadGateway, "open_session", "创建原生会话失败："+err.Error(), result)
 		}
 		if rejected := response.GetRejected(); rejected != nil || response.GetAccepted() == nil {
-			return result, rejectionFail("open_session", "创建原生会话被拒绝", rejected, result)
+			return false, rejectionFail("open_session", "创建原生会话被拒绝", subject, rejected, result)
 		}
 		result.Progress.SessionOpened = true
 	}
@@ -339,27 +375,27 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 	}
 	turnID := randomRequestID("")
 	run, err := c.launcher.RunTurn(ctx, randomRequestID("wa-run-"), &aop.RunTurnRequest{
-		SessionId: task.InitialSessionID, TurnId: turnID, MaxTurns: maxTurns,
+		SessionId: sessionID, TurnId: turnID, MaxTurns: maxTurns,
 		Input: &aop.Message{Id: randomRequestID(""), Role: "user", Content: []*aop.Content{{Value: &aop.Content_Text{Text: &aop.TextContent{Text: message}}}}},
 	})
 	if err != nil {
-		return result, launchFail(http.StatusBadGateway, "run_turn", "发送首条消息失败："+err.Error(), result)
+		return false, launchFail(http.StatusBadGateway, "run_turn", "发送首条消息失败："+err.Error(), result)
 	}
 	if rejected := run.GetRejected(); rejected != nil || run.GetAccepted() == nil {
-		return result, rejectionFail("run_turn", "首条消息被拒绝", rejected, result)
+		return false, rejectionFail("run_turn", "首条消息被拒绝", subject, rejected, result)
 	}
 	result.Progress.TurnStarted = true
 	result.TurnID = run.GetAccepted().GetTurnId()
-	return result, nil
+	return false, nil
 }
 
-func rejectionFail(stage, prefix string, rejected *aop.Rejection, result *AssetLaunchResult) *AssetLaunchError {
+func rejectionFail(stage, prefix, subject string, rejected *aop.Rejection, result *AssetLaunchResult) *AssetLaunchError {
 	code, detail := rejected.GetCode(), rejected.GetMessage()
 	status := http.StatusBadGateway
-	message := fmt.Sprintf("%s（%s：%s），任务已保存；可重试", prefix, code, detail)
+	message := fmt.Sprintf("%s（%s：%s），%s已保存；可重试", prefix, code, detail, subject)
 	if code == string(managementapi.CodeUnavailable) {
 		status = http.StatusConflict
-		message = prefix + "：节点不在线，任务已保存但未启动；节点上线后重试"
+		message = prefix + "：节点不在线，" + subject + "已保存但未启动；节点上线后重试"
 	}
 	return launchFail(status, stage, message, result)
 }

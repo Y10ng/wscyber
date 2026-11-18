@@ -9,10 +9,12 @@ import (
 	"github.com/chainreactors/cyber/agent"
 )
 
-// saveSchedule 是 PUT /assets/{id}/schedule 请求体；enabled 省略视为 true。
+// saveSchedule 是 PUT /assets/{id}/schedule 请求体；enabled、auto_verify、auto_retest 省略视为 true。
 type saveSchedule struct {
-	Cron    string `json:"cron"`
-	Enabled *bool  `json:"enabled"`
+	Cron       string `json:"cron"`
+	Enabled    *bool  `json:"enabled"`
+	AutoVerify *bool  `json:"auto_verify"`
+	AutoRetest *bool  `json:"auto_retest"`
 }
 
 // ScheduleRun 是运行记录视图；task_id 只有已发起或已建任务时非空。
@@ -24,18 +26,23 @@ type ScheduleRun struct {
 	Status       string `json:"status"`
 	Error        string `json:"error"`
 	CreatedAt    string `json:"created_at"`
+	// Followups 只对 launched 运行非空。
+	Followups *ScheduleFollowupSummary `json:"followups"`
 }
 
 // AssetSchedule 是计划视图。时间均为 UTC RFC3339；cron 按 timezone（Hub 本地时区）解释。
 type AssetSchedule struct {
-	AssetID   string       `json:"asset_id"`
-	Cron      string       `json:"cron"`
-	Enabled   bool         `json:"enabled"`
-	NextRunAt *string      `json:"next_run_at"`
-	Upcoming  []string     `json:"upcoming"`
-	Timezone  string       `json:"timezone"`
-	UpdatedAt string       `json:"updated_at"`
-	LastRun   *ScheduleRun `json:"last_run"`
+	AssetID string `json:"asset_id"`
+	Cron    string `json:"cron"`
+	Enabled bool   `json:"enabled"`
+	// AutoVerify/AutoRetest：研究结束后自动验证本次候选 / 自动复测已知漏洞。
+	AutoVerify bool         `json:"auto_verify"`
+	AutoRetest bool         `json:"auto_retest"`
+	NextRunAt  *string      `json:"next_run_at"`
+	Upcoming   []string     `json:"upcoming"`
+	Timezone   string       `json:"timezone"`
+	UpdatedAt  string       `json:"updated_at"`
+	LastRun    *ScheduleRun `json:"last_run"`
 }
 
 func runView(model scheduleRunModel) ScheduleRun {
@@ -48,8 +55,8 @@ func (c *Capability) timezoneLabel() string {
 	return loc.String() + " (" + c.scheduleClock().In(loc).Format("-07:00") + ")"
 }
 
-func (c *Capability) scheduleView(model *assetScheduleModel, last *scheduleRunModel) AssetSchedule {
-	view := AssetSchedule{AssetID: model.AssetID, Cron: model.Cron, Enabled: model.Enabled, Upcoming: []string{}, Timezone: c.timezoneLabel(), UpdatedAt: model.UpdatedAt}
+func (c *Capability) scheduleView(model *assetScheduleModel, last *ScheduleRun, autoVerify, autoRetest bool) AssetSchedule {
+	view := AssetSchedule{AssetID: model.AssetID, Cron: model.Cron, Enabled: model.Enabled, AutoVerify: autoVerify, AutoRetest: autoRetest, Upcoming: []string{}, Timezone: c.timezoneLabel(), UpdatedAt: model.UpdatedAt, LastRun: last}
 	if model.Enabled && model.NextRunAt != "" {
 		next := model.NextRunAt
 		view.NextRunAt = &next
@@ -66,10 +73,6 @@ func (c *Capability) scheduleView(model *assetScheduleModel, last *scheduleRunMo
 				}
 			}
 		}
-	}
-	if last != nil {
-		run := runView(*last)
-		view.LastRun = &run
 	}
 	return view
 }
@@ -108,11 +111,21 @@ func (c *Capability) writeSchedule(w http.ResponseWriter, r *http.Request, asset
 		writeError(w, http.StatusInternalServerError, "读取计划运行记录失败")
 		return
 	}
-	var last *scheduleRunModel
+	var last *ScheduleRun
 	if len(runs) > 0 {
-		last = &runs[0]
+		view, err := c.runViewWithFollowups(r.Context(), runs[0])
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "读取计划后续失败")
+			return
+		}
+		last = &view
 	}
-	writeJSON(w, status, c.scheduleView(model, last))
+	autoVerify, autoRetest, err := c.store.scheduleOptions(r.Context(), assetID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取计划失败")
+		return
+	}
+	writeJSON(w, status, c.scheduleView(model, last, autoVerify, autoRetest))
 }
 
 func (c *Capability) handleScheduleGet(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +156,8 @@ func (c *Capability) handleSchedulePut(w http.ResponseWriter, r *http.Request) {
 	if enabled {
 		model.NextRunAt = formatScheduleTime(cron.Next(now))
 	}
-	created, err := c.store.putSchedule(r.Context(), model)
+	options := scheduleOptionsModel{AssetID: id, AutoVerify: body.AutoVerify == nil || *body.AutoVerify, AutoRetest: body.AutoRetest == nil || *body.AutoRetest, UpdatedAt: model.UpdatedAt}
+	created, err := c.store.putSchedule(r.Context(), model, options)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存计划失败")
 		return
@@ -212,7 +226,12 @@ func (c *Capability) handleScheduleRuns(w http.ResponseWriter, r *http.Request) 
 	}
 	items := make([]ScheduleRun, 0, len(models))
 	for _, model := range models {
-		items = append(items, runView(model))
+		view, err := c.runViewWithFollowups(r.Context(), model)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "读取计划后续失败")
+			return
+		}
+		items = append(items, view)
 	}
 	response := map[string]any{"asset_id": id, "items": items, "limit": limit, "has_more": hasMore, "next_cursor": nil}
 	if hasMore {
@@ -241,11 +260,16 @@ func (c *Capability) handleScheduleList(w http.ResponseWriter, r *http.Request) 
 	}
 	items := make([]ScheduleListItem, 0, len(rows))
 	for index := range rows {
-		var last *scheduleRunModel
+		var last *ScheduleRun
 		if run, ok := latest[rows[index].AssetID]; ok {
-			last = &run
+			view, err := c.runViewWithFollowups(r.Context(), run)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "读取计划后续失败")
+				return
+			}
+			last = &view
 		}
-		items = append(items, ScheduleListItem{AssetSchedule: c.scheduleView(&rows[index].assetScheduleModel, last), AssetName: rows[index].AssetName, AssetArchived: rows[index].AssetArchived})
+		items = append(items, ScheduleListItem{AssetSchedule: c.scheduleView(&rows[index].assetScheduleModel, last, rows[index].AutoVerify, rows[index].AutoRetest), AssetName: rows[index].AssetName, AssetArchived: rows[index].AssetArchived})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"schedules": items, "timezone": c.timezoneLabel()})
 }

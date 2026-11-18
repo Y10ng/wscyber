@@ -356,6 +356,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "DELETE /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleScheduleDelete)},
 		{Pattern: "GET /api/webapi/assets/{id}/schedule/runs", Handler: http.HandlerFunc(c.handleScheduleRuns)},
 		{Pattern: "GET /api/webapi/schedules", Handler: http.HandlerFunc(c.handleScheduleList)},
+		{Pattern: "GET /api/webapi/schedule-runs/{run_id}/followups", Handler: http.HandlerFunc(c.handleScheduleRunFollowups)},
 	}
 }
 

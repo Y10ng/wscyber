@@ -15,8 +15,8 @@ import (
 const (
 	// scheduleInterval 是调度器检查到期计划的周期。
 	scheduleInterval = 30 * time.Second
-	// scheduleMaxConcurrent 是计划任务研究会话的全局并发上限：达到上限时本轮不再发起，
-	// 到期计划保持到期，下轮再试（不记 run）。
+	// scheduleMaxConcurrent 是计划任务研究会话 + 计划后续（验证/复测）会话合计的全局并发上限：
+	// 达到上限时本轮不再发起，到期计划保持到期、后续项保持 pending，下轮再试（不记 run）。
 	scheduleMaxConcurrent = 2
 	maxCronLength         = 128
 	scheduleUpcomingCount = 3
@@ -28,9 +28,14 @@ var scheduleTaskNamespace = [16]byte{0x5c, 0x3e, 0x2a, 0x71, 0x0d, 0x4b, 0x4f, 0
 // scheduleTaskID 由 asset_id + scheduled_for 确定性生成（UUIDv5），使重复检查/Hub 重启
 // 不会重复发起（LaunchAssetTask 按 task_id 幂等）。
 func scheduleTaskID(assetID, scheduledFor string) string {
+	return scheduleUUID(assetID, scheduledFor)
+}
+
+// scheduleUUID 是计划相关确定性 ID：UUIDv5(固定命名空间, 各部分以换行连接)。
+func scheduleUUID(parts ...string) string {
 	hash := sha1.New()
 	hash.Write(scheduleTaskNamespace[:])
-	hash.Write([]byte(assetID + "\n" + scheduledFor))
+	hash.Write([]byte(strings.Join(parts, "\n")))
 	sum := hash.Sum(nil)
 	sum[6] = (sum[6] & 0x0f) | 0x50
 	sum[8] = (sum[8] & 0x3f) | 0x80
@@ -121,13 +126,18 @@ func (c *Capability) scheduledTaskRunning(ctx context.Context, taskID string) (b
 
 // runDueSchedules 处理一次检查：对每个到期计划补跑最近一次应运行时间（停机错过多次只补一次），
 // 然后 next_run_at 按 cron 推进到 now 之后。返回首个存储错误（单个计划的发起失败记入 run）。
+// 之后处理计划后续（候选验证/已知漏洞复测）。研究优先：先发到期计划，剩余名额再给后续；
+// 全局并发 = 运行中的计划研究 + 运行中的后续会话。
 func (c *Capability) runDueSchedules(ctx context.Context) error {
 	now := c.scheduleClock().In(c.scheduleLocation())
 	due, err := c.store.dueSchedules(ctx, now)
-	if err != nil || len(due) == 0 {
+	if err != nil {
 		return err
 	}
-	running := 0
+	states, running, err := c.loadFollowupStates(ctx)
+	if err != nil {
+		return err
+	}
 	latest, err := c.store.latestLaunchedRuns(ctx)
 	if err != nil {
 		return err
@@ -154,6 +164,7 @@ func (c *Capability) runDueSchedules(ctx context.Context) error {
 			running++
 		}
 	}
+	keep(c.processFollowups(ctx, states, running))
 	return firstErr
 }
 

@@ -303,10 +303,12 @@ type fakeLauncher struct {
 	running    map[string]bool
 	runningAll bool
 	runningErr error
+	// ended 标记事件里已有 TurnEnded 的会话（TurnEnded 替身）。
+	ended map[string]bool
 }
 
 func newFakeLauncher(agents ...*types.AgentView) *fakeLauncher {
-	return &fakeLauncher{agents: agents, sessions: map[string]*aop.Session{}, userTurns: map[string]string{}, running: map[string]bool{}}
+	return &fakeLauncher{agents: agents, sessions: map[string]*aop.Session{}, userTurns: map[string]string{}, running: map[string]bool{}, ended: map[string]bool{}}
 }
 
 func productAgent(id string) *types.AgentView {
@@ -356,6 +358,12 @@ func (l *fakeLauncher) SessionRunning(_ context.Context, sessionID string) (bool
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.running[sessionID] || l.runningAll && l.sessions[sessionID] != nil, l.runningErr
+}
+
+func (l *fakeLauncher) TurnEnded(_ context.Context, sessionID string) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ended[sessionID], nil
 }
 
 func runText(run fakeRun) string {

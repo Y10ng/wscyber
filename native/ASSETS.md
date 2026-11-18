@@ -21,9 +21,9 @@
 
 每资产一个计划（`webapi_asset_schedules`），到点由 Hub 自动从资产发起任务（复用 `LaunchAssetTask`，资产默认 objective/scope/approval）。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
 
-- `PUT /assets/{id}/schedule` `{cron, enabled?}`（未知字段 400；enabled 省略＝true）：cron 用上游 `agent.ParseCron`（5 字段：分 时 日 月 周，支持 `*`、`*/n`、`a-b[/n]`、列表），按 **Hub 本地时区**解释，4 年内无触发（如 `0 0 30 2 *`）400。保存即生效：按当前时间重算 `next_run_at`（停用为 null）。新建 201、覆盖 200。资产不存在 404。
-- 响应/`GET` = `{asset_id, cron, enabled, next_run_at, upcoming[≤3], timezone, updated_at, last_run}`；时间均为 UTC RFC3339（`...Z`），`timezone` 如 `Local (+08:00)`。未设置计划 GET 404。`DELETE` 删除计划（运行记录保留），不存在 404。
-- `GET /assets/{id}/schedule/runs?limit=1..200(默认50)&cursor=` → `{items:[{id, asset_id, scheduled_for, task_id, status, error, created_at}], has_more, next_cursor}`，按 `scheduled_for` 倒序。`GET /schedules` → `{schedules:[计划视图 + asset_name, asset_archived], timezone}`，启用且最早到期在前。
+- `PUT /assets/{id}/schedule` `{cron, enabled?, auto_verify?, auto_retest?}`（未知字段 400；三者省略＝true，整份覆盖，开关存 `webapi_schedule_options`，无行＝开启）：cron 用上游 `agent.ParseCron`（5 字段：分 时 日 月 周，支持 `*`、`*/n`、`a-b[/n]`、列表），按 **Hub 本地时区**解释，4 年内无触发（如 `0 0 30 2 *`）400。保存即生效：按当前时间重算 `next_run_at`（停用为 null）。新建 201、覆盖 200。资产不存在 404。
+- 响应/`GET` = `{asset_id, cron, enabled, auto_verify, auto_retest, next_run_at, upcoming[≤3], timezone, updated_at, last_run}`；时间均为 UTC RFC3339（`...Z`），`timezone` 如 `Local (+08:00)`。未设置计划 GET 404。`DELETE` 删除计划与开关（运行记录与后续明细保留），不存在 404。
+- `GET /assets/{id}/schedule/runs?limit=1..200(默认50)&cursor=` → `{items:[{id, asset_id, scheduled_for, task_id, status, error, created_at, followups}], has_more, next_cursor}`（`followups` 见下节；`last_run` 同形），按 `scheduled_for` 倒序。`GET /schedules` → `{schedules:[计划视图 + asset_name, asset_archived], timezone}`，启用且最早到期在前。
 - 运行记录 `webapi_schedule_runs`，`(asset_id, scheduled_for)` 唯一：
   - `launched`：任务已建并 Run 被接受；`task_id` 为该任务。
   - `failed`：`LaunchAssetTask` 失败，`error` = `阶段：文案`（如 `select_node：当前没有…在线节点…`）；任务已建时带 `task_id`（可在资产任务列表里查看/手动经 `PUT /assets/{id}/tasks/{task_id}` 续完），校验阶段失败为空。**不自动重试**，`next_run_at` 照常推进。
@@ -36,3 +36,21 @@
   - 归档资产记 skipped；`enabled=false` 不会到期（`next_run_at` 为空），不发起不记录。期间人为重新保存计划时，按新的 `next_run_at` 处理，不覆盖。
   - Hub 关闭打断进行中的发起：不记 failed，`next_run_at` 不推进，重启后同一 `scheduled_for`（若期间未跨过下一次触发）用同 task_id 续完。
 - 计划任务的审批沿用任务策略（资产默认）；无人值守时待审批 10 分钟超时拒绝（B1 现状）。
+
+## 计划后续（C2b 后端）
+
+计划研究结束后，调度器（同一 goroutine、同一次 30s 检查）无人值守接着做“候选验证 → 已知漏洞复测”。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
+
+- 触发：扫描 `launched` 且后续未完成的计划运行——已规划未完成的，或未规划且是该资产**最近一次** launched 运行（被更新的计划运行取代时不再补规划；旧库升级后也只会规划各资产最近一次）。研究会话 `SessionRunning=false` 且事件里至少一个 `TurnEnded`（launcher `TurnEnded`）才规划；判定出错本轮跳过。手动从资产发起的任务没有 run，不触发。
+- 规划（单事务写运行级标记 `webapi_schedule_run_followups` 与全部 pending 项，开关取当时值快照）：
+  - `auto_verify`：本次任务中**还没有任何验证**的候选（当前修订）→ 验证项，`task_id`＝本次任务。
+  - `auto_retest`：同资产在本次任务之前关联的任务（`webapi_asset_tasks.created_at` 更早，含手动发起）里，**最新一条已有判读**的验证为 `supported`、且**最新一条已有结论**的复测不是 `fixed_in_scope` 的候选（当前修订）→ 复测项，`task_id`＝原任务（授权沿用原任务 origins，现有复测语义）。本次任务候选不复测。
+  - 项表 `webapi_schedule_followups(id, run_id, kind, task_id, finding_id, revision_id, target_id, status, error, created_at, updated_at)`，`(run_id, kind, finding_id)` 唯一；`target_id` = UUIDv5(固定命名空间, `run_id\nfinding_id\nrevision_id\nverify|retest`)。
+- 发起（每个 pending 项）：先查跳过——资产不存在/已归档、计划已删除、对应开关已关闭 → `skipped`（文案即原因）；验证项若候选已有本项以外的验证 → `skipped`“候选已有验证”。再用 `target_id` 走现有验证/复测认领（`saveVerification`/`saveRetest`，同 ID 回放），然后与 `LaunchAssetTask` 共用的 `startSession`：会话已存在不再 Open、已有用户消息不再 Run，节点选择同资产发起。首条消息由 Go `pinnedFirstMessage` 生成，与前端 `webApiVerificationFirstMessage`（`hooks/useChatSession.ts`）/`buildWebApiRetestFirstMessage`（`lib/retest-message.ts`）逐行一致。
+  - 成功 → `launched`；确定失败 → `failed`，`error`＝`阶段：文案`（`create`/`select_node`/`open_session`/`run_turn` 等，文案里对象为“验证/复测已保存…”），**不自动重试**。存储异常或 Hub 关闭 → 保持 pending，下轮/重启后以同 ID 续完，不重复建或 Run。
+- 并发：全局上限 `scheduleMaxConcurrent`(2) = 运行中的计划研究 + 运行中的后续会话（未完成运行里已发起项，`SessionRunning`，无法核对按运行中计）。每次检查先处理到期计划（研究优先），剩余名额再发后续；满了保持 pending。
+- 完成：没有 pending 项、本轮没有刚发起的项、已发起的后续会话都不在运行 → 写 `completed_at`，此后不再扫描。
+- 摘要 `followups`（仅 launched 运行，其余为 null）：`{state: waiting|not_planned|in_progress|completed, completed, auto_verify, auto_retest, planned_at, completed_at, verify:{pending,launched,failed,skipped}, retest:{…}}`；未规划时开关/时间为 null。
+- `GET /api/webapi/schedule-runs/{run_id}/followups` → `{run: 运行视图(含 followups), items:[{id, kind, task_id, finding_id, finding_number, finding_title, revision_id, target_id, session_id, status, error, verdict, conclusion, created_at, updated_at}]}`（验证项在前；`session_id`/`verdict`/`conclusion` 尚无为 null）；运行不存在 404。
+- 旧库：C2a 阶段（十七表）补 `webapi_schedule_options`、`webapi_schedule_run_followups`、`webapi_schedule_followups` 三表与唯一索引，不改原表。
+- 已知限制：研究会话因 Hub 重启缺 `TurnEnded` 时该运行停在 waiting，直到下一次计划运行将其取代（not_planned）；同资产下一次计划研究不会等待上一次的后续会话结束（仍受全局上限约束）。

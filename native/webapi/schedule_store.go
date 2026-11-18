@@ -66,10 +66,14 @@ func (s *taskStore) schedule(ctx context.Context, assetID string) (*assetSchedul
 	return &model, nil
 }
 
-// putSchedule 整份覆盖（保存即生效）；返回是否新建。
-func (s *taskStore) putSchedule(ctx context.Context, model assetScheduleModel) (bool, error) {
+// putSchedule 整份覆盖（保存即生效，计划与后续开关同一事务）；返回是否新建。
+func (s *taskStore) putSchedule(ctx context.Context, model assetScheduleModel, options scheduleOptionsModel) (bool, error) {
 	created := false
 	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().Model(&options).On("CONFLICT (asset_id) DO UPDATE").
+			Set("auto_verify = EXCLUDED.auto_verify, auto_retest = EXCLUDED.auto_retest, updated_at = EXCLUDED.updated_at").Exec(ctx); err != nil {
+			return err
+		}
 		res, err := tx.NewInsert().Model(&model).On("CONFLICT (asset_id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err
@@ -84,13 +88,23 @@ func (s *taskStore) putSchedule(ctx context.Context, model assetScheduleModel) (
 	return created, err
 }
 
+// deleteSchedule 删除计划与其后续开关（运行记录与后续明细保留）。
 func (s *taskStore) deleteSchedule(ctx context.Context, assetID string) (bool, error) {
-	res, err := s.orm.NewDelete().Model((*assetScheduleModel)(nil)).Where("asset_id = ?", assetID).Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-	affected, err := res.RowsAffected()
-	return affected > 0, err
+	deleted := false
+	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewDelete().Model((*assetScheduleModel)(nil)).Where("asset_id = ?", assetID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		deleted = affected > 0
+		_, err = tx.NewDelete().Model((*scheduleOptionsModel)(nil)).Where("asset_id = ?", assetID).Exec(ctx)
+		return err
+	})
+	return deleted, err
 }
 
 // dueSchedules 返回启用且 next_run_at ≤ now 的计划，最早到期在前。
@@ -172,11 +186,15 @@ type scheduleListRow struct {
 	assetScheduleModel
 	AssetName     string
 	AssetArchived bool
+	AutoVerify    bool
+	AutoRetest    bool
 }
 
 func (s *taskStore) listSchedules(ctx context.Context) ([]scheduleListRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT s.asset_id, s.cron, s.enabled, s.next_run_at, s.updated_at, a.name, a.archived
+	rows, err := s.db.QueryContext(ctx, `SELECT s.asset_id, s.cron, s.enabled, s.next_run_at, s.updated_at, a.name, a.archived,
+		COALESCE(o.auto_verify, 1), COALESCE(o.auto_retest, 1)
 		FROM webapi_asset_schedules s JOIN webapi_assets a ON a.id = s.asset_id
+		LEFT JOIN webapi_schedule_options o ON o.asset_id = s.asset_id
 		ORDER BY s.enabled DESC, CASE WHEN s.next_run_at = '' THEN 1 ELSE 0 END, s.next_run_at ASC, a.name ASC, s.asset_id ASC`)
 	if err != nil {
 		return nil, err
@@ -185,7 +203,7 @@ func (s *taskStore) listSchedules(ctx context.Context) ([]scheduleListRow, error
 	out := []scheduleListRow{}
 	for rows.Next() {
 		var row scheduleListRow
-		if err := rows.Scan(&row.AssetID, &row.Cron, &row.Enabled, &row.NextRunAt, &row.UpdatedAt, &row.AssetName, &row.AssetArchived); err != nil {
+		if err := rows.Scan(&row.AssetID, &row.Cron, &row.Enabled, &row.NextRunAt, &row.UpdatedAt, &row.AssetName, &row.AssetArchived, &row.AutoVerify, &row.AutoRetest); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
