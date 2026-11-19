@@ -31,15 +31,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 进度（2026-11-19）
 
-已提交：F1、U1、B1、C1、C2a/C2b、C3（前后端）、S1 侧栏会话归组（888c226 + 7868638）、B2 全工具出口（d6fbd25 后端 + f49a668 前端）、F2、D0 演示“出口演示”剧本（`demo-stack.py egress-demo`）。接口契约见 `native/POLICY.md`、`native/ASSETS.md`、`native/VERIFICATION.md`。
+已提交（本日）：B2 前端（f49a668）、侧栏归组（7868638）、D1 证据图片前后端（5febf5f、2cd872f）、U2a 全局导航后端（38862fd：task-list / vulns / report-list / overview，契约 `native/OVERVIEW.md`）。界面改版设计见 [ui-shell](ui-shell.md)（用户 11-19 要求：左侧菜单、总览、分隔与按钮排放）。参考站 cyber.chainreactors.cn 只看版式：数据区模糊化截图，看完即删，不读数据。
 
-进行中：**D1 证据图片后端**（o-latest，`var/d1-evidence-image/task.md`：由 HTTP 原件确定性渲染请求/响应 PNG，供 D2 推送）。
+进行中：**U2b 外壳 + 任务页**（ds-flash，`var/u2b-shell-frontend/task.md`）、**D2 企业微信推送后端**（o-latest，`var/d2-wecom-backend/task.md`；用户暂无 webhook，未配置不推送，用 httptest 验证）。演示 Hub 已含 U2a（11-19 01:55）。
 
 ## 下一步
 
-1. D1 验收提交 → D1 前端（候选证据/流量详情“导出图片”）。
-2. D2 企业微信推送：**需用户提供群机器人 webhook**；未提供前可先做推送逻辑与本地模拟接收端。
-3. 小打磨（ds-flash）：用量按会话表按角色排序；全局用量 Dialog 高度随内容；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端拼装与 `webAPIFirstMessage` 需同步改）。
+1. U2b 验收 → U2c 总览页 → U2d 漏洞/报告页与资产页套规范 → U2e 分隔线与按钮全量走查（见 ui-shell §6）。
+2. D2 验收 → D2 前端（“配置 · 集成”页：企业微信 webhook、需人工确认、推送记录）。
+3. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端与 `webAPIFirstMessage` 同步改）。
 4. 之后 D3 SDL（需接口文档）、B3 审计视图。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；审批超时/取消的前端显示只经代码路径验证；B2 出口为代理强制（unset 代理变量/--noproxy/原始 socket 可绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖，真实模型端到端未跑；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝。
@@ -50,4 +50,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-D1 证据图片后端（o-latest，`var/d1-evidence-image`）运行中。
+U2b（ds-flash）与 D2 后端（o-latest）运行中。
