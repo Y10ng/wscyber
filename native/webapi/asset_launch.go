@@ -272,9 +272,6 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 		return nil, launchFail(http.StatusInternalServerError, "task", "资产 origins 损坏", nil)
 	}
 	if existing == nil {
-		if strings.TrimSpace(knownInfo) == "" {
-			return nil, launchFail(http.StatusBadRequest, "validate", "资产已知信息、环境、负责人均为空，无法组成任务已知信息", nil)
-		}
 		if strings.TrimSpace(objective) == "" {
 			return nil, launchFail(http.StatusBadRequest, "validate", "资产未设默认目标，请求也未提供 objective", nil)
 		}

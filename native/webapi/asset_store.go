@@ -348,8 +348,11 @@ func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownI
 	return saved, created, nil
 }
 
-// composeAssetKnownInfo：资产已知信息 + 环境/负责人（空值省略）。
+// composeAssetKnownInfo：资产已知信息 + 环境/负责人（空值省略）；三者均空时用资产名称。
 func composeAssetKnownInfo(asset *assetModel) string {
+	if strings.TrimSpace(asset.KnownInfo) == "" && strings.TrimSpace(asset.Environment) == "" && strings.TrimSpace(asset.Owner) == "" {
+		return "资产：" + asset.Name
+	}
 	parts := []string{}
 	if text := strings.TrimSpace(asset.KnownInfo); text != "" {
 		parts = append(parts, text)

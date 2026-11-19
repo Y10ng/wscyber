@@ -478,6 +478,27 @@ func TestWebAPIAssetLaunchTask(t *testing.T) {
 	}
 }
 
+func TestWebAPIAssetLaunchWithoutOptionalKnownInfo(t *testing.T) {
+	f := newAssetFixture(t)
+	status, _, raw := f.do("PUT", "/api/webapi/assets/a-empty", `{"name":"仅名称资产","objective":"完成演示检查","origins":["http://example.test"]}`)
+	if status != 201 {
+		t.Fatalf("create asset = %d %s", status, raw)
+	}
+	f.capability.launcher = newFakeLauncher(productAgent("node-a"))
+
+	result, err := f.capability.LaunchAssetTask(t.Context(), "a-empty", "t-empty", AssetLaunchOptions{})
+	if err != nil {
+		t.Fatalf("launch = %v", err)
+	}
+	if !result.Created || result.Task == nil || result.Task.KnownInfo != "资产：仅名称资产" {
+		t.Fatalf("launch result = %+v", result)
+	}
+	task, err := f.capability.store.Get(t.Context(), "t-empty")
+	if err != nil || task == nil || task.KnownInfo != "资产：仅名称资产" {
+		t.Fatalf("stored task = %+v, %v", task, err)
+	}
+}
+
 func TestWebAPIAssetLaunchPartialFailureAndResume(t *testing.T) {
 	f := newAssetFixture(t)
 	f.createAsset("a1")
