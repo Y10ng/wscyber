@@ -24,7 +24,7 @@
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "94c4f3a22c37e5887e95fb9b4333dbcd19e71b7a618b218138f26f1ad3922c3e"
+      "sha256": "0cc539f9a21d98d4c538e03f5da0c1232c43c92efa43c7395d668aec3a9e8523"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -40,7 +40,7 @@
     },
     "src/components/SessionList.tsx": {
       "source_sha256": "3723f1fcdff820f5504231a761a54a8af9d04adfb90f4f0b13612c4d53fbab0a",
-      "sha256": "0f24bb5cce0754c5abb25bbc060f1758a149978d86c1aaada2d7f5317c35e5de"
+      "sha256": "3ffd70d9cd57cf7fad8760633fcc98c64cf7948da116ca4775d56010fb4ceef7"
     },
     "src/components/WebApiAssetLaunchDialog.tsx": {
       "source_sha256": null,
@@ -160,7 +160,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "b1fcbcdf17c15b392a5a3dffa90dcddf40ddd87529c1901f8bf900282d3c5a77"
+      "sha256": "7044c2d949dbae0e39ef314a4c1e4a6f4908b84c5a50f7495f291646af335832"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -172,7 +172,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "3bd29ea2a4b8ae08f31ed2017a29fb411efec8255ef2815849138f314ee33d47"
+      "sha256": "6514cadd9acc97b6c28d9d6abf0f3ed3db24ef3e1b84558137f2f6fce76a82a3"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",

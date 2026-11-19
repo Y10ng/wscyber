@@ -457,6 +457,7 @@ export default {
     execApprovalUnavailable: 'Connection lost; approval state will sync after reconnecting.',
     // Asset view (C1): sidebar entry, list and detail, test accounts, related tasks.
     assetsView: 'Assets',
+    sidebarChildren: '{{count}} sub-sessions',
     assetNew: 'New asset',
     assetNewTitle: 'New asset',
     assetBack: '← Back',

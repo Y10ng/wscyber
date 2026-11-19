@@ -1494,3 +1494,28 @@ export async function mergeWebApiVulns(assetId: string, intoId: string, fromId: 
     },
   )
 }
+
+/** 会话归属批量查询结果条目；只含后端能识别的会话。 */
+export interface WebApiSessionKindItem {
+  kind: 'task' | 'verification' | 'report' | 'retest'
+  task_id: string
+  task_session_id: string
+  task_objective: string
+  number: string
+  title: string
+  created_at: string
+}
+
+/** 一次查询 1–500 个会话，调用方保证分批；返回仅含能识别的会话。 */
+export async function getWebApiSessionKinds(sessionIds: string[]): Promise<Record<string, WebApiSessionKindItem>> {
+  const body = await apiJSON<{ items?: Record<string, WebApiSessionKindItem> }>(
+    '/api/webapi/session-kinds',
+    'Failed to load session kinds',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_ids: sessionIds }),
+    },
+  )
+  return body.items || {}
+}

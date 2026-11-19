@@ -453,6 +453,7 @@ export default {
     execApprovalUnavailable: '连接中断，审批状态待同步；恢复连接后可继续处理。',
     // 资产视图（C1）：侧栏入口、列表与详情、测试账号、关联任务。
     assetsView: '资产',
+    sidebarChildren: '{{count}} 个子会话',
     assetNew: '新建资产',
     assetNewTitle: '新建资产',
     assetBack: '← 返回',

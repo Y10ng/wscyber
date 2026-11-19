@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileText, Gauge, Globe, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, Monitor,
@@ -13,12 +13,8 @@ import {
 import { cn, useTheme } from '@cyber/theme'
 import LanguageToggle from './LanguageToggle'
 import {
-  APIError,
-  getWebApiReportBySession,
-  getWebApiRetestBySession,
-  getWebApiTaskBySession,
-  getWebApiVerificationBySession,
-  type AgentView, type SessionRecord, type SessionFilters,
+  getWebApiSessionKinds,
+  type AgentView, type SessionRecord, type SessionFilters, type WebApiSessionKindItem,
 } from '../api'
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import i18n from '../i18n'
@@ -40,6 +36,8 @@ interface WebApiSessionBadge {
   number: string
   /** 标题（任务为 objective 首行；报告为草稿标题）。 */
   title: string
+  /** 所属任务会话 id（任务自身为自身 id）；用于侧栏归组。 */
+  taskSessionId: string
 }
 
 const webApiBadgeCache = new Map<string, WebApiSessionBadge | null>()
@@ -79,82 +77,17 @@ function firstLine(text: string): string {
   return line || text.trim()
 }
 
-interface BadgeResolution {
-  badge: WebApiSessionBadge | null
-  /** true = 存在非 404（网络/服务端）失败，结果不确定，不缓存。 */
-  transient: boolean
-}
-
-// 反查顺序：任务 → 验证 → 报告 → 复测。任务接口对验证/复测 session 也 200 回父任务，
-// 必须比对 initial_session_id；真实 404 视为「非业务会话」，网络错误标记 transient。
-// 只缓存结构化数据（kind + 编号 + 标题）；前缀文案渲染期用 t() 组装。
-async function resolveWebApiBadge(sessionID: string): Promise<BadgeResolution> {
-  let transient = false
-  try {
-    const task = await getWebApiTaskBySession(sessionID)
-    if (task.initial_session_id === sessionID) {
-      const objective = firstLine(task.objective)
-      if (objective) return { badge: { kind: 'task', number: '', title: objective }, transient: false }
-    }
-  } catch (err) {
-    transient = transient || !isNotFound(err)
-  }
-  try {
-    const verification = await getWebApiVerificationBySession(sessionID)
-    if (verification.session_id === sessionID) {
-      return {
-        badge: {
-          kind: 'verification',
-          number: verification.source?.number || '',
-          title: verification.source?.content?.title || '',
-        },
-        transient: false,
-      }
-    }
-  } catch (err) {
-    transient = transient || !isNotFound(err)
-  }
-  try {
-    const report = await getWebApiReportBySession(sessionID)
-    if (report.session_id === sessionID) {
-      return {
-        badge: {
-          kind: 'report',
-          number: '',
-          title: report.draft?.payload?.title?.trim() || '',
-        },
-        transient: false,
-      }
-    }
-  } catch (err) {
-    transient = transient || !isNotFound(err)
-  }
-  try {
-    const retest = await getWebApiRetestBySession(sessionID)
-    if (retest.session_id === sessionID) {
-      return {
-        badge: {
-          kind: 'retest',
-          number: retest.source?.number || '',
-          title: retest.source?.content?.title || '',
-        },
-        transient: false,
-      }
-    }
-  } catch (err) {
-    transient = transient || !isNotFound(err)
-  }
-  return { badge: null, transient }
-}
-
-function isNotFound(err: unknown): boolean {
-  return err instanceof APIError && err.status === 404
-}
+// 批量识别：每批最多 500 个会话调一次 session-kinds，替代逐会话最多 4 次
+// by-session 反查。只缓存结构化数据（kind + 编号 + 标题 + 所属任务会话）。
+// 返回里没有的会话视为「非业务会话」，缓存 null（TTL 见上）；整批失败则都不缓存，
+// 保留 inflight 之外的会话下次重试。
+const WEB_API_BADGE_BATCH_SIZE = 500
 
 function useWebApiSessionBadges(sessions: SessionRecord[]): Record<string, WebApiSessionBadge> {
   const [badges, setBadges] = useState<Record<string, WebApiSessionBadge>>({})
   useEffect(() => {
     const now = Date.now()
+    const need: string[] = []
     for (const record of sessions) {
       const id = record.session?.id
       if (!id || webApiBadgeInflight.has(id)) continue
@@ -162,24 +95,10 @@ function useWebApiSessionBadges(sessions: SessionRecord[]): Record<string, WebAp
         // null 缓存过期后允许重试；徽标缓存不设 TTL（一旦识别即业务行已存在）。
         if (webApiBadgeCache.get(id) || now - (webApiBadgeCacheAt.get(id) || 0) < WEB_API_BADGE_NULL_TTL_MS) continue
         webApiBadgeCache.delete(id)
+        webApiBadgeCacheAt.delete(id)
       }
       webApiBadgeInflight.add(id)
-      void (async () => {
-        let resolution: BadgeResolution = { badge: null, transient: true }
-        try {
-          resolution = await resolveWebApiBadge(id)
-        } catch { /* 兜底：视为不确定结果 */ }
-        webApiBadgeInflight.delete(id)
-        // 确定「非业务会话」的 null 也缓存，避免重复反查；transient 不缓存。
-        if (!resolution.transient) {
-          webApiBadgeCache.set(id, resolution.badge)
-          webApiBadgeCacheAt.set(id, Date.now())
-        }
-        // 不看 effect 的 cancelled：解析写的是模块级缓存（幂等回填），sessions 变化只影响
-        // 「本组件挂载期」的语义；丢弃已完成结果会让报告会话创建后（sessions 不再变化）永久
-        // 显示首条消息原文（fix-2 #2 实测根因）。
-        if (resolution.badge) setBadges((prev) => ({ ...prev, [id]: resolution.badge! }))
-      })()
+      need.push(id)
     }
     // 已缓存条目同步进 state（组件重挂载不丢徽标）。
     const cached: Record<string, WebApiSessionBadge> = {}
@@ -189,6 +108,42 @@ function useWebApiSessionBadges(sessions: SessionRecord[]): Record<string, WebAp
       if (id && badge) cached[id] = badge
     }
     setBadges((prev) => ({ ...cached, ...prev }))
+    const ids = [...new Set(need)]
+    for (let offset = 0; offset < ids.length; offset += WEB_API_BADGE_BATCH_SIZE) {
+      const chunk = ids.slice(offset, offset + WEB_API_BADGE_BATCH_SIZE)
+      void (async () => {
+        let items: Record<string, WebApiSessionKindItem> | null = null
+        try {
+          items = await getWebApiSessionKinds(chunk)
+        } catch { /* 整批失败：不缓存，下次重试 */ }
+        for (const id of chunk) {
+          webApiBadgeInflight.delete(id)
+          if (!items) continue
+          const item = items[id]
+          let badge: WebApiSessionBadge | null = null
+          if (item) {
+            if (item.kind === 'task') {
+              badge = {
+                kind: 'task',
+                number: '',
+                title: firstLine(item.task_objective || item.title || ''),
+                taskSessionId: id,
+              }
+            } else if (item.kind === 'verification' || item.kind === 'retest') {
+              badge = { kind: item.kind, number: item.number || '', title: item.title || '', taskSessionId: item.task_session_id || '' }
+            } else {
+              badge = { kind: 'report', number: '', title: item.title || '', taskSessionId: item.task_session_id || '' }
+            }
+          }
+          webApiBadgeCache.set(id, badge)
+          webApiBadgeCacheAt.set(id, Date.now())
+          if (badge) setBadges((prev) => ({ ...prev, [id]: badge! }))
+        }
+      })()
+    }
+    // 不看 effect 的 cancelled：解析写的是模块级缓存（幂等回填），sessions 变化只影响
+    // 「本组件挂载期」的语义；丢弃已完成结果会让报告会话创建后（sessions 不再变化）永久
+    // 显示首条消息原文（fix-2 #2 实测根因）。
   }, [sessions])
   return badges
 }
@@ -264,7 +219,53 @@ export default function SessionList({
   }
   if (filters.nodeId && !groups.has(filters.nodeId)) groups.set(filters.nodeId, { name: filters.nodeId, online: false, sessions: [] })
   const visibleGroups = [...groups].filter(([id, group]) => (!filters.search && !filters.archived) || group.sessions.length > 0 || id === filters.nodeId)
-  const visibleTaskCount = filters.nodeId ? groups.get(filters.nodeId)?.sessions.length || 0 : sessions.length
+  // 子会话 = 徽标为验证/复测/报告，且所属任务会话也在同一节点分组内；否则照旧顶层显示。
+  // 顶层保持原列表顺序，子会话保持组内原列表相对顺序。
+  const groupedChildren = new Map<string, { top: SessionRecord[]; children: Map<string, SessionRecord[]> }>()
+  let topLevelTaskCount = sessions.length
+  for (const [groupId, group] of groups) {
+    const groupIDs = new Set<string>()
+    for (const session of group.sessions) {
+      const id = recordID(session)
+      if (id) groupIDs.add(id)
+    }
+    const top: SessionRecord[] = []
+    const children = new Map<string, SessionRecord[]>()
+    for (const session of group.sessions) {
+      const id = recordID(session)
+      const badge = id ? webApiBadges[id] : undefined
+      if (badge && badge.kind !== 'task' && badge.taskSessionId && badge.taskSessionId !== id && groupIDs.has(badge.taskSessionId)) {
+        const list = children.get(badge.taskSessionId) || []
+        list.push(session)
+        children.set(badge.taskSessionId, list)
+        topLevelTaskCount -= 1
+      } else {
+        top.push(session)
+      }
+    }
+    groupedChildren.set(groupId, { top, children })
+  }
+  // 折叠状态按任务会话 id 存组件内；默认折叠。选中某任务的子会话时自动展开该任务一次，
+  // 用户之后手动收起不会被同一次选中再次强制展开。
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(() => new Set())
+  const autoExpandedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeSessionID) {
+      autoExpandedRef.current = null
+      return
+    }
+    const badge = webApiBadges[activeSessionID]
+    if (!badge || badge.kind === 'task' || !badge.taskSessionId) {
+      autoExpandedRef.current = null
+      return
+    }
+    if (autoExpandedRef.current === activeSessionID) return
+    autoExpandedRef.current = activeSessionID
+    setExpandedTasks((prev) => prev.has(badge.taskSessionId) ? prev : new Set(prev).add(badge.taskSessionId))
+  }, [activeSessionID, webApiBadges])
+  const visibleTaskCount = filters.nodeId
+    ? groupedChildren.get(filters.nodeId)?.top.length || 0
+    : topLevelTaskCount
   const emptyMessage = filters.search ? 'noMatchingTasks' : filters.archived ? 'noArchivedTasks' : filters.nodeId ? 'noNodeTasks' : 'noTasksYet'
 
   return (
@@ -339,7 +340,7 @@ export default function SessionList({
               <button type="button" aria-pressed={!filters.nodeId} onClick={() => onFilter({ nodeId: '' })} className={cn('flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs', !filters.nodeId ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground')}>
                 <List className="h-3.5 w-3.5 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{t('allTasks')}</span>
-                <span className="tabular-nums text-[10px] text-muted-foreground">{sessions.length}</span>
+                <span className="tabular-nums text-[10px] text-muted-foreground">{topLevelTaskCount}</span>
               </button>
               {visibleGroups.map(([id, group]) => {
                 const expanded = !filters.nodeId || filters.nodeId === id
@@ -350,22 +351,56 @@ export default function SessionList({
                       <Monitor className={cn('h-3.5 w-3.5 shrink-0', group.online ? 'text-primary' : 'text-muted-foreground/50')} />
                       <span className="truncate text-xs font-medium">{group.name}</span>
                       {!group.online && <span className="shrink-0 text-[9px] text-warning">{t('agentOffline')}</span>}
-                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">{group.sessions.length}</span>
+                      <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">{groupedChildren.get(id)?.top.length ?? 0}</span>
                     </button>
                     {group.online && <Button size="icon-xs" variant="ghost" aria-label={t('newTaskForNode', { name: group.name })} title={t('newTask')} onClick={() => { onFilter({ nodeId: id, search: '', archived: false }); onCreateSession(id) }}><Plus className="h-3.5 w-3.5" /></Button>}
                   </div>
                   {expanded && group.sessions.length > 0 && <div className="ml-4 space-y-0.5 border-l border-border/70 pl-1.5">
-                    {group.sessions.map((session) => <SessionItem
-                      key={recordID(session)}
-                      session={session}
-                      badge={webApiBadges[recordID(session)] || null}
-                      active={recordID(session) === activeSessionID}
-                      busy={recordID(session) === activeSessionID && activeSessionBusy}
-                      pendingReviews={pendingReviewCounts[recordID(session)] || 0}
-                      onSelect={() => onSelectSession(recordID(session))}
-                      onDelete={() => onDeleteSession(recordID(session))}
-                      onUpdate={(patch) => onUpdateSession(recordID(session), patch)}
-                    />)}
+                    {(groupedChildren.get(id)?.top || group.sessions).map((session) => {
+                      const sessionID = recordID(session)
+                      const children = groupedChildren.get(id)?.children.get(sessionID)
+                      const childrenExpanded = !!children && expandedTasks.has(sessionID)
+                      const ownPending = pendingReviewCounts[sessionID] || 0
+                      const childrenPending = children
+                        ? children.reduce((sum, child) => sum + (pendingReviewCounts[recordID(child)] || 0), 0)
+                        : 0
+                      return <Fragment key={sessionID}>
+                        <SessionItem
+                          session={session}
+                          badge={webApiBadges[sessionID] || null}
+                          active={sessionID === activeSessionID}
+                          busy={sessionID === activeSessionID && activeSessionBusy}
+                          pendingReviews={childrenExpanded ? ownPending : ownPending + childrenPending}
+                          childCount={children?.length}
+                          childrenExpanded={childrenExpanded}
+                          onToggleChildren={children ? () => setExpandedTasks((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(sessionID)) next.delete(sessionID)
+                            else next.add(sessionID)
+                            return next
+                          }) : undefined}
+                          onSelect={() => onSelectSession(sessionID)}
+                          onDelete={() => onDeleteSession(sessionID)}
+                          onUpdate={(patch) => onUpdateSession(sessionID, patch)}
+                        />
+                        {children && childrenExpanded && <div className="ml-3 space-y-0.5 border-l border-border/50 pl-1.5">
+                          {children.map((child) => {
+                            const childID = recordID(child)
+                            return <SessionItem
+                              key={childID}
+                              session={child}
+                              badge={webApiBadges[childID] || null}
+                              active={childID === activeSessionID}
+                              busy={childID === activeSessionID && activeSessionBusy}
+                              pendingReviews={pendingReviewCounts[childID] || 0}
+                              onSelect={() => onSelectSession(childID)}
+                              onDelete={() => onDeleteSession(childID)}
+                              onUpdate={(patch) => onUpdateSession(childID, patch)}
+                            />
+                          })}
+                        </div>}
+                      </Fragment>
+                    })}
                   </div>}
                 </div>
               })}
@@ -423,13 +458,17 @@ function SidebarPreferences({ expanded }: { expanded: boolean }) {
 }
 
 function SessionItem({
-  session, badge, active, busy, pendingReviews, onSelect, onDelete, onUpdate,
+  session, badge, active, busy, pendingReviews, childCount, childrenExpanded, onToggleChildren, onSelect, onDelete, onUpdate,
 }: {
   session: SessionRecord
   badge: WebApiSessionBadge | null
   active: boolean
   busy: boolean
   pendingReviews: number
+  /** 有子会话时显示切换按钮（子会话数）。 */
+  childCount?: number
+  childrenExpanded?: boolean
+  onToggleChildren?: () => void
   onSelect: () => void
   onDelete: () => void
   onUpdate: (patch: { title?: string; archived?: boolean }) => Promise<void>
@@ -453,7 +492,7 @@ function SessionItem({
 
   const title = session.session?.title || t('newSession')
   const updatedAt = session.updatedAt ? timestampDate(session.updatedAt) : null
-  const time = (updatedAt || new Date(0)).toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' })
+  const time = (updatedAt || new Date(0)).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
   const closed = session.session?.state === 'closed'
   const badgeText = badge ? badgeLabel(badge, tc) : ''
   const BadgeIcon = badge ? badgeIcon(badge.kind) : null
@@ -472,19 +511,33 @@ function SessionItem({
         <button disabled={saving || !titleDraft.trim()} aria-label={t('saveTitle')}><Check className="h-3 w-3" /></button>
         <button type="button" onClick={() => setEditing(false)} aria-label={t('cancelEdit')}><X className="h-3 w-3" /></button>
       </form> : <>
-      <button type="button" onClick={onSelect} className="flex-1 min-w-0 text-left">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          {badge && BadgeIcon ? (
-            // 业务会话：12px 类型图标（任务=Globe，验证=ShieldCheck，报告=FileText，复测=RefreshCw）+ 业务标题。
-            <BadgeIcon className="h-3 w-3 shrink-0" />
-          ) : busy ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" role="status" aria-label={t('runningTask')} title={t('runningTask')} />
-            : closed ? <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" role="status" aria-label={t('closedTask')} title={t('closedTask')} />
-              : <MessageSquare className="h-2.5 w-2.5 shrink-0" />}
-          <span className="truncate text-[11px] font-medium" title={badge ? badgeText : undefined}>{badge ? badgeText : title}</span>
+          <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+            {badge && BadgeIcon ? (
+              // 业务会话：12px 类型图标（任务=Globe，验证=ShieldCheck，报告=FileText，复测=RefreshCw）+ 业务标题。
+              <BadgeIcon className="h-3 w-3 shrink-0" />
+            ) : busy ? <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" role="status" aria-label={t('runningTask')} title={t('runningTask')} />
+              : closed ? <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" role="status" aria-label={t('closedTask')} title={t('closedTask')} />
+                : <MessageSquare className="h-2.5 w-2.5 shrink-0" />}
+            <span className="truncate text-[11px] font-medium" title={badge ? badgeText : undefined}>{badge ? badgeText : title}</span>
+          </button>
+          {onToggleChildren && (
+            <button
+              type="button"
+              aria-expanded={childrenExpanded}
+              aria-label={tc('webapi.sidebarChildren', { count: childCount || 0 })}
+              onClick={(event) => { event.stopPropagation(); onToggleChildren() }}
+              className="inline-flex h-4 shrink-0 items-center gap-0.5 rounded px-1 text-[9px] tabular-nums text-muted-foreground hover:bg-accent"
+            >
+              {childrenExpanded ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
+              {childCount || 0}
+            </button>
+          )}
           {pendingReviews > 0 && <span className="ml-auto inline-flex items-center gap-0.5 text-warning" title={t('pendingApprovals', { count: pendingReviews })} data-pending-reviews={pendingReviews}><ShieldAlert className="h-3 w-3" /><span className="text-[9px] tabular-nums">{pendingReviews}</span></span>}
         </div>
-        <div className="mt-0.5 text-[9px] text-muted-foreground">{time}</div>
-      </button>
+        <button type="button" onClick={onSelect} className="mt-0.5 block w-full text-left text-[9px] text-muted-foreground">{time}</button>
+      </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon-xs" variant="ghost" aria-label={t('taskActions', { title })} className="h-7 w-7 shrink-0 text-muted-foreground"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
