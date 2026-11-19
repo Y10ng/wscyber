@@ -1,0 +1,288 @@
+package webapi
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/uptrace/bun"
+)
+
+// 企业微信推送（D2）的配置与通知队列表。契约见 native/NOTIFY.md。
+
+const (
+	notifyChannelWeCom = "wecom"
+
+	NotifyKindNew        = "new"
+	NotifyKindRegression = "regression"
+
+	NotifyPendingConfirm = "pending_confirm"
+	NotifyQueued         = "queued"
+	NotifySending        = "sending"
+	NotifySent           = "sent"
+	NotifyFailed         = "failed"
+	NotifyDismissed      = "dismissed"
+
+	// notifyTimeLayout 定宽 UTC 时间，保证字符串比较与时间顺序一致（next_attempt_at 到期查询用）。
+	notifyTimeLayout = "2006-01-02T15:04:05.000Z"
+)
+
+var notifyStatuses = map[string]bool{NotifyPendingConfirm: true, NotifyQueued: true, NotifySending: true, NotifySent: true, NotifyFailed: true, NotifyDismissed: true}
+
+// notifySettingsModel 单行（id 固定 wecom）。webhook_cipher 为空 = 未配置。
+type notifySettingsModel struct {
+	bun.BaseModel `bun:"table:webapi_notify_settings,alias:webapi_notify_setting"`
+
+	ID             string `bun:"id,pk"`
+	WebhookCipher  string `bun:"webhook_cipher,type:text,notnull"`
+	Enabled        bool   `bun:"enabled,notnull"`
+	RequireConfirm bool   `bun:"require_confirm,notnull"`
+	BaseURL        string `bun:"base_url,type:text,notnull"`
+	UpdatedAt      string `bun:"updated_at,notnull"`
+}
+
+// notificationModel 是一条待推送/已推送通知；(dedupe_key, kind, verification_id) 唯一。
+type notificationModel struct {
+	bun.BaseModel `bun:"table:webapi_notifications,alias:webapi_notification"`
+
+	ID             string         `bun:"id,pk"`
+	DedupeKey      string         `bun:"dedupe_key,notnull"`
+	Kind           string         `bun:"kind,notnull"`
+	TaskID         string         `bun:"task_id,notnull"`
+	FindingID      string         `bun:"finding_id,notnull"`
+	VerificationID string         `bun:"verification_id,notnull"`
+	VulnID         string         `bun:"vuln_id,notnull"`
+	Status         string         `bun:"status,notnull"`
+	Attempts       int            `bun:"attempts,notnull"`
+	NextAttemptAt  sql.NullString `bun:"next_attempt_at"`
+	LastError      string         `bun:"last_error,type:text,notnull"`
+	CreatedAt      string         `bun:"created_at,notnull"`
+	SentAt         sql.NullString `bun:"sent_at"`
+}
+
+func notifyTime(at time.Time) string { return at.UTC().Format(notifyTimeLayout) }
+
+func newNotificationID() string { return "wn_" + newSessionID() + newSessionID() }
+
+func (s *taskStore) notifySettings(ctx context.Context) (*notifySettingsModel, error) {
+	return findOptional[notifySettingsModel](ctx, s.orm, "id = ?", notifyChannelWeCom)
+}
+
+func (s *taskStore) putNotifySettings(ctx context.Context, model *notifySettingsModel) error {
+	model.ID = notifyChannelWeCom
+	_, err := s.orm.NewInsert().Model(model).
+		On("CONFLICT (id) DO UPDATE").
+		Set("webhook_cipher = EXCLUDED.webhook_cipher, enabled = EXCLUDED.enabled, require_confirm = EXCLUDED.require_confirm, base_url = EXCLUDED.base_url, updated_at = EXCLUDED.updated_at").
+		Exec(ctx)
+	return err
+}
+
+// hasAnySecretCipher：库里是否已有任何用资产密钥加密的密文（资产测试账号或 webhook）。
+func (s *taskStore) hasAnySecretCipher(ctx context.Context) (bool, error) {
+	if found, err := s.hasStoredSecrets(ctx); err != nil || found {
+		return found, err
+	}
+	return s.orm.NewSelect().Model((*notifySettingsModel)(nil)).Where("webhook_cipher <> ''").Exists(ctx)
+}
+
+// taskAssetID 返回任务关联的资产（无关联为空）。
+func (s *taskStore) taskAssetID(ctx context.Context, taskID string) (string, error) {
+	var assetID string
+	err := s.db.QueryRowContext(ctx, `SELECT asset_id FROM webapi_asset_tasks WHERE task_id = ?`, taskID).Scan(&assetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return assetID, err
+}
+
+func (s *taskStore) vulnOfFinding(ctx context.Context, findingID string) (string, error) {
+	var vulnID string
+	err := s.db.QueryRowContext(ctx, `SELECT vuln_id FROM webapi_asset_vuln_members WHERE finding_id = ?`, findingID).Scan(&vulnID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return vulnID, err
+}
+
+// notifyEvent 是去重键下全部成员的一条验证判读/复测结论（结果保存时间）。
+type notifyEvent struct {
+	Kind, ID, Value, At string
+	at                  time.Time
+}
+
+// notifyEvents：vulnID 非空时取该条目全部成员的结果，否则取单个候选的结果。
+func (s *taskStore) notifyEvents(ctx context.Context, vulnID, findingID string) ([]notifyEvent, error) {
+	scope, arg := `= ?`, findingID
+	if vulnID != "" {
+		scope, arg = `IN (SELECT finding_id FROM webapi_asset_vuln_members WHERE vuln_id = ?)`, vulnID
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT 'verify', v.id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at
+		FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id WHERE v.finding_id `+scope+`
+		UNION ALL
+		SELECT 'retest', t.id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at
+		FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id WHERE t.finding_id `+scope, arg, arg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []notifyEvent{}
+	for rows.Next() {
+		var event notifyEvent
+		if err := rows.Scan(&event.Kind, &event.ID, &event.Value, &event.At); err != nil {
+			return nil, err
+		}
+		event.at = parseAt(event.At)
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}
+
+// insertNotification 单事务登记：kind=new 时同一去重键已有任何通知则不登记；
+// (dedupe_key, kind, verification_id) 冲突不重复。返回是否新插入。
+func (s *taskStore) insertNotification(ctx context.Context, model *notificationModel) (bool, error) {
+	inserted := false
+	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if model.Kind == NotifyKindNew {
+			exists, err := tx.NewSelect().Model((*notificationModel)(nil)).Where("dedupe_key = ?", model.DedupeKey).Exists(ctx)
+			if err != nil || exists {
+				return err
+			}
+		}
+		res, err := tx.NewInsert().Model(model).On("CONFLICT (dedupe_key, kind, verification_id) DO NOTHING").Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		inserted = affected > 0
+		return err
+	})
+	return inserted, err
+}
+
+func (s *taskStore) notification(ctx context.Context, id string) (*notificationModel, error) {
+	return findOptional[notificationModel](ctx, s.orm, "id = ?", id)
+}
+
+// dueNotifications 取到期 queued（next_attempt_at ≤ now），最早到期在前。
+func (s *taskStore) dueNotifications(ctx context.Context, now time.Time, limit int) ([]notificationModel, error) {
+	var items []notificationModel
+	err := s.orm.NewSelect().Model(&items).
+		Where("status = ? AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?", NotifyQueued, notifyTime(now)).
+		OrderExpr("next_attempt_at ASC, created_at ASC, id ASC").Limit(int64(limit)).Scan(ctx)
+	return items, err
+}
+
+// claimNotification queued → sending（只在仍为 queued 时）。
+func (s *taskStore) claimNotification(ctx context.Context, id string) (bool, error) {
+	res, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifySending).
+		Where("id = ? AND status = ?", id, NotifyQueued).Exec(ctx)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
+}
+
+// finishNotification 写投递结果（只更新仍为 sending 的行）。
+func (s *taskStore) finishNotification(ctx context.Context, id, status string, attempts int, next sql.NullString, lastError string, sentAt sql.NullString) error {
+	_, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).
+		Set("status = ?", status).Set("attempts = ?", attempts).Set("next_attempt_at = ?", next).
+		Set("last_error = ?", lastError).Set("sent_at = ?", sentAt).
+		Where("id = ? AND status = ?", id, NotifySending).Exec(ctx)
+	return err
+}
+
+// resetSendingNotifications：Hub 重启后上次中断在 sending 的通知回到 queued（不计次，可能重复推送）。
+func (s *taskStore) resetSendingNotifications(ctx context.Context) error {
+	_, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyQueued).
+		Where("status = ?", NotifySending).Exec(ctx)
+	return err
+}
+
+// transitionNotification 管理操作：当前状态在 from 中才更新；返回 (存在, 已更新)。
+func (s *taskStore) transitionNotification(ctx context.Context, id string, from []string, set func(*bun.UpdateQuery) *bun.UpdateQuery) (bool, bool, error) {
+	query := set(s.orm.NewUpdate().Model((*notificationModel)(nil))).Where("id = ? AND status IN (?)", id, bun.In(from))
+	res, err := query.Exec(ctx)
+	if err != nil {
+		return false, false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, false, err
+	}
+	if affected > 0 {
+		return true, true, nil
+	}
+	exists, err := s.orm.NewSelect().Model((*notificationModel)(nil)).Where("id = ?", id).Exists(ctx)
+	return exists, false, err
+}
+
+// NotificationView 是管理列表项。
+type NotificationView struct {
+	ID                    string        `json:"id"`
+	Kind                  string        `json:"kind"`
+	Status                string        `json:"status"`
+	DedupeKey             string        `json:"dedupe_key"`
+	TaskID                string        `json:"task_id"`
+	FindingID             string        `json:"finding_id"`
+	FindingNumber         string        `json:"finding_number"`
+	VerificationID        string        `json:"verification_id"`
+	VerificationSessionID string        `json:"verification_session_id"`
+	VulnID                *string       `json:"vuln_id"`
+	Title                 string        `json:"title"`
+	Asset                 *TaskAssetRef `json:"asset"`
+	Attempts              int           `json:"attempts"`
+	LastError             string        `json:"last_error"`
+	NextAttemptAt         *string       `json:"next_attempt_at"`
+	CreatedAt             string        `json:"created_at"`
+	SentAt                *string       `json:"sent_at"`
+}
+
+const notificationViewSQL = `SELECT n.id, n.kind, n.status, n.dedupe_key, n.task_id, n.finding_id, COALESCE(f.number, 0), n.verification_id,
+	COALESCE(v.session_id, ''), n.vuln_id, COALESCE(r.title, ''), COALESCE(a.id, ''), COALESCE(a.name, ''), n.attempts, n.last_error,
+	n.next_attempt_at, n.created_at, n.sent_at
+	FROM webapi_notifications n
+	LEFT JOIN webapi_verifications v ON v.id = n.verification_id
+	LEFT JOIN webapi_finding_revisions r ON r.id = v.source_revision_id
+	LEFT JOIN webapi_findings f ON f.id = n.finding_id
+	LEFT JOIN webapi_asset_tasks l ON l.task_id = n.task_id
+	LEFT JOIN webapi_assets a ON a.id = l.asset_id`
+
+// notificationViews 按 created_at 倒序；status 空为全部。返回 limit+1 条以判断 has_more。
+func (s *taskStore) notificationViews(ctx context.Context, status, id string, limit, offset int) ([]NotificationView, error) {
+	where, args := ` WHERE (? = '' OR n.status = ?) AND (? = '' OR n.id = ?)`, []any{status, status, id, id}
+	rows, err := s.db.QueryContext(ctx, notificationViewSQL+where+` ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NotificationView{}
+	for rows.Next() {
+		var view NotificationView
+		var number int64
+		var vulnID, assetID, assetName string
+		var next, sent sql.NullString
+		if err := rows.Scan(&view.ID, &view.Kind, &view.Status, &view.DedupeKey, &view.TaskID, &view.FindingID, &number, &view.VerificationID,
+			&view.VerificationSessionID, &vulnID, &view.Title, &assetID, &assetName, &view.Attempts, &view.LastError, &next, &view.CreatedAt, &sent); err != nil {
+			return nil, err
+		}
+		if number > 0 {
+			view.FindingNumber = findingNumber(number)
+		}
+		if vulnID != "" {
+			view.VulnID = &vulnID
+		}
+		if assetID != "" {
+			view.Asset = &TaskAssetRef{ID: assetID, Name: assetName}
+		}
+		if next.Valid {
+			view.NextAttemptAt = &next.String
+		}
+		if sent.Valid {
+			view.SentAt = &sent.String
+		}
+		out = append(out, view)
+	}
+	return out, rows.Err()
+}

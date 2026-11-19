@@ -295,6 +295,8 @@ type Capability struct {
 	scheduleLoc *time.Location
 	// egressCADir 是全工具出口 MITM CA 目录：state-dir 下 egress-ca/，不在节点工作区内。
 	egressCADir string
+	// notify 是企业微信推送 goroutine（Routes 拿到原生管理 API 时启动，Close 停止）与发送频率窗口。
+	notify notifyRuntime
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -303,8 +305,10 @@ func NewCapability(database string) (*Capability, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	return &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName)),
-		egressCADir: filepath.Join(filepath.Dir(database), egressCADirName)}, nil
+	capability := &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName)),
+		egressCADir: filepath.Join(filepath.Dir(database), egressCADirName)}
+	notifyCapabilities.Store(store, capability)
+	return capability, nil
 }
 
 func (c *Capability) ID() string { return "webapi" }
@@ -323,6 +327,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 	if api != nil {
 		c.launcher = apiLauncher{api: api}
 		c.startScheduler()
+		c.startNotifier()
 	}
 	return []web.Route{
 		{Pattern: "PUT /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handlePutTask)},
@@ -376,6 +381,13 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "POST /api/webapi/assets/{id}/vulns/{vid}/merge", Handler: http.HandlerFunc(c.handleVulnMerge)},
 		{Pattern: "GET /api/webapi/schedules", Handler: http.HandlerFunc(c.handleScheduleList)},
 		{Pattern: "GET /api/webapi/schedule-runs/{run_id}/followups", Handler: http.HandlerFunc(c.handleScheduleRunFollowups)},
+		{Pattern: "GET /api/webapi/notify/wecom", Handler: http.HandlerFunc(c.handleNotifySettingsGet)},
+		{Pattern: "PUT /api/webapi/notify/wecom", Handler: http.HandlerFunc(c.handleNotifySettingsPut)},
+		{Pattern: "POST /api/webapi/notify/wecom/test", Handler: http.HandlerFunc(c.handleNotifyTest)},
+		{Pattern: "GET /api/webapi/notifications", Handler: http.HandlerFunc(c.handleNotificationList)},
+		{Pattern: "POST /api/webapi/notifications/{id}/confirm", Handler: http.HandlerFunc(c.handleNotificationConfirm)},
+		{Pattern: "POST /api/webapi/notifications/{id}/dismiss", Handler: http.HandlerFunc(c.handleNotificationDismiss)},
+		{Pattern: "POST /api/webapi/notifications/{id}/retry", Handler: http.HandlerFunc(c.handleNotificationRetry)},
 	}
 }
 
@@ -384,7 +396,9 @@ func (c *Capability) RegisterNamespaces(_ *aop.NamespaceMux) error { return nil 
 // Close 生命周期跟随原生 Capability.Close，关闭自有连接。
 func (c *Capability) Close(_ context.Context) error {
 	c.stopScheduler()
+	c.stopNotifier()
 	if c.store != nil {
+		notifyCapabilities.Delete(c.store)
 		return c.store.Close()
 	}
 	return nil

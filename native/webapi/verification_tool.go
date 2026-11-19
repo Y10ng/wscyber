@@ -323,6 +323,10 @@ func (t *verificationTool) Execute(ctx context.Context, arguments string) (*aop.
 		}
 		return coretool.ErrorResult("验证结果保存或核对失败；结果未确认，请先核对现有记录，不自动重试或重发HTTP"), nil
 	}
+	if args.Verdict == "supported" {
+		// D2：登记企业微信推送（未配置不登记；失败只记日志，不影响已保存的判读）。
+		notifyVerificationSupported(ctx, t.store, verification.ID)
+	}
 	raw, err := json.Marshal(map[string]any{
 		"verification_id": verification.ID, "verdict": args.Verdict, "source": FindingSource{SessionID: result.SessionID, TurnID: result.TurnID, CallID: result.CallID},
 		"evidence": result.Evidence, "note": "仅保存本次独立验证的模型判读；不确认或覆盖原候选，状态码不是漏洞证明",
