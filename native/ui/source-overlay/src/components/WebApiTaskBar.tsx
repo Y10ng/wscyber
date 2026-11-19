@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Boxes, Globe, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Boxes, Globe, ShieldCheck } from 'lucide-react'
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiTask, type WebApiTask, type WebApiTaskPolicy } from '../api'
+import { useWebApiTaskViewCounts } from '../hooks/useWebApiTaskViewCounts'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
 
 export type WebApiView = 'execution' | 'traffic' | 'findings' | 'reports' | 'usage'
@@ -14,13 +15,27 @@ interface Props {
   onPolicySaved: (task: WebApiTask) => void
   /** 任务来自资产时，点击资产标签回到资产详情。 */
   onOpenAsset?: (assetId: string) => void
+  /** 返回任务列表（离开任务工作区，由 App 导航并离开会话）。 */
+  onBack: () => void
+  view: WebApiView
+  onViewChange: (view: WebApiView) => void
+  /** 失效信号：新建验证/报告成功后 App bump，页签计数重取。 */
+  countsRevision?: number
 }
 
-// 真正 Web/API 任务才显示的范围摘要栏；普通会话不渲染。
-// 视图切换已上移到任务局部导航（WebApiTaskNav），这里保留目标、授权 origin 与
-// B1 测试策略指示（盾牌 + 短文案，点击 Popover 修改，仅对之后的调用生效）。
-export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset }: Props) {
+const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'findings' | 'reports' | null }[] = [
+  { view: 'execution', labelKey: 'webapi.execution', countKey: null },
+  { view: 'traffic', labelKey: 'webapi.traffic', countKey: 'traffic' },
+  { view: 'findings', labelKey: 'webapi.findings', countKey: 'findings' },
+  { view: 'reports', labelKey: 'webapi.reports', countKey: 'reports' },
+  { view: 'usage', labelKey: 'webapi.usageView', countKey: null },
+]
+
+// 任务工作区顶栏（高 48px）：返回 · 资产标签 · 任务标题 · origin · 策略指示
+// …… 右侧视图页签（替代原左侧任务导航列；计数取数逻辑抽到 useWebApiTaskViewCounts）。
+export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0 }: Props) {
   const { t, i18n } = useTranslation('chat')
+  const counts = useWebApiTaskViewCounts(task.id, countsRevision)
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
   const policy = normalizeWebApiPolicy(task.policy)
   const summaryView = useWebApiPolicySummary(policy)
@@ -51,7 +66,18 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset }: Prop
   }, [open, task.id])
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-background px-4 py-1.5">
+    <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-background px-3">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        onClick={onBack}
+        aria-label={t('shell.backToTasks')}
+        title={t('shell.backToTasks')}
+        className="shrink-0 text-muted-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+      </Button>
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {task.asset && onOpenAsset && (
           <Button
@@ -125,6 +151,28 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset }: Prop
             />
           </PopoverContent>
         </Popover>
+      </div>
+      {/* 视图页签：执行 / 流量 / 候选 / 报告 / 用量（原左侧任务导航列）。 */}
+      <div role="group" aria-label={t('webapi.taskNav')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto rounded-md border border-border/60 p-0.5">
+        {VIEW_TABS.map((item) => {
+          const active = view === item.view
+          const count = item.countKey ? counts[item.countKey] : null
+          return (
+            <button
+              key={item.view}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onViewChange(item.view)}
+              className={cn(
+                'flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                active ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+              )}
+            >
+              <span>{t(item.labelKey)}</span>
+              {count !== null && <span className="font-mono text-[11px] tabular-nums">{count}</span>}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

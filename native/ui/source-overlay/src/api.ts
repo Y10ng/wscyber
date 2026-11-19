@@ -662,6 +662,60 @@ export async function getWebApiTaskBySession(sessionId: string): Promise<WebApiT
   return apiJSON<WebApiTask>(`/api/webapi/tasks?session_id=${encodeURIComponent(sessionId)}`, 'Failed to load task')
 }
 
+// --- 全局任务列表（U2a，只读）：任务页表格与侧栏计数 ---
+export type WebApiTaskListStatus = 'running' | 'idle' | 'not_started' | 'unknown'
+
+export interface WebApiTaskListItem {
+  task_id: string
+  title: string
+  origins: string[]
+  asset: { id: string; name: string } | null
+  scheduled: boolean
+  created_at: string
+  initial_session_id: string
+  status: WebApiTaskListStatus
+  last_activity_at: string
+  finding_count: number
+  verification_count: number
+  supported_count: number
+  report_count: number
+  retest_count: number
+  total_tokens: number
+  policy: { scope: string; approval: string }
+}
+
+export interface WebApiTaskListCounts {
+  all: number
+  running: number
+  idle: number
+  not_started: number
+  unknown: number
+}
+
+export interface WebApiTaskList {
+  items: WebApiTaskListItem[]
+  has_more: boolean
+  next_cursor: string | null
+  counts: WebApiTaskListCounts
+}
+
+export async function listWebApiTaskList(params: {
+  q?: string
+  status?: WebApiTaskListStatus
+  asset_id?: string
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiTaskList> {
+  const query = new URLSearchParams()
+  if (params.q) query.set('q', params.q)
+  if (params.status) query.set('status', params.status)
+  if (params.asset_id) query.set('asset_id', params.asset_id)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiTaskList>(`/api/webapi/task-list${suffix ? `?${suffix}` : ''}`, 'Failed to load tasks')
+}
+
 export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: string): Promise<WebApiEvidenceList> {
   const query = new URLSearchParams()
   query.set('limit', String(limit))

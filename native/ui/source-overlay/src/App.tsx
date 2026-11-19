@@ -1,13 +1,16 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Globe, LogOut, Menu, Monitor } from 'lucide-react'
-import SessionList from './components/SessionList'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
+import AppSidebar from './components/AppSidebar'
+import TasksPage from './components/TasksPage'
+import { Page, PageHeader } from './components/PageFrame'
+import ConfigPanel from './components/ConfigPanel'
+import AgentPanel from './components/AgentPanel'
 import ChatPanel from './components/ChatPanel'
 import WebApiTaskDialog from './components/WebApiTaskDialog'
 import WebApiEvidencePanel from './components/WebApiEvidencePanel'
 import WebApiFindingsPanel from './components/WebApiFindingsPanel'
 import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
-import WebApiTaskNav from './components/WebApiTaskNav'
 import WebApiExecutionTimeline, { ExecutionViewHeader, type ExecutionViewMode } from './components/WebApiExecutionTimeline'
 import { buildExecutionTimeline } from './lib/execution-timeline'
 import type { ExecutionApproval } from './lib/execution-timeline'
@@ -20,18 +23,16 @@ import WebApiUsagePanel from './components/WebApiUsagePanel'
 import WebApiUsageDialog from './components/WebApiUsageDialog'
 import { assetMentionables } from './components/AssetPanel'
 import MentionPicker from './components/MentionPicker'
-import QuickConnect from './components/QuickConnect'
-import BrandLogo from './components/brand/BrandLogo'
 import { useObservations } from '@/viewer'
-import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, useConfirm } from '@cyber/ui'
-import { ThemeProvider, cn } from '@cyber/theme'
-import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiVerificationBySession, logout } from './api'
+import { Button, TooltipProvider } from '@cyber/ui'
+import { ThemeProvider } from '@cyber/theme'
+import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiSessionKinds, getWebApiVerificationBySession } from './api'
 import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiReportDetail, WebApiRetestDetail, WebApiTask, WebApiVerificationDetail } from './api'
 import type { SCONode } from '@cyber/cstx-easm'
 import type { MentionPopupApi } from './viewer'
 import { useChatSession } from './hooks/useChatSession'
 import { useGuardrailReviews } from './hooks/useGuardrailReviews'
-import { PendingApprovalsButton, type PendingItem } from './components/WebApiPendingApprovals'
+import type { PendingItem } from './components/WebApiPendingApprovals'
 import { cachedWebApiBadgeLabel } from './components/SessionList'
 import { usePolling } from './hooks/usePolling'
 import { isLocalModelAgent, isSessionAgentOnline } from './lib/session-agent'
@@ -42,7 +43,12 @@ import { useObservable, WorkbenchSlots } from './runtime/react'
 import type { HubServices } from './runtime/services'
 import type { CapabilityManifest } from './runtime/capabilities'
 
-const sidebarStorageKey = 'cyber-sidebar-open'
+export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes'
+
+// 本片只实现任务/资产/模型/节点；总览、漏洞、报告后续片实现，URL 里出现时归一到任务页，
+// 不暴露未实现的占位入口。
+const IMPLEMENTED_PAGES: AppPage[] = ['tasks', 'assets', 'models', 'nodes']
+const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
 
@@ -56,18 +62,26 @@ function getInitialTheme(): 'light' | 'dark' {
   return v === 'dark' || v === 'light' ? v : 'light'
 }
 
+// 移动端侧栏是抽屉，默认关闭；桌面始终显示侧栏（宽度由折叠状态决定）。
 function getInitialSidebarOpen() {
   if (typeof window === 'undefined') return true
-  if (window.matchMedia('(max-width: 767px)').matches) return false
-  const stored = window.localStorage.getItem(sidebarStorageKey)
-  if (stored === 'true' || stored === 'false') return stored === 'true'
-  return window.matchMedia('(min-width: 1024px)').matches
+  return !window.matchMedia('(max-width: 767px)').matches
+}
+
+function getInitialPage(): AppPage {
+  if (typeof window === 'undefined') return 'tasks'
+  const value = new URLSearchParams(window.location.search).get('page')
+  return IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'tasks'
+}
+
+function getInitialSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.localStorage.getItem(sidebarCollapsedStorageKey) === 'true'
 }
 
 export default function App({ services }: { services: HubServices }) {
   const { t } = useTranslation('app')
   const { t: tc } = useTranslation('chat')
-  const confirm = useConfirm()
   const chat = useChatSession()
   const observations = useObservations(chat.aopEvents)
   const guardrailSessions = useMemo(() => {
@@ -78,7 +92,6 @@ export default function App({ services }: { services: HubServices }) {
     return ids
   }, [chat.agents, chat.sessions, chat.activeSessionID])
   const guardrails = useGuardrailReviews(guardrailSessions, chat.activeSessionID, chat.aopEvents)
-  const pendingReviewCounts = useMemo(() => Object.fromEntries(Object.entries(guardrails.bySession).map(([id, reviews]) => [id, reviews.length])), [guardrails.bySession])
   // 顶栏「待审批 N」：全部会话的 live pending 聚合。会话名取会话标题；demo 等
   // 无标题会话回退到侧栏已解析的业务徽标（任务目标/验证/报告/复测），再回退短 ID。
   const pendingApprovalItems = useMemo<PendingItem[]>(() => {
@@ -106,10 +119,12 @@ export default function App({ services }: { services: HubServices }) {
   const panelSelection = useObservable(services.panels)
   const activeToolPanel = panelSelection?.id ?? null
   const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(getInitialSidebarCollapsed)
+  // 进入任务工作区前的展开状态：离开工作区时恢复（手动折叠的保持折叠）。
+  const collapsedBeforeWorkspaceRef = useRef(false)
+  const [page, setPage] = useState<AppPage>(getInitialPage)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
-  // 资产视图：打开时主区整体切到资产面板，不渲染任务栏/导航；点侧栏会话离开。
-  const [assetsOpen, setAssetsOpen] = useState(false)
   const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
@@ -315,9 +330,48 @@ export default function App({ services }: { services: HubServices }) {
   // Keep the header (model + agent count + health base) fresh without a reload.
   usePolling(refreshStatus, 30000)
 
+  // 页面导航：离开当前会话、写 URL（?page=）、切页并关闭移动端抽屉。
+  // leaveSession 不改 URL，统一由这里 pushState；工作区沿用 /sessions/<id>。
+  const navigate = useCallback((next: AppPage) => {
+    chat.leaveSession()
+    window.history.pushState({}, '', '/?page=' + next)
+    setPage(next)
+    if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false)
+  }, [chat])
+
+  // 浏览器后退/前进：根路径按 ?page 恢复页面（会话路由由 useChatSession 的监听处理）。
   useEffect(() => {
-    window.localStorage.setItem(sidebarStorageKey, String(sidebarOpen))
-  }, [sidebarOpen])
+    const applyPage = () => {
+      if (window.location.pathname !== '/') return
+      const value = new URLSearchParams(window.location.search).get('page')
+      setPage(IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'tasks')
+    }
+    window.addEventListener('popstate', applyPage)
+    return () => window.removeEventListener('popstate', applyPage)
+  }, [])
+
+  // 用户手动折叠/展开：持久化到 localStorage；自动折叠不进持久化值。
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      window.localStorage.setItem(sidebarCollapsedStorageKey, String(next))
+      return next
+    })
+  }, [])
+
+  // 进入任务工作区自动折叠，离开时恢复进入前状态。
+  const workspaceActive = !!chat.activeSessionID
+  const prevWorkspaceRef = useRef(workspaceActive)
+  useEffect(() => {
+    if (workspaceActive === prevWorkspaceRef.current) return
+    prevWorkspaceRef.current = workspaceActive
+    if (workspaceActive) {
+      collapsedBeforeWorkspaceRef.current = sidebarCollapsed
+      setSidebarCollapsed(true)
+    } else {
+      setSidebarCollapsed(collapsedBeforeWorkspaceRef.current)
+    }
+  }, [workspaceActive, sidebarCollapsed])
 
   // Sources for the chat composer's "@" picker: CSTX assets, plus IOA
   // nodes/messages. Both refresh when the timeline advances — a finished scan or
@@ -412,14 +466,12 @@ export default function App({ services }: { services: HubServices }) {
   }
 
   function handleSelectSession(id: string) {
-    setAssetsOpen(false)
     if (activeToolPanel === 'agents') services.panels.close()
     chat.selectSession(id)
     closeSidebarOnMobile()
   }
 
   function handleCreateSession(nodeID: string) {
-    setAssetsOpen(false)
     if (activeToolPanel === 'agents') services.panels.close()
     chat.createSession(nodeID)
     closeSidebarOnMobile()
@@ -427,24 +479,26 @@ export default function App({ services }: { services: HubServices }) {
 
   // 资产视图 → 任务：离开资产视图并打开任务初始会话。
   function openTaskSession(sessionID: string) {
-    setAssetsOpen(false)
     // 服务端刚发起的会话尚未进入本地列表；先拉取，侧栏即时可见并高亮。
     void chat.refreshSessions()
     handleSelectSession(sessionID)
   }
 
-  // Deleting a session also tears down its live subscription, so confirm first —
-  // matches every other destructive action in the app (node / config).
-  async function handleDeleteSession(id: string) {
-    if (!(await confirm({ description: tc('deleteSessionConfirm'), destructive: true }))) return
-    void chat.deleteSession(id)
-  }
-
-  // Agent node clicked (roster / terminal open) → open the agent console focused
-  // on that node.
-  function handleOpenNode(nodeID: string) {
-    services.panels.open('agents', { focusNodeID: nodeID })
-  }
+  // 验证/报告/复测会话顶栏的返回：回到其所属任务（S1 session-kinds 的
+  // task_session_id → 打开任务初始会话）；取不到归属时回任务页。
+  const handleBackToParentTask = useCallback(async () => {
+    const id = activeSessionIDRef.current
+    if (!id) { navigate('tasks'); return }
+    try {
+      const items = await getWebApiSessionKinds([id])
+      const target = items[id]?.task_session_id
+      if (activeSessionIDRef.current !== id) return
+      if (target) openTaskSession(target)
+      else navigate('tasks')
+    } catch {
+      navigate('tasks')
+    }
+  }, [navigate])
 
   // 从验证 session 返回原候选：定位到父任务 finding，而不是只给侧栏说明。
   async function handleReturnToFinding() {    if (!activeWebApiVerification) return
@@ -551,77 +605,33 @@ export default function App({ services }: { services: HubServices }) {
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-[100dvh] flex-col overflow-hidden" data-cyber-product={effectiveManifest?.product || 'cyber-harness'} data-cyber-capabilities={effectiveManifest?.capabilities.map(item => item.id).join(',') || 'core'}>
-        <header className={cn('relative z-[60] flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-1 border-b border-border/60 bg-background px-2 py-1 pt-safe sm:flex-nowrap sm:gap-2 sm:px-4 sm:py-0', (activeToolPanel === 'settings' || taskDialogOpen) && 'z-40')}>
-          <div className="flex min-w-0 shrink-0 items-center gap-1 sm:shrink sm:gap-2">
-            {/* Phone-only drawer opener — the collapsed sidebar is hidden below md,
-                so the session history opens from here (Doubao-style). */}
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setSidebarOpen(true)}
-              aria-label={t('openSessions')}
-              className="-ml-1 shrink-0 text-muted-foreground md:hidden"
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
-            <BrandLogo size={22} className="hidden shrink-0 sm:block" />
-            <h1 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">Cyber</h1>
-            <span className="text-[10px] text-muted-foreground">Hub</span>
-            <LLMProfileSwitcher
-              profiles={llmProfiles}
-              activeProfileID={activeLLMProfile}
-              fallbackModel={model}
-              disabled={switchingLLM}
-              onChange={handleSwitchLLM}
-            />
-          </div>
-          <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-2">
-            {webapiEnabled && (
-              <Button type="button" variant="soft" size="xs" onClick={() => setTaskDialogOpen(true)} aria-label={tc('webapi.newTask')} className="h-7 gap-1 text-[12px]">
-                <Globe className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{tc('webapi.newTask')}</span>
-              </Button>
-            )}
-            {/* B1：原生 GuardrailToggle（JEV 全局开关）替换为本平台「待审批 N」。 */}
-            <PendingApprovalsButton items={pendingApprovalItems} onResolve={resolvePendingApproval} onViewSession={handleSelectSession} />
-            <WorkbenchSlots services={services} name="shell.header.actions" />
-            <QuickConnect serverURL={serverStatus?.serverUrl} version={serverStatus?.version} profiles={effectiveManifest?.profiles} />
-            <HeaderIconButton label={t('logout')} onClick={() => { void logout() }}>
-              <LogOut className="h-3.5 w-3.5" />
-            </HeaderIconButton>
-          </div>
-        </header>
+      <div className="flex h-[100dvh] overflow-hidden" data-cyber-product={effectiveManifest?.product || 'cyber-harness'} data-cyber-capabilities={effectiveManifest?.capabilities.map(item => item.id).join(',') || 'core'}>
+        <AppSidebar
+          open={sidebarOpen}
+          collapsed={sidebarCollapsed}
+          page={page}
+          webapiEnabled={webapiEnabled}
+          agents={chat.agents}
+          services={services}
+          llmProfiles={llmProfiles}
+          activeLLMProfile={activeLLMProfile}
+          fallbackModel={model}
+          switchingLLM={switchingLLM}
+          onSwitchLLM={handleSwitchLLM}
+          serverURL={serverStatus?.serverUrl}
+          version={serverStatus?.version}
+          connectionProfiles={effectiveManifest?.profiles}
+          pendingApprovalItems={pendingApprovalItems}
+          onResolvePending={resolvePendingApproval}
+          onViewSession={handleSelectSession}
+          onNavigate={navigate}
+          onToggleCollapsed={toggleSidebarCollapsed}
+          onCloseDrawer={() => setSidebarOpen(false)}
+          onOpenUsage={() => setUsageDialogOpen(true)}
+        />
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <SessionList
-            open={sidebarOpen}
-            onToggle={() => setSidebarOpen(!sidebarOpen)}
-            agents={chat.agents}
-            sessions={chat.sessions}
-            pendingReviewCounts={pendingReviewCounts}
-            filters={chat.sessionFilters}
-            onFilter={chat.filterSessions}
-            onUpdateSession={chat.updateSession}
-            activeSessionID={chat.activeSessionID}
-            activeSessionNodeID={activeSession?.session?.nodeId || null}
-            activeSessionBusy={chat.busy}
-            selectedNodeID={chat.selectedNodeID}
-            onSelectSession={handleSelectSession}
-            onCreateSession={handleCreateSession}
-            onDeleteSession={handleDeleteSession}
-            onOpenUsage={webapiEnabled ? () => setUsageDialogOpen(true) : undefined}
-            onOpenAssets={webapiEnabled ? () => { setAssetsOpen(true); closeSidebarOnMobile() } : undefined}
-          />
-
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {assetsOpen ? (
-              <WebApiAssetsPanel
-                focusAssetId={focusAssetId}
-                onFocusConsumed={() => setFocusAssetId(null)}
-                onOpenTask={openTaskSession}
-              />
-            ) : (
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {chat.activeSessionID ? (
             <>
             {webApiTaskError && (
               <div className="flex shrink-0 items-center gap-2 border-b border-warning/40 bg-warning/10 px-4 py-1.5 text-xs text-warning">
@@ -630,25 +640,35 @@ export default function App({ services }: { services: HubServices }) {
               </div>
             )}
             {webApiTaskActive && activeWebApiTask && (
-              <WebApiTaskBar task={activeWebApiTask} onPolicySaved={setActiveWebApiTask} onOpenAsset={webapiEnabled ? (assetId) => { setFocusAssetId(assetId); setAssetsOpen(true) } : undefined} />
+              <WebApiTaskBar
+                task={activeWebApiTask}
+                onPolicySaved={setActiveWebApiTask}
+                onOpenAsset={webapiEnabled ? (assetId) => { setFocusAssetId(assetId); navigate('assets') } : undefined}
+                onBack={() => navigate('tasks')}
+                view={workspaceView}
+                onViewChange={setWorkspaceView}
+                countsRevision={webApiCountsRevision}
+              />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
-              <WebApiVerificationBar verification={activeWebApiVerification} onReturnToFinding={handleReturnToFinding} />
+              <WebApiVerificationBar verification={activeWebApiVerification} onReturnToFinding={handleReturnToFinding} onBack={handleBackToParentTask} />
             )}
             {webApiReportActive && activeWebApiReport && (
-              <WebApiReportBar report={activeWebApiReport} onReturnToReport={handleReturnToReport} />
+              <WebApiReportBar report={activeWebApiReport} onReturnToReport={handleReturnToReport} onBack={handleBackToParentTask} />
             )}
             {webApiRetestActive && activeWebApiRetest && (
-              <WebApiRetestBar retest={activeWebApiRetest} onReturnToFinding={handleReturnToFindingFromRetest} />
+              <WebApiRetestBar retest={activeWebApiRetest} onReturnToFinding={handleReturnToFindingFromRetest} onBack={handleBackToParentTask} />
             )}
-            {/* 任务视图行：≥1100px 为 导航168px | 面板 的水平行；<1100px 改为
-                垂直堆叠（导航横向分段在上、面板占满在下），主内容不再被挤出视口。
-                断点与 index.css 的 .webapi-task-nav 媒体查询（1099px）保持一致；
-                仅任务视图改列向，普通会话（无导航）保持行向不受影响。 */}
-            <div className={cn('webapi-task-row flex min-h-0 min-w-0 flex-1 overflow-hidden', webApiTaskActive ? 'flex-col min-[1100px]:flex-row' : 'flex-row')}>
-            {webApiTaskActive && activeWebApiTask && (
-              <WebApiTaskNav task={activeWebApiTask} view={workspaceView} onViewChange={setWorkspaceView} countsRevision={webApiCountsRevision} />
+            {!executionSessionActive && (
+              <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => navigate('tasks')} aria-label={tc('shell.backToTasks')} title={tc('shell.backToTasks')} className="shrink-0 text-muted-foreground">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{activeSession?.session?.title || tc('shell.sessionFallback')}</span>
+              </div>
             )}
+            {/* 视图行：左侧任务导航列已取消，面板独占整行（纯列方向）。 */}
+            <div className="webapi-task-row flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {webApiTaskActive && activeWebApiTask && workspaceView === 'traffic' ? (
               <WebApiEvidencePanel
                 task={activeWebApiTask}
@@ -832,9 +852,59 @@ export default function App({ services }: { services: HubServices }) {
             )}
             </div>
             </>
-            )}
-          </main>
-        </div>
+          ) : (
+            <>
+              {page === 'tasks' && (
+                <TasksPage
+                  webapiEnabled={webapiEnabled}
+                  onOpenTask={openTaskSession}
+                  onCreateTask={() => setTaskDialogOpen(true)}
+                  onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
+                  onOpenMenu={() => setSidebarOpen(true)}
+                />
+              )}
+              {page === 'assets' && (
+                webapiEnabled ? (
+                  <WebApiAssetsPanel
+                    focusAssetId={focusAssetId}
+                    onFocusConsumed={() => setFocusAssetId(null)}
+                    onOpenTask={openTaskSession}
+                  />
+                ) : (
+                  <Page>
+                    <PageHeader title={tc('shell.navAssets')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                )
+              )}
+              {page === 'models' && (
+                <>
+                  <Page>
+                    <PageHeader title={tc('shell.modelsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                  {/* 模型配置没有独立的页面级组件（原设置面板是 Dialog），按任务要求以同一
+                      组件页面形式打开；关闭即回任务页。 */}
+                  <ConfigPanel
+                    open
+                    status={serverStatus}
+                    capabilities={capabilityIDs}
+                    initialSection="llm"
+                    onClose={() => navigate('tasks')}
+                    onSaved={() => { void refreshStatus() }}
+                  />
+                </>
+              )}
+              {page === 'nodes' && (
+                <>
+                  <Page>
+                    <PageHeader title={tc('shell.nodesTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                  {/* Agent 控制台同样以抽屉组件呈现；以页面形式打开同一组件。 */}
+                  <AgentPanel open agents={chat.agents} onClose={() => navigate('tasks')} />
+                </>
+              )}
+            </>
+          )}
+        </main>
       </div>
 
       <WebApiTaskDialog open={taskDialogOpen} onClose={() => setTaskDialogOpen(false)} onSubmit={chat.startWebApiTask} />
@@ -849,63 +919,3 @@ export default function App({ services }: { services: HubServices }) {
   )
 }
 
-function LLMProfileSwitcher({
-  profiles,
-  activeProfileID,
-  fallbackModel,
-  disabled,
-  onChange,
-}: {
-  profiles: LLMProviderView[]
-  activeProfileID: string
-  fallbackModel: string
-  disabled: boolean
-  onChange: (profileID: string) => void
-}) {
-  const { t } = useTranslation('app')
-
-  if (profiles.length === 0) {
-    return <span className="ml-1 hidden font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:inline">{fallbackModel}</span>
-  }
-
-  return (
-    <Select value={activeProfileID || profiles[0].id} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger
-        aria-label={t('switchLLMProfile')}
-        className="ml-1 hidden h-7 w-auto min-w-[120px] max-w-[230px] gap-1 border-0 bg-transparent px-2 font-mono text-[10px] text-muted-foreground shadow-none hover:bg-muted/60 hover:text-foreground sm:flex"
-      >
-        <SelectValue placeholder={fallbackModel} />
-      </SelectTrigger>
-      <SelectContent align="start">
-        {profiles.map(profile => (
-          <SelectItem key={profile.id} value={profile.id}>
-            {profile.name || profile.model || profile.provider}
-            {profile.model && profile.name !== profile.model ? ` · ${profile.model}` : ''}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-function HeaderIconButton({ children, label, onClick, active, toolDrawerTrigger }: { children: ReactNode; label: string; onClick: () => void; active?: boolean; toolDrawerTrigger?: boolean }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          active={active}
-          data-tool-drawer-trigger={toolDrawerTrigger ? '' : undefined}
-          aria-label={label}
-          onClick={onClick}
-          className={cn('hover:text-foreground', !active && 'text-muted-foreground')}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  )
-}

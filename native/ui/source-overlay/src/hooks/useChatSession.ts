@@ -677,6 +677,15 @@ export function useChatSession() {
     }
   }
 
+  // 离开当前会话但保留会话本身：重置方式与删除会话时 activeSessionID === id
+  // 分支相同，但不动 URL —— 页面导航（?page=…）由 App 负责 pushState。
+  function leaveSession() {
+    activationRef.current++
+    closeSubscription()
+    resetSessionState()
+    setActiveSessionID(null)
+  }
+
   async function handleDeleteSession(id: string) {
     try {
       await deleteChatSession(id)
@@ -1368,6 +1377,7 @@ export function useChatSession() {
     sessionFilters, filterSessions, updateSession,
     activeSessionID,
     activeSessionRecord,
+    leaveSession,
     timeline,
     aopEvents,
     isThinking,

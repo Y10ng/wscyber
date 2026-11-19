@@ -478,11 +478,14 @@ function VerificationLaunchDialog({
 }
 
 // 原生验证 session 的紧凑上下文栏：只读展示固定来源与结果，并提供“返回原候选”。
-export function WebApiVerificationBar({ verification, onReturnToFinding }: { verification: WebApiVerificationDetail; onReturnToFinding: () => void }) {
+export function WebApiVerificationBar({ verification, onReturnToFinding, onBack }: { verification: WebApiVerificationDetail; onReturnToFinding: () => void; onBack: () => void }) {
   const { t } = useTranslation('chat')
   const result = verification.result
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-background px-4 py-1.5">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5">
+      <Button type="button" variant="ghost" size="icon-sm" onClick={onBack} aria-label={t('shell.backToTasks')} title={t('shell.backToTasks')} className="shrink-0 text-muted-foreground">
+        <ArrowLeft className="h-4 w-4" />
+      </Button>
       <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="min-w-0 truncate text-[13px] font-medium text-foreground" title={verification.source.content.title}>
