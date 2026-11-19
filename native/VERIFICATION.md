@@ -42,3 +42,10 @@ PUT回包为`{verification,created,idempotent}`。创建的身份/current revisi
 仅`^TestWebAPIVerification`三个临时库专项最终通过（0.128s）：固定来源/提交回放与冲突、HTTP归属与候选写保护、同时间分页、跨session调用冲突零新增发送、三种判读实际保存、伪造/跨session/原候选证据拒绝、HTTP500有效证据、截断限制、不可变结果，以及已知旧结构少量合成行保全/未知或半成结构拒绝。Hub独立编译通过。
 
 未实际构造unknown/claimed资格矩阵；未跑旧suite或全仓。随后真实宿主新API鉴权与隔离前端的保存/失联核对/Open/Run失败/重开返回/窄屏路径已验证，原预览也已按授权完成本地加表与只读展示。真实模型完整验证链、非空判读浏览器链、完整恢复/研究质量及全工具出口仍未验。没有真实模型/目标重跑、公开部署或commit/push。
+
+## 会话归属批量查询
+
+`POST /api/webapi/session-kinds`，体 `{"session_ids":[...]}`（1–500 个，去重；空数组、超过 500 或未知字段 400）。响应 `{"items":{session_id: Item}}`，只含能识别的会话。
+Item 字段：`kind`（task/verification/report/retest）、`task_id`、`task_session_id`（任务 `initial_session_id`）、`task_objective`、`number`、`title`、`created_at`（该业务记录时间）。
+- task：number 空，title=objective；verification/retest：number/title 取固定候选修订（`source_revision_id`），与 by-session 接口 `source` 一致；report：number 空，title=最新草稿标题（无草稿为空）。
+- 每类一次 `IN (...)` 批量查询（共 4–5 条 SQL），供前端侧栏会话归组，替代每会话最多 4 次 by-session 反查。只读，不改任何已有接口行为。

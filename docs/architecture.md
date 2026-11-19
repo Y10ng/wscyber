@@ -44,6 +44,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET | `/reports?session_id=` | 由报告会话反查上下文 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/retests[/{rtid}]` | 发起/读取复测（固定候选修订；客户端稳定 UUID，幂等；保存不启动；结论与验证分开记录） |
 | GET | `/retests?session_id=` | 由复测会话反查上下文 |
+| POST | `/session-kinds` | 批量会话归属（1–500 个 session_ids，去重；返回 task/verification/report/retest 的 kind、所属任务、编号/标题/created_at；只含可识别会话），见 `native/VERIFICATION.md`「会话归属批量查询」 |
 | GET/PUT | `/assets?archived=0\|1`、`/assets/{id}` | 资产登记（名称、负责人、环境、已知信息、默认目标、origins、禁止行为、默认策略、归档）；保存即生效；凭据只回 `has_secret`；见 `native/ASSETS.md` |
 | PUT/DELETE | `/assets/{id}/credentials/{cid}` | 测试账号（secret 写-only，AES-GCM 落库，省略/空串保留原值） |
 | PUT/GET | `/assets/{id}/tasks[/{task_id}]` | 从资产一次发起任务（建任务+策略+关联→Open→Run，按 task_id 幂等、可续完；Go 层 `Capability.LaunchAssetTask`）/ 关联任务列表 |
