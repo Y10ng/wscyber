@@ -1519,3 +1519,55 @@ export async function getWebApiSessionKinds(sessionIds: string[]): Promise<Recor
   )
   return body.items || {}
 }
+
+// --- 全工具出口（B2）：终端经代理的请求记录（只读） ---
+// 与 webapi_requests 的结构化证据不同：这是终端进程的实际出口流量（HTTPS 为
+// MITM 解密后的内层请求，CONNECT 本身不单独记录）；拒绝记录在连接目标前写入。
+
+export interface WebApiEgressItem {
+  id: string
+  session_id: string
+  turn_id: string
+  call_id: string
+  tool: string
+  method: string
+  url: string
+  decision: 'allowed' | 'denied'
+  sent: boolean | null
+  http_status: number | null
+  error: string
+  created_at: string
+  completed_at: string
+}
+
+export interface WebApiEgressList {
+  items: WebApiEgressItem[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface WebApiEgressDetail {
+  summary: WebApiEgressItem
+  host: string
+  flow: unknown
+  flow_protobuf_base64: string
+  capture: {
+    request_bytes: number
+    response_bytes: number
+    preview_limit: number
+    preview_truncated: boolean
+    note: string
+  }
+}
+
+export async function listWebApiEgress(taskId: string, limit = 100, cursor?: string, decision?: 'allowed' | 'denied'): Promise<WebApiEgressList> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  if (cursor) query.set('cursor', cursor)
+  if (decision) query.set('decision', decision)
+  return apiJSON<WebApiEgressList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/egress?${query.toString()}`, 'Failed to load terminal egress')
+}
+
+export async function getWebApiEgress(taskId: string, flowId: string): Promise<WebApiEgressDetail> {
+  return apiJSON<WebApiEgressDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/egress/${encodeURIComponent(flowId)}`, 'Failed to load egress record')
+}

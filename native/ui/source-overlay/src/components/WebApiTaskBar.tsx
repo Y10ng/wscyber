@@ -106,6 +106,10 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset }: Prop
               onApprovalChange={(approval) => setDraft((current) => ({ ...current, approval }))}
               compact
             />
+            {/* 终端出口的边界如实写明：scope 决定终端经代理的请求是否被拦截。 */}
+            <p className="text-[11px] text-muted-foreground">
+              {draft.scope === 'unrestricted' ? t('webapi.egressScopeNoteUnrestricted') : t('webapi.egressScopeNoteOrigins')}
+            </p>
             {/* 保存仅对之后的调用生效；保存成功即关闭并回写 App 任务状态。 */}
             <WebApiPolicySaver
               taskID={task.id}
