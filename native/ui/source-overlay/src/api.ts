@@ -568,6 +568,8 @@ export interface WebApiTask {
   created_at: string
   // B1 任务级测试策略；旧后端缺省 undefined 时按默认（origins + high_risk）渲染。
   policy?: WebApiTaskPolicy
+  // 从资产发起的任务带资产引用；普通任务为 null/缺省。
+  asset?: { id: string; name: string } | null
 }
 
 // scope: 'origins'（默认）| 'unrestricted'；approval: 'off' | 'high_risk'（默认）| 'all'。
@@ -1150,4 +1152,258 @@ export async function getWebApiUsage(options?: { taskId?: string; from?: string;
 
 export function webApiReportExportFilename(reportID: string, format: 'markdown' | 'json'): string {
   return `report-${reportID.slice(0, 8)}.${format === 'markdown' ? 'md' : 'json'}`
+}
+
+// --- 资产登记与周期计划（C1/C2a/C2b 契约见 native/ASSETS.md） ---
+// 资产是服务端实体；任何响应都不含 secret，密码只在保存时单向写入。
+
+export interface WebApiAssetCredential {
+  id: string
+  label: string
+  username: string
+  has_secret: boolean
+  note: string
+  updated_at: string
+}
+
+export interface WebApiAsset {
+  id: string
+  name: string
+  owner: string
+  environment: string
+  known_info: string
+  objective: string
+  origins: string[]
+  forbidden: string
+  scope: string
+  approval: string
+  archived: boolean
+  created_at: string
+  updated_at: string
+  credentials: WebApiAssetCredential[]
+}
+
+export interface WebApiAssetTaskItem {
+  task_id: string
+  objective: string
+  initial_session_id: string
+  created_at: string
+  finding_count: number
+}
+
+export interface WebApiFollowupCounts {
+  pending: number
+  launched: number
+  failed: number
+  skipped: number
+}
+
+export interface WebApiRunFollowups {
+  state: 'waiting' | 'not_planned' | 'in_progress' | 'completed'
+  completed: boolean
+  auto_verify: boolean | null
+  auto_retest: boolean | null
+  planned_at: string | null
+  completed_at: string | null
+  verify: WebApiFollowupCounts
+  retest: WebApiFollowupCounts
+}
+
+export interface WebApiScheduleRun {
+  id: string
+  asset_id: string
+  scheduled_for: string
+  task_id: string
+  status: 'launched' | 'failed' | 'skipped'
+  error: string
+  created_at: string
+  followups: WebApiRunFollowups | null
+}
+
+export interface WebApiSchedule {
+  asset_id: string
+  cron: string
+  enabled: boolean
+  auto_verify: boolean
+  auto_retest: boolean
+  next_run_at: string | null
+  upcoming: string[]
+  timezone: string
+  updated_at: string
+  last_run: WebApiScheduleRun | null
+}
+
+export interface WebApiFollowupItem {
+  id: string
+  kind: 'verify' | 'retest'
+  task_id: string
+  finding_id: string
+  finding_number: string
+  finding_title: string
+  target_id: string
+  session_id: string | null
+  status: 'pending' | 'launched' | 'failed' | 'skipped'
+  error: string
+  verdict: string | null
+  conclusion: string | null
+  created_at: string
+}
+
+export interface WebApiAssetSaveInput {
+  name: string
+  owner: string
+  environment: string
+  known_info: string
+  objective: string
+  origins: string[]
+  forbidden: string
+  scope?: string
+  approval?: string
+  archived?: boolean
+}
+
+export interface WebApiAssetCredentialInput {
+  label: string
+  username: string
+  secret?: string
+  note: string
+}
+
+export interface WebApiLaunchProgress {
+  task_created: boolean
+  session_opened: boolean
+  turn_started: boolean
+}
+
+export interface WebApiAssetLaunchResult {
+  asset_id: string
+  task: WebApiTask
+  session_id: string
+  node_id: string
+  turn_id: string
+  progress: WebApiLaunchProgress
+  created: boolean
+  idempotent: boolean
+}
+
+// 发起失败带阶段与已完成进度；重试必须复用同一 task_id 才可续完。
+export class AssetLaunchError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly stage: string,
+    public readonly progress: WebApiLaunchProgress | null,
+  ) {
+    super(message)
+    this.name = 'AssetLaunchError'
+  }
+}
+
+export interface WebApiScheduleRunList {
+  items: WebApiScheduleRun[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export async function listWebApiAssets(archived: boolean): Promise<WebApiAsset[]> {
+  const body = await apiJSON<{ assets: WebApiAsset[] }>(
+    `/api/webapi/assets?archived=${archived ? 1 : 0}`,
+    'Failed to load assets',
+  )
+  return body.assets
+}
+
+export async function getWebApiAsset(id: string): Promise<WebApiAsset> {
+  return apiJSON<WebApiAsset>(`/api/webapi/assets/${encodeURIComponent(id)}`, 'Failed to load asset')
+}
+
+export async function saveWebApiAsset(id: string, input: WebApiAssetSaveInput): Promise<WebApiAsset> {
+  return apiJSON<WebApiAsset>(`/api/webapi/assets/${encodeURIComponent(id)}`, 'Failed to save asset', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+// secret 为空串/未提供时不放进 body：后端按“保留原值”处理，前端永不多写空密码。
+export async function saveWebApiCredential(assetId: string, credentialId: string, input: WebApiAssetCredentialInput): Promise<WebApiAsset> {
+  const body: WebApiAssetCredentialInput = { label: input.label, username: input.username, note: input.note }
+  if (input.secret) body.secret = input.secret
+  return apiJSON<WebApiAsset>(`/api/webapi/assets/${encodeURIComponent(assetId)}/credentials/${encodeURIComponent(credentialId)}`, 'Failed to save credential', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteWebApiCredential(assetId: string, credentialId: string): Promise<WebApiAsset> {
+  return apiJSON<WebApiAsset>(`/api/webapi/assets/${encodeURIComponent(assetId)}/credentials/${encodeURIComponent(credentialId)}`, 'Failed to delete credential', {
+    method: 'DELETE',
+  })
+}
+
+export async function listWebApiAssetTasks(assetId: string): Promise<WebApiAssetTaskItem[]> {
+  const body = await apiJSON<{ tasks: WebApiAssetTaskItem[] }>(
+    `/api/webapi/assets/${encodeURIComponent(assetId)}/tasks`,
+    'Failed to load asset tasks',
+  )
+  return body.tasks
+}
+
+export async function launchWebApiAssetTask(assetId: string, taskId: string, options: { objective?: string; scope?: string; approval?: string }): Promise<WebApiAssetLaunchResult> {
+  const res = await authenticatedFetch(`/api/webapi/assets/${encodeURIComponent(assetId)}/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  })
+  if (!res.ok) {
+    let body: { error?: string; stage?: string; progress?: WebApiLaunchProgress } | null = null
+    try { body = await res.json() } catch { /* 非 JSON 错误体按通用文案 */ }
+    throw new AssetLaunchError(body?.error || 'Failed to launch task', res.status, body?.stage || '', body?.progress ?? null)
+  }
+  return res.json()
+}
+
+// 未设置计划返回 null（404），其余错误照常抛出。
+export async function getWebApiSchedule(assetId: string): Promise<WebApiSchedule | null> {
+  try {
+    return await apiJSON<WebApiSchedule>(`/api/webapi/assets/${encodeURIComponent(assetId)}/schedule`, 'Failed to load schedule')
+  } catch (err) {
+    if (err instanceof APIError && err.status === 404) return null
+    throw err
+  }
+}
+
+export async function saveWebApiSchedule(assetId: string, input: { cron: string; enabled: boolean; auto_verify: boolean; auto_retest: boolean }): Promise<WebApiSchedule> {
+  return apiJSON<WebApiSchedule>(`/api/webapi/assets/${encodeURIComponent(assetId)}/schedule`, 'Failed to save schedule', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function deleteWebApiSchedule(assetId: string): Promise<void> {
+  await apiJSON<{ asset_id: string; deleted: boolean }>(`/api/webapi/assets/${encodeURIComponent(assetId)}/schedule`, 'Failed to delete schedule', {
+    method: 'DELETE',
+  })
+}
+
+export async function listWebApiSchedules(): Promise<WebApiSchedule[]> {
+  const body = await apiJSON<{ schedules: WebApiSchedule[] }>('/api/webapi/schedules', 'Failed to load schedules')
+  return body.schedules
+}
+
+export async function listWebApiScheduleRuns(assetId: string, cursor?: string): Promise<WebApiScheduleRunList> {
+  const query = new URLSearchParams()
+  query.set('limit', '20')
+  if (cursor) query.set('cursor', cursor)
+  return apiJSON<WebApiScheduleRunList>(`/api/webapi/assets/${encodeURIComponent(assetId)}/schedule/runs?${query.toString()}`, 'Failed to load schedule runs')
+}
+
+export async function listWebApiScheduleFollowups(runId: string): Promise<WebApiFollowupItem[]> {
+  const body = await apiJSON<{ items: WebApiFollowupItem[] }>(
+    `/api/webapi/schedule-runs/${encodeURIComponent(runId)}/followups`,
+    'Failed to load followups',
+  )
+  return body.items
 }

@@ -508,6 +508,8 @@ export function useChatSession() {
   // lifetime, so a backgrounded tab would otherwise keep issuing AgentService queries
   // every 5s forever).
   usePolling(refreshAgents, 5000)
+  // 计划/服务端发起的会话不会经过本客户端的 OpenSession 路径，靠轮询进入侧栏。
+  usePolling(() => { void refreshSessions() }, 15000)
 
   function closeSubscription() {
     if (unsubRef.current) {
@@ -1362,6 +1364,7 @@ export function useChatSession() {
     agents,
     selectedNodeID,
     sessions,
+    refreshSessions,
     sessionFilters, filterSessions, updateSession,
     activeSessionID,
     activeSessionRecord,

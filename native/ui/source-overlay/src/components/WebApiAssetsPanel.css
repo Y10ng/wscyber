@@ -1,0 +1,75 @@
+.assets-container {
+  container-type: inline-size;
+}
+
+.assets-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* <1100px：默认只显示列表；选中后只显示详情。 */
+.assets-workspace .assets-detail,
+.assets-workspace.assets-show-detail .assets-list {
+  display: none;
+}
+
+.assets-workspace.assets-show-detail .assets-detail {
+  display: flex;
+}
+
+.assets-list-title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+/* 详情内容最大宽 880px、左对齐，宽屏不横跨整屏。 */
+.assets-detail-column {
+  width: 100%;
+  max-width: 880px;
+}
+
+/* 基本信息两列；容器窄于 640px 时单列。 */
+.assets-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.assets-form-col {
+  grid-column: 1 / -1;
+}
+
+@container (max-width: 639.9px) {
+  .assets-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 主区宽 ≥1100px：360px 列表 | 详情，中间 1px 竖线。 */
+@container (min-width: 1100px) {
+  .assets-workspace {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .assets-workspace .assets-list,
+  .assets-workspace.assets-show-detail .assets-list,
+  .assets-workspace .assets-detail,
+  .assets-workspace.assets-show-detail .assets-detail {
+    display: flex;
+  }
+
+  .assets-list {
+    border-right-width: 1px;
+  }
+
+  .assets-back {
+    display: none;
+  }
+}

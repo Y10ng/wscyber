@@ -15,6 +15,7 @@ import { WebApiVerificationBar } from './components/WebApiVerification'
 import { WebApiRetestBar } from './components/WebApiRetest'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
 import WebApiReportBar from './components/WebApiReportBar'
+import WebApiAssetsPanel from './components/WebApiAssetsPanel'
 import WebApiUsagePanel from './components/WebApiUsagePanel'
 import WebApiUsageDialog from './components/WebApiUsageDialog'
 import { assetMentionables } from './components/AssetPanel'
@@ -107,6 +108,9 @@ export default function App({ services }: { services: HubServices }) {
   const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
+  // 资产视图：打开时主区整体切到资产面板，不渲染任务栏/导航；点侧栏会话离开。
+  const [assetsOpen, setAssetsOpen] = useState(false)
+  const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
   // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
@@ -408,15 +412,25 @@ export default function App({ services }: { services: HubServices }) {
   }
 
   function handleSelectSession(id: string) {
+    setAssetsOpen(false)
     if (activeToolPanel === 'agents') services.panels.close()
     chat.selectSession(id)
     closeSidebarOnMobile()
   }
 
   function handleCreateSession(nodeID: string) {
+    setAssetsOpen(false)
     if (activeToolPanel === 'agents') services.panels.close()
     chat.createSession(nodeID)
     closeSidebarOnMobile()
+  }
+
+  // 资产视图 → 任务：离开资产视图并打开任务初始会话。
+  function openTaskSession(sessionID: string) {
+    setAssetsOpen(false)
+    // 服务端刚发起的会话尚未进入本地列表；先拉取，侧栏即时可见并高亮。
+    void chat.refreshSessions()
+    handleSelectSession(sessionID)
   }
 
   // Deleting a session also tears down its live subscription, so confirm first —
@@ -597,9 +611,18 @@ export default function App({ services }: { services: HubServices }) {
             onCreateSession={handleCreateSession}
             onDeleteSession={handleDeleteSession}
             onOpenUsage={webapiEnabled ? () => setUsageDialogOpen(true) : undefined}
+            onOpenAssets={webapiEnabled ? () => { setAssetsOpen(true); closeSidebarOnMobile() } : undefined}
           />
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {assetsOpen ? (
+              <WebApiAssetsPanel
+                focusAssetId={focusAssetId}
+                onFocusConsumed={() => setFocusAssetId(null)}
+                onOpenTask={openTaskSession}
+              />
+            ) : (
+            <>
             {webApiTaskError && (
               <div className="flex shrink-0 items-center gap-2 border-b border-warning/40 bg-warning/10 px-4 py-1.5 text-xs text-warning">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -607,7 +630,7 @@ export default function App({ services }: { services: HubServices }) {
               </div>
             )}
             {webApiTaskActive && activeWebApiTask && (
-              <WebApiTaskBar task={activeWebApiTask} onPolicySaved={setActiveWebApiTask} />
+              <WebApiTaskBar task={activeWebApiTask} onPolicySaved={setActiveWebApiTask} onOpenAsset={webapiEnabled ? (assetId) => { setFocusAssetId(assetId); setAssetsOpen(true) } : undefined} />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
               <WebApiVerificationBar verification={activeWebApiVerification} onReturnToFinding={handleReturnToFinding} />
@@ -808,6 +831,8 @@ export default function App({ services }: { services: HubServices }) {
             />
             )}
             </div>
+            </>
+            )}
           </main>
         </div>
       </div>

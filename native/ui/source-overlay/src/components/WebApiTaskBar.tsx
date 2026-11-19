@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Globe, ShieldCheck } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@cyber/ui'
+import { Boxes, Globe, ShieldCheck } from 'lucide-react'
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiTask, type WebApiTask, type WebApiTaskPolicy } from '../api'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
@@ -12,12 +12,14 @@ interface Props {
   task: WebApiTask
   /** 策略保存成功后回写 App 的任务对象（App 持有 activeWebApiTask 状态）。 */
   onPolicySaved: (task: WebApiTask) => void
+  /** 任务来自资产时，点击资产标签回到资产详情。 */
+  onOpenAsset?: (assetId: string) => void
 }
 
 // 真正 Web/API 任务才显示的范围摘要栏；普通会话不渲染。
 // 视图切换已上移到任务局部导航（WebApiTaskNav），这里保留目标、授权 origin 与
 // B1 测试策略指示（盾牌 + 短文案，点击 Popover 修改，仅对之后的调用生效）。
-export default function WebApiTaskBar({ task, onPolicySaved }: Props) {
+export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset }: Props) {
   const { t, i18n } = useTranslation('chat')
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
   const policy = normalizeWebApiPolicy(task.policy)
@@ -51,6 +53,19 @@ export default function WebApiTaskBar({ task, onPolicySaved }: Props) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-background px-4 py-1.5">
       <div className="flex min-w-0 flex-1 items-center gap-2">
+        {task.asset && onOpenAsset && (
+          <Button
+            type="button"
+            variant="soft"
+            size="xs"
+            onClick={() => onOpenAsset(task.asset!.id)}
+            title={task.asset.name}
+            className="h-6 shrink-0 gap-1 px-1.5 text-[12px]"
+          >
+            <Boxes className="h-3 w-3" />
+            <span className="max-w-[8rem] truncate">{task.asset.name.length > 12 ? `${task.asset.name.slice(0, 12)}…` : task.asset.name}</span>
+          </Button>
+        )}
         <Globe className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="min-w-0 truncate text-[13px] font-medium text-foreground" title={summary}>{task.objective}</span>
         <span className="hidden shrink-0 items-center gap-1 text-muted-foreground sm:flex">
