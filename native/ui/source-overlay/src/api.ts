@@ -1407,3 +1407,90 @@ export async function listWebApiScheduleFollowups(runId: string): Promise<WebApi
   )
   return body.items
 }
+
+// --- 资产漏洞库（C3）：状态读时派生，前端一次取全量后本地筛选 ---
+export type WebApiVulnStatus = 'new' | 'present' | 'pending' | 'unconfirmed' | 'fixed'
+
+export interface WebApiVulnMember {
+  task_id: string
+  finding_id: string
+  number: string
+  title: string
+  link: 'auto' | 'manual'
+  latest_verdict: string | null
+  latest_retest: string | null
+  created_at: string
+  initial_session_id: string
+}
+
+export interface WebApiVulnEvent {
+  kind: 'verify' | 'retest'
+  value: string
+  at: string
+  task_id: string
+  finding_id: string
+}
+
+export interface WebApiVuln {
+  id: string
+  title: string
+  status: WebApiVulnStatus
+  endpoint_key: string
+  first_seen_at: string
+  last_confirmed_at: string | null
+  fixed_at: string | null
+  last_event: WebApiVulnEvent | null
+  member_count: number
+  task_count: number
+  members: WebApiVulnMember[]
+}
+
+export interface WebApiVulnList {
+  asset_id: string
+  latest_task_id: string | null
+  counts: Record<WebApiVulnStatus, number>
+  vulns: WebApiVuln[]
+}
+
+export async function listWebApiAssetVulns(assetId: string): Promise<WebApiVulnList> {
+  return apiJSON<WebApiVulnList>(
+    `/api/webapi/assets/${encodeURIComponent(assetId)}/vulns`,
+    'Failed to load vulnerabilities',
+  )
+}
+
+export async function saveWebApiVulnTitle(assetId: string, vulnId: string, title: string): Promise<WebApiVuln> {
+  return apiJSON<WebApiVuln>(
+    `/api/webapi/assets/${encodeURIComponent(assetId)}/vulns/${encodeURIComponent(vulnId)}`,
+    'Failed to save title',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    },
+  )
+}
+
+export async function moveWebApiVulnMember(assetId: string, vulnId: string, findingId: string): Promise<WebApiVuln> {
+  return apiJSON<WebApiVuln>(
+    `/api/webapi/assets/${encodeURIComponent(assetId)}/vulns/${encodeURIComponent(vulnId)}/members/${encodeURIComponent(findingId)}`,
+    'Failed to move candidate',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    },
+  )
+}
+
+export async function mergeWebApiVulns(assetId: string, intoId: string, fromId: string): Promise<WebApiVuln> {
+  return apiJSON<WebApiVuln>(
+    `/api/webapi/assets/${encodeURIComponent(assetId)}/vulns/${encodeURIComponent(intoId)}/merge`,
+    'Failed to merge vulnerabilities',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: fromId }),
+    },
+  )
+}

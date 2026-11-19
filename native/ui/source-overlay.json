@@ -24,7 +24,7 @@
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "f125cdbf92c455531a5c2d9ccd9dc9e20668d8262156db922326ccd80ce16bd7"
+      "sha256": "94c4f3a22c37e5887e95fb9b4333dbcd19e71b7a618b218138f26f1ad3922c3e"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -46,13 +46,17 @@
       "source_sha256": null,
       "sha256": "64db8f756e4ddc9a43a51995d25436864d86f9a2433e47bc1197485a32e1692c"
     },
+    "src/components/WebApiAssetVulns.tsx": {
+      "source_sha256": null,
+      "sha256": "7f92052c9b5330354c4cccd02dbbac6bdef48734595f52fd8f08cc31637871f7"
+    },
     "src/components/WebApiAssetsPanel.css": {
       "source_sha256": null,
-      "sha256": "dc13bc909580a9223c8ad46a246cf3b83a2898bfaba843798d8dbfee40d70a37"
+      "sha256": "9354657819632d1f5a5be9a9a770392adde9cc2c50597c8d3d7ad2747f5d1920"
     },
     "src/components/WebApiAssetsPanel.tsx": {
       "source_sha256": null,
-      "sha256": "84131ef758b21ffe6c6cede16f3a3988528a4d7213fcfd4fb424ffc94c34b460"
+      "sha256": "b4cba92ae5ae6c81cd645b0fba1d60980bf3c77731e6fd267542cabcbac7806b"
     },
     "src/components/WebApiEvidencePanel.tsx": {
       "source_sha256": null,
@@ -156,7 +160,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "89010cdd165c69b830ae2aac54874a935c3cc41004d5e23f0ee5586361c2fad4"
+      "sha256": "b1fcbcdf17c15b392a5a3dffa90dcddf40ddd87529c1901f8bf900282d3c5a77"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -168,7 +172,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "40b999ed79e124644c14e7b48703610ff2e7274ed0951972f1c659673b25cfb9"
+      "sha256": "3bd29ea2a4b8ae08f31ed2017a29fb411efec8255ef2815849138f314ee33d47"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",

@@ -13,6 +13,7 @@ import {
   getWebApiAsset,
   getWebApiTask,
   listWebApiAssetTasks,
+  listWebApiAssetVulns,
   listWebApiAssets,
   listWebApiScheduleFollowups,
   listWebApiScheduleRuns,
@@ -29,11 +30,13 @@ import {
   type WebApiRunFollowups,
   type WebApiSchedule,
   type WebApiScheduleRun,
+  type WebApiVulnStatus,
 } from '../api'
 import { usePolling } from '../hooks/usePolling'
 import { formatTime } from './WebApiEvidenceReference'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields } from './WebApiPolicyShared'
 import WebApiAssetLaunchDialog from './WebApiAssetLaunchDialog'
+import WebApiAssetVulns from './WebApiAssetVulns'
 import './WebApiAssetsPanel.css'
 
 interface Props {
@@ -111,6 +114,8 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+type AssetDetailTab = 'info' | 'vulns'
+
 // 资产视图：左列表（360px @≥1100px）+ 右详情。详情内为基本信息表单、测试账号、
 // 周期计划与关联任务，均为原生 /api/webapi 接口，不读其它来源。
 export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpenTask }: Props) {
@@ -124,6 +129,8 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
   const [selected, setSelected] = useState<WebApiAsset | null>(null)
   const [creatingId, setCreatingId] = useState('')
   const [showDetail, setShowDetail] = useState(false)
+  // 切换资产时保留当前分段（资产信息 / 漏洞库）。
+  const [detailTab, setDetailTab] = useState<AssetDetailTab>('info')
   const loadSeq = useRef(0)
   const focusHandled = useRef<string | null>(null)
 
@@ -309,6 +316,8 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
               asset={null}
               creatingId={creatingId}
               schedule={null}
+              tab={detailTab}
+              onTabChange={setDetailTab}
               onSaved={handleSaved}
               onAssetUpdated={updateAsset}
               onScheduleChange={handleScheduleChange}
@@ -321,6 +330,8 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
               asset={selected}
               creatingId={null}
               schedule={schedules[selected.id] ?? null}
+              tab={detailTab}
+              onTabChange={setDetailTab}
               onSaved={handleSaved}
               onAssetUpdated={updateAsset}
               onScheduleChange={handleScheduleChange}
@@ -389,10 +400,12 @@ function DetailSection({ title, first, children }: { title?: ReactNode; first?: 
   )
 }
 
-function AssetDetail({ asset, creatingId, schedule, onSaved, onAssetUpdated, onScheduleChange, onOpenTask, onBack }: {
+function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, onSaved, onAssetUpdated, onScheduleChange, onOpenTask, onBack }: {
   asset: WebApiAsset | null
   creatingId: string | null
   schedule: WebApiSchedule | null
+  tab: AssetDetailTab
+  onTabChange: (tab: AssetDetailTab) => void
   onSaved: (asset: WebApiAsset) => void
   onAssetUpdated: (asset: WebApiAsset) => void
   onScheduleChange: (assetId: string, schedule: WebApiSchedule | null) => void
@@ -411,9 +424,20 @@ function AssetDetail({ asset, creatingId, schedule, onSaved, onAssetUpdated, onS
   const [savedFlash, setSavedFlash] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
+  // 漏洞库标签数字：切换资产时先取一次 counts，之后由漏洞库视图加载后回传。
+  const [vulnCounts, setVulnCounts] = useState<Record<WebApiVulnStatus, number> | null>(null)
   // 计划运行刷新后的首条运行 ID：变化即让关联任务静默重取，无需整页刷新。
   const [tasksKey, setTasksKey] = useState('')
   const savedTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (creating || !asset) return
+    let cancelled = false
+    listWebApiAssetVulns(asset.id)
+      .then((result) => { if (!cancelled) setVulnCounts(result.counts) })
+      .catch(() => { /* 数字取不到就不显示，不阻塞资产信息 */ })
+    return () => { cancelled = true }
+  }, [creating, asset?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 资产视图被外部刷新（如保存测试账号）时同步服务端值；仅在表单没有未保存
   // 编辑时覆盖，避免丢掉用户正在改的基本信息。
@@ -511,6 +535,40 @@ function AssetDetail({ asset, creatingId, schedule, onSaved, onAssetUpdated, onS
             )}
           </div>
 
+          {!creating && (
+            <div role="group" aria-label={t('webapi.vulnTab')} className="mb-4 flex w-fit shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
+              <button
+                type="button"
+                aria-pressed={tab === 'info'}
+                onClick={() => onTabChange('info')}
+                className={cn(
+                  'h-6 rounded px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                  tab === 'info' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                )}
+              >
+                {t('webapi.vulnTabInfo')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={tab === 'vulns'}
+                onClick={() => onTabChange('vulns')}
+                className={cn(
+                  'flex h-6 items-center rounded px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                  tab === 'vulns' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                )}
+              >
+                {t('webapi.vulnTab')}
+                {!!vulnCounts && vulnCounts.new + vulnCounts.present > 0 && (
+                  <span className="ml-1 font-mono text-[11px] text-destructive">{vulnCounts.new + vulnCounts.present}</span>
+                )}
+              </button>
+            </div>
+          )}
+
+          {tab === 'vulns' && !creating ? (
+            <WebApiAssetVulns assetId={asset.id} onOpenTask={onOpenTask} onCounts={setVulnCounts} />
+          ) : (
+            <>
           <DetailSection title={t('webapi.assetBasicInfo')} first>
             <div className="assets-form-grid">
               <Field label={`${t('webapi.assetName')}*`}>
@@ -597,6 +655,8 @@ function AssetDetail({ asset, creatingId, schedule, onSaved, onAssetUpdated, onS
             <DetailSection title={t('webapi.assetTasks')}>
               <AssetTasks assetId={asset.id} refreshKey={tasksKey} onOpenTask={onOpenTask} />
             </DetailSection>
+          )}
+            </>
           )}
         </div>
       </div>

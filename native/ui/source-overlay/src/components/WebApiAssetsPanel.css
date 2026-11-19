@@ -52,6 +52,17 @@
   }
 }
 
+/* 漏洞库（C3）：表格按自身宽度做容器查询，窄屏隐藏“发现时间”“归并”列。 */
+.vuln-detail-container {
+  container-type: inline-size;
+}
+
+@container (max-width: 639.9px) {
+  .vuln-narrow-hide {
+    display: none;
+  }
+}
+
 /* 主区宽 ≥1100px：360px 列表 | 详情，中间 1px 竖线。 */
 @container (min-width: 1100px) {
   .assets-workspace {
