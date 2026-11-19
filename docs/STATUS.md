@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-17 HEAD 构建，含报告/复测/执行时间线）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-19 00:36 从 f49a668 构建，含资产/周期计划/漏洞库/审批/出口流量/侧栏归组；升级前备份 `var/preview/state.bak-20261119`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -29,18 +29,18 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 - `scripts/cyber-ui-rebuild-check.py` 自检在清理前就失败（release 目录校验），未修；不影响实际 rebuild。
 - 时间线“新记录浮出”按钮未在实时追加场景观察过；侧栏徽标为前端反查（每会话最多 4 次 by-session 请求，有缓存）。
 
-## 进度（2026-11-18）
+## 进度（2026-11-19）
 
-已提交：F1、U1、B1 前后端、C1 资产、C2a/C2b 周期计划与后续、C3 资产漏洞库前后端（fbc63f5、f233c9c）、C1/C2 资产前端（eb44d11）、S1 会话归属批量接口（888c226）、B2 全工具出口后端（d6fbd25，终端流量经 MITM 代理按任务策略拦截/记录，新增 19 个依赖，见 `native/POLICY.md`）、F2 资产空已知信息不再发起失败（49b0012）。接口契约见 `native/POLICY.md`、`native/ASSETS.md`、`native/VERIFICATION.md`。
+已提交：F1、U1、B1、C1、C2a/C2b、C3（前后端）、S1 侧栏会话归组（888c226 + 7868638）、B2 全工具出口（d6fbd25 后端 + f49a668 前端）、F2、D0 演示“出口演示”剧本（`demo-stack.py egress-demo`）。接口契约见 `native/POLICY.md`、`native/ASSETS.md`、`native/VERIFICATION.md`。
 
-进行中：**S1 侧栏会话归组前端**（ds-flash，`var/s1-sidebar-frontend/task.md`）。演示 Hub `var/demo/wscyber-hub` 已于 11-18 23:39 从 HEAD 重建。
+进行中：**D1 证据图片后端**（o-latest，`var/d1-evidence-image/task.md`：由 HTTP 原件确定性渲染请求/响应 PNG，供 D2 推送）。
 
 ## 下一步
 
-1. B2 前端：任务页“出口流量”视图（列表/详情、拒绝记录）与策略指示里如实说明“终端出口为代理强制，可被刻意绕过”。
-2. 小打磨（ds-flash）：用量按会话表按角色排序（研究在前）；全局用量 Dialog 高度随内容；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端拼装与 `webAPIFirstMessage` 需同步改）。
-3. 之后按 [roadmap](roadmap.md)：D1 证据图片 → D2 企业微信（需用户提供群机器人 webhook）→ D3 SDL（需接口文档）。
-4. 更新 42453 预览前须从 HEAD 重建 `var/wscyber-hub`；重建 UI 后运行中的 Hub 缓存旧清单，须重启 Hub 才生效。
+1. D1 验收提交 → D1 前端（候选证据/流量详情“导出图片”）。
+2. D2 企业微信推送：**需用户提供群机器人 webhook**；未提供前可先做推送逻辑与本地模拟接收端。
+3. 小打磨（ds-flash）：用量按会话表按角色排序；全局用量 Dialog 高度随内容；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端拼装与 `webAPIFirstMessage` 需同步改）。
+4. 之后 D3 SDL（需接口文档）、B3 审计视图。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；审批超时/取消的前端显示只经代码路径验证；B2 出口为代理强制（unset 代理变量/--noproxy/原始 socket 可绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖，真实模型端到端未跑；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝。
 
@@ -50,4 +50,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-S1 侧栏归组前端（ds-flash，`var/s1-sidebar-frontend`）运行中。
+D1 证据图片后端（o-latest，`var/d1-evidence-image`）运行中。
