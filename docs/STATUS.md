@@ -2,7 +2,7 @@
 
 只记录现在的状态和下一步；每完成一片改写本文件，不追加历史。历史记录（0.1–0.97）在 tag `legacy-snapshot` 的 `docs/STATUS.md`。
 
-## 当前（2026-11-18）
+## 当前（2026-11-19）
 
 **首版完整链已用真实模型跑通（R1，11-17 用户授权）：** 产品模型 + 本地靶场 `http://192.168.157.1:8000`，建任务 → 自主探索（18 HTTP、4 候选）→ 3 个候选独立验证均形成判读 → 报告（4 候选 + 3 验证，草稿写入，MD/JSON 导出 200）→ 复测得出结论。各步浏览器可操作。结构化结果见 `var/r1-real/result.md`；截图/导出物在 `var/r1-real/`（主会话不读）。预览库升级前备份 `var/preview/state.bak-20261117`。
 
@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-19 00:36 从 f49a668 构建，含资产/周期计划/漏洞库/审批/出口流量/侧栏归组；升级前备份 `var/preview/state.bak-20261119`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-19 07:00 换用含 U2a/D2 后端的 Hub；前端随 `var/ui-work/release/public` 更新；升级前备份 `var/preview/state.bak-20261119b`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -31,16 +31,17 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 进度（2026-11-19）
 
-已提交（本日）：B2 前端（f49a668）、侧栏归组（7868638）、D1 证据图片前后端（5febf5f、2cd872f）、U2a 全局导航后端（38862fd：task-list / vulns / report-list / overview，契约 `native/OVERVIEW.md`）。界面改版设计见 [ui-shell](ui-shell.md)（用户 11-19 要求：左侧菜单、总览、分隔与按钮排放）。参考站 cyber.chainreactors.cn 只看版式：数据区模糊化截图，看完即删，不读数据。
+已提交（本日）：B2 前端、侧栏归组、D1 证据图片前后端、U2a 全局导航后端（契约 `native/OVERVIEW.md`）、D2 企业微信推送后端（812d6bf，契约 `native/NOTIFY.md`；用户暂无 webhook，未配置不推送）、主题提亮、**U2b 界面外壳**（74a37a1：左侧菜单、页面框架、任务页、工作区 48px 顶栏页签）、任务列表归档过滤后端（f130ddc）。界面改版设计见 [ui-shell](ui-shell.md)。
 
-进行中：**U2b 外壳 + 任务页**（ds-flash，`var/u2b-shell-frontend/task.md`）、**D2 企业微信推送后端**（o-latest，`var/d2-wecom-backend/task.md`；用户暂无 webhook，未配置不推送，用 httptest 验证）。演示 Hub 已含 U2a（11-19 01:55）。
+进行中：**U2c 总览页 + 任务归档**（ds-flash，`var/u2c-overview/task.md`；演示 Hub 已换为含归档过滤的版本）。U2b 纠正 1（模型/节点页内卡片、表头单行）已提交。
+
+U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口（设计为任务页“类型：对话”筛选）未迁移；工作区顶栏未放 token 合计与待审批。
 
 ## 下一步
 
-1. U2b 验收 → U2c 总览页 → U2d 漏洞/报告页与资产页套规范 → U2e 分隔线与按钮全量走查（见 ui-shell §6）。
-2. D2 验收 → D2 前端（“配置 · 集成”页：企业微信 webhook、需人工确认、推送记录）。
-3. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端与 `webAPIFirstMessage` 同步改）。
-4. 之后 D3 SDL（需接口文档）、B3 审计视图。
+1. U2c 验收 → D2 前端（“配置 · 集成”页：企业微信 webhook、需人工确认、推送记录）→ U2d 漏洞/报告页与资产页套规范 → U2e 分隔线与按钮全量走查。
+2. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端与 `webAPIFirstMessage` 同步改）；总览 `tasks` 统计是否排除已归档任务待定。
+3. 之后 D3 SDL（需接口文档）、B3 审计视图。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；审批超时/取消的前端显示只经代码路径验证；B2 出口为代理强制（unset 代理变量/--noproxy/原始 socket 可绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖，真实模型端到端未跑；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝。
 
@@ -50,4 +51,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-U2b（ds-flash）与 D2 后端（o-latest）运行中。
+U2c（ds-flash）运行中。
