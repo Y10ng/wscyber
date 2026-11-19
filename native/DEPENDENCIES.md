@@ -155,3 +155,13 @@ H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIG
 | `go.yaml.in/yaml/v3` | `v3.0.5` | testify 传递；MIT + Apache-2.0（另有 NOTICE） |
 
 **新增待核实事项：** mitmproxy 与 cert 两个模块根无许可文本，保持 UNKNOWN，不按其可能的派生来源推断。新增四个 GPL-3.0 文本模块与既有 Cyber AGPL、proxyclient GPL 的组合及源代码/通知义务未处理；本增量不作法律结论或可部署声明，部署/分发前须核对。模块根文本存在不代表嵌套代码/资产已审查。
+
+## D1：证据图片（golang.org/x/image）的可达依赖增量
+
+核验日期：2026-11-19。同一固定 Cyber/AOP 版本；`webapi/evidence_image.go` 在服务端把已保存的 traffic.Flow 渲染成 PNG（不经模型）。唯一 Hub 入口 `go list -deps` 得到 **113 个模块：原 112 个版本全不变，新增 1 个**。版本、公开来源与根文本 SHA-256 见 [evidence-image-dependency-licenses.json](evidence-image-dependency-licenses.json)。固定 Cyber 根模块 `go.mod` 已要求 `golang.org/x/image v0.47.0`，最小版本选择据此取 v0.47.0（本机缓存原有 v0.38.0 不能被选中），经直连 proxy.golang.org 获取并由 `go.sum` 校验；未改上游、未改 fork replace。
+
+| 新增可达模块 | 固定版本 | 用途 / 模块根实际文本 |
+|---|---|---|
+| `golang.org/x/image` | `v0.47.0` | `font/opentype`、`font/sfnt` 字体解析，内嵌 `font/gofont/gomono`、`gomonobold` 等宽字体，`math/fixed`；BSD-3-Clause 根文本 + Go PATENTS；Go 字体 README 为同款 BSD 式许可 |
+
+CJK 回退字体只在运行时从系统读取（`WSCYBER_EVIDENCE_FONT` → `/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf` → `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc` → `/usr/share/fonts/truetype/wqy/wqy-microhei.ttc`），不打包进仓库或二进制；本机为 Debian `fonts-droid-fallback`（Apache-2.0）。部署机器的字体由其系统包授权；没有可用回退字体时非 ASCII 字符画方框并在图片页脚说明。既有许可缺口不因本增量改变。

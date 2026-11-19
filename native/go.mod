@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/chainreactors/cyber v0.0.0-20261109041610-f4b1fb2f3315
 	github.com/chainreactors/cyber/aop v0.0.0-20261109041610-f4b1fb2f3315
+	golang.org/x/image v0.47.0
 	google.golang.org/protobuf v1.36.12
 )
 

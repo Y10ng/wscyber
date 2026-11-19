@@ -37,6 +37,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |
 | GET | `/tasks/{id}/egress?session_id=&decision=&limit=&cursor=`、`/tasks/{id}/egress/{flow_id}` | 全工具出口记录（终端经代理的放行/拒绝请求，倒序分页；详情含 Flow 头与 4KiB body 预览），见 `native/POLICY.md`「全工具出口（B2）」 |
+| GET | `/tasks/{id}/evidence/{evidence_id}/image.png`、`/tasks/{id}/egress/{flow_id}/image.png`（`?mark=&max_lines=&mask=`） | 由 Flow 原件确定性渲染请求/响应 PNG（遮盖敏感头、mark 高亮、截断如实标注；404/400/422），包内 `renderEvidenceImage` 供推送调用；见 `native/VERIFICATION.md`「证据图片」 |
 | GET | `/tasks/{id}/findings[/{fid}[/history\|/revisions/{rid}]]` | 候选、修订 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/verifications[/{vid}]` | 发起/读取独立验证（客户端稳定 UUID，幂等） |
 | GET | `/verifications?session_id=` | 由验证会话反查上下文 |
