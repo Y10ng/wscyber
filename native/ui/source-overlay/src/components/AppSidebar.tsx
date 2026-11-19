@@ -39,9 +39,9 @@ interface NavDef {
   count?: 'tasks' | 'assets' | 'agents'
 }
 
-// 总览 / 漏洞 / 报告页面后续片实现；本片保留数组项但用 enabled: false 过滤，避免占位入口。
+// 漏洞 / 报告页面后续片实现；保留数组项但用 enabled: false 过滤，避免占位入口。
 const OPERATIONS_NAV: NavDef[] = [
-  { key: 'overview', icon: LayoutDashboard, labelKey: 'shell.navOverview', enabled: false },
+  { key: 'overview', icon: LayoutDashboard, labelKey: 'shell.navOverview', enabled: true },
   { key: 'tasks', icon: ListChecks, labelKey: 'shell.navTasks', enabled: true, count: 'tasks' },
   { key: 'assets', icon: Boxes, labelKey: 'shell.navAssets', enabled: true, count: 'assets' },
   { key: 'vulns', icon: ShieldAlert, labelKey: 'shell.navVulns', enabled: false },

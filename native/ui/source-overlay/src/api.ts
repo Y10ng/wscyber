@@ -674,6 +674,7 @@ export interface WebApiTaskListItem {
   created_at: string
   initial_session_id: string
   status: WebApiTaskListStatus
+  archived: boolean
   last_activity_at: string
   finding_count: number
   verification_count: number
@@ -690,6 +691,7 @@ export interface WebApiTaskListCounts {
   idle: number
   not_started: number
   unknown: number
+  archived: number
 }
 
 export interface WebApiTaskList {
@@ -703,6 +705,7 @@ export async function listWebApiTaskList(params: {
   q?: string
   status?: WebApiTaskListStatus
   asset_id?: string
+  archived?: boolean
   limit?: number
   cursor?: string
 } = {}): Promise<WebApiTaskList> {
@@ -710,10 +713,68 @@ export async function listWebApiTaskList(params: {
   if (params.q) query.set('q', params.q)
   if (params.status) query.set('status', params.status)
   if (params.asset_id) query.set('asset_id', params.asset_id)
+  if (params.archived) query.set('archived', '1')
   if (params.limit) query.set('limit', String(params.limit))
   if (params.cursor) query.set('cursor', params.cursor)
   const suffix = query.toString()
   return apiJSON<WebApiTaskList>(`/api/webapi/task-list${suffix ? `?${suffix}` : ''}`, 'Failed to load tasks')
+}
+
+// --- 总览聚合（U2a，只读）：GET /overview，字段见 native/OVERVIEW.md ---
+export interface WebApiOverviewDayCount {
+  date: string
+  count: number
+}
+
+export interface WebApiOverviewVulnDay {
+  date: string
+  new: number
+  present: number
+  fixed: number
+}
+
+export interface WebApiOverviewTokenDay {
+  date: string
+  total_tokens: number
+}
+
+export interface WebApiOverviewNextSchedule {
+  asset_id: string
+  asset_name: string
+  next_run_at: string
+}
+
+export interface WebApiOverviewRecentRun {
+  asset_id: string
+  asset_name: string
+  scheduled_for: string
+  status: string
+  task_id: string
+  followups_state: string | null
+}
+
+export interface WebApiOverviewRecentSupported {
+  vuln_id: string
+  title: string
+  asset: { id: string; name: string } | null
+  task_id: string
+  at: string
+}
+
+export interface WebApiOverview {
+  generated_at: string
+  timezone: string
+  days: number
+  assets: { total: number; archived: number; scheduled_enabled: number }
+  tasks: { total: number; running: number; created_in_range: number; by_day: WebApiOverviewDayCount[] }
+  vulns: { counts: Record<WebApiVulnStatus, number>; confirmed_by_day: WebApiOverviewVulnDay[] }
+  tokens: { total: number; by_day: WebApiOverviewTokenDay[] }
+  schedules: { next: WebApiOverviewNextSchedule[]; recent_runs: WebApiOverviewRecentRun[] }
+  recent_supported: WebApiOverviewRecentSupported[]
+}
+
+export async function getWebApiOverview(days: 7 | 30 | 90): Promise<WebApiOverview> {
+  return apiJSON<WebApiOverview>(`/api/webapi/overview?days=${days}`, 'Failed to load overview')
 }
 
 export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: string): Promise<WebApiEvidenceList> {

@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import AppSidebar from './components/AppSidebar'
+import OverviewPage from './components/OverviewPage'
 import TasksPage from './components/TasksPage'
 import { Page, PageHeader } from './components/PageFrame'
 import ConfigPanel from './components/ConfigPanel'
@@ -45,9 +46,9 @@ import type { CapabilityManifest } from './runtime/capabilities'
 
 export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes'
 
-// 本片只实现任务/资产/模型/节点；总览、漏洞、报告后续片实现，URL 里出现时归一到任务页，
+// 已实现页面：总览/任务/资产/模型/节点；漏洞、报告后续片实现，URL 里出现时归一到总览页，
 // 不暴露未实现的占位入口。
-const IMPLEMENTED_PAGES: AppPage[] = ['tasks', 'assets', 'models', 'nodes']
+const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'models', 'nodes']
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
@@ -69,9 +70,9 @@ function getInitialSidebarOpen() {
 }
 
 function getInitialPage(): AppPage {
-  if (typeof window === 'undefined') return 'tasks'
+  if (typeof window === 'undefined') return 'overview'
   const value = new URLSearchParams(window.location.search).get('page')
-  return IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'tasks'
+  return IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'overview'
 }
 
 function getInitialSidebarCollapsed(): boolean {
@@ -344,7 +345,7 @@ export default function App({ services }: { services: HubServices }) {
     const applyPage = () => {
       if (window.location.pathname !== '/') return
       const value = new URLSearchParams(window.location.search).get('page')
-      setPage(IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'tasks')
+      setPage(IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'overview')
     }
     window.addEventListener('popstate', applyPage)
     return () => window.removeEventListener('popstate', applyPage)
@@ -854,6 +855,15 @@ export default function App({ services }: { services: HubServices }) {
             </>
           ) : (
             <>
+              {page === 'overview' && (
+                <OverviewPage
+                  onNavigate={navigate}
+                  onOpenTask={openTaskSession}
+                  onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
+                  onOpenUsage={() => setUsageDialogOpen(true)}
+                  onOpenMenu={() => setSidebarOpen(true)}
+                />
+              )}
               {page === 'tasks' && (
                 <TasksPage
                   webapiEnabled={webapiEnabled}
@@ -861,6 +871,7 @@ export default function App({ services }: { services: HubServices }) {
                   onCreateTask={() => setTaskDialogOpen(true)}
                   onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
                   onOpenMenu={() => setSidebarOpen(true)}
+                  onArchive={(id, archived) => chat.updateSession(id, { archived })}
                 />
               )}
               {page === 'assets' && (

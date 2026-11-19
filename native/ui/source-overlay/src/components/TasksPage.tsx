@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Loader2, Plus, RefreshCw } from 'lucide-react'
-import { Badge, Button, EmptyState, Input, Spinner } from '@cyber/ui'
+import { Archive, ArchiveRestore, ArrowRight, Loader2, MoreHorizontal, Plus, RefreshCw } from 'lucide-react'
+import {
+  Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  EmptyState, Input, Spinner, useConfirm,
+} from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { FilterPills, IconAction, Page, PageHeader, TableCard } from './PageFrame'
 import { usePolling } from '../hooks/usePolling'
+import { formatTokens } from '../lib/format-tokens'
 import {
   listWebApiAssets,
   listWebApiSchedules,
@@ -21,20 +25,13 @@ interface TasksPageProps {
   onCreateTask: () => void
   onOpenAsset: (assetId: string) => void
   onOpenMenu: () => void
+  onArchive: (sessionId: string, archived: boolean) => Promise<void>
 }
 
-type TaskFilter = 'all' | Exclude<WebApiTaskListStatus, 'unknown'>
+type TaskFilter = 'all' | Exclude<WebApiTaskListStatus, 'unknown'> | 'archived'
 type PageMode = 'tasks' | 'schedules'
 
 const PAGE_LIMIT = 50
-
-/** Token 数：≥1e6 显示 1.2M，≥1e3 显示 12.3K（docs/ui-shell.md §5）。 */
-function formatTokens(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '0'
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`
-  return String(Math.round(value))
-}
 
 function statusBadgeVariant(status: WebApiTaskListStatus): 'info' | 'success' | 'muted' {
   if (status === 'running') return 'info'
@@ -42,8 +39,10 @@ function statusBadgeVariant(status: WebApiTaskListStatus): 'info' | 'success' | 
   return 'muted'
 }
 
-export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onOpenAsset, onOpenMenu }: TasksPageProps) {
+export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onOpenAsset, onOpenMenu, onArchive }: TasksPageProps) {
   const { t, i18n } = useTranslation('chat')
+  const confirm = useConfirm()
+  const [archivingId, setArchivingId] = useState<string | null>(null)
   const [mode, setMode] = useState<PageMode>('tasks')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
@@ -79,7 +78,8 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
     try {
       const data = await listWebApiTaskList({
         q: query || undefined,
-        status: filter === 'all' ? undefined : filter,
+        status: filter === 'all' || filter === 'archived' ? undefined : filter,
+        archived: filter === 'archived' || undefined,
         limit: PAGE_LIMIT,
         cursor: nextCursor,
       })
@@ -172,7 +172,29 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
     { key: 'running' as const, label: t('shell.filterRunning'), count: counts?.running, dot: 'bg-info' },
     { key: 'idle' as const, label: t('shell.filterIdle'), count: counts?.idle, dot: 'bg-success' },
     { key: 'not_started' as const, label: t('shell.filterNotStarted'), count: counts?.not_started, dot: 'bg-muted-foreground' },
+    { key: 'archived' as const, label: t('shell.archiveFilter'), count: counts?.archived, dot: undefined },
   ]
+
+  // 归档/取消归档：确认后调用父级，完成后重取第一页与计数（静默，不闪列表）。
+  const toggleArchive = async (item: WebApiTaskListItem) => {
+    const next = !item.archived
+    // 归档前确认（可找回）；取消归档无需确认。
+    if (next && !(await confirm({
+      title: t('shell.archiveTask'),
+      description: t('shell.archiveConfirm'),
+      confirmLabel: t('shell.archiveTask'),
+    }))) return
+    setArchivingId(item.task_id)
+    try {
+      await onArchive(item.initial_session_id, next)
+      cursorRef.current = null
+      await loadTasks({ reset: true, silent: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setArchivingId(null)
+    }
+  }
 
   const total = counts?.all ?? items.length
   const rangeText = t('shell.tableRange', { from: items.length === 0 ? 0 : 1, to: items.length, total })
@@ -261,7 +283,7 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                     <col className="w-[110px]" />
                     <col className="w-[90px]" />
                     <col className="w-[110px]" />
-                    <col className="w-16" />
+                    <col className="w-20" />
                   </colgroup>
                   <thead>
                     <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
@@ -305,18 +327,44 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                           <td className="px-3 text-right tabular-nums text-foreground">{item.finding_count} / {item.supported_count}</td>
                           <td className="px-3 text-right tabular-nums text-muted-foreground">{formatTokens(item.total_tokens)}</td>
                           <td className="px-3 text-[12px] text-muted-foreground">{relativeTime(item.last_activity_at)}</td>
-                          <td className="px-3 text-right">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={t('shell.openTask')}
-                              title={t('shell.openTask')}
-                              onClick={(event) => { event.stopPropagation(); onOpenTask(item.initial_session_id) }}
-                              className="text-muted-foreground"
-                            >
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </Button>
+                          <td className="px-3">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={t('shell.openTask')}
+                                title={t('shell.openTask')}
+                                onClick={(event) => { event.stopPropagation(); onOpenTask(item.initial_session_id) }}
+                                className="text-muted-foreground"
+                              >
+                                <ArrowRight className="h-3.5 w-3.5" />
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label={t('shell.colActions')}
+                                    title={t('shell.colActions')}
+                                    disabled={archivingId === item.task_id}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="text-muted-foreground"
+                                  >
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                                  <DropdownMenuItem disabled={archivingId === item.task_id} onSelect={() => void toggleArchive(item)}>
+                                    {item.archived
+                                      ? <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+                                      : <Archive className="mr-2 h-3.5 w-3.5" />}
+                                    {t(item.archived ? 'shell.unarchiveTask' : 'shell.archiveTask')}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </td>
                         </tr>
                       )

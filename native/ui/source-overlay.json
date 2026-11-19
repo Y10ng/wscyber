@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "b2e068e7b0a9b1f5a22fa90c0f3b0d91cc9372d3f93bc26e5624677aa8d6d198"
+      "sha256": "a49a06161d3e801dbaf887074ae1acfd05956c32cc0d1f0785d2a74594da957d"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "693d39652bd2a9c87dbc20a54990a03247986ff6ef9c7024c80013adedc77b20"
+      "sha256": "578b74c69a5fdb74476fe3e831894d53df372b6538381273f57f01a364dd22a4"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -32,7 +32,7 @@
     },
     "src/components/AppSidebar.tsx": {
       "source_sha256": null,
-      "sha256": "20555708b559360c7e9911e578a45abd8d8de3473cdafffa68f49dfe0537bebd"
+      "sha256": "90020d97270da5dd3479c93b91d96ce40dc5adb873c2ef1173bf68a0e948e617"
     },
     "src/components/ChatPanel.tsx": {
       "source_sha256": "386b1f68b80a1df3cbdb2f9b6c3b92c42079abf069898ed6708c0df37cc828bc",
@@ -52,7 +52,7 @@
     },
     "src/components/TasksPage.tsx": {
       "source_sha256": null,
-      "sha256": "f5357f1e52d2ef09ce4861e88e4a14b8d0c1258b31af7a5d4d972d81da1254f7"
+      "sha256": "4793a59f89ff57449c797dbd79ac7b7955465c2dcefa68c880cda35fa9e9eea4"
     },
     "src/components/WebApiAssetLaunchDialog.tsx": {
       "source_sha256": null,
@@ -180,7 +180,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "3d953b8b967f1cdea8aa8424a7f27e2cec43637cdf3fc7e134f5b1c4363d28e6"
+      "sha256": "19a06ca7ff40b415ad21fe66a07a44fe16827be748939dd7b0834bae699dd530"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -192,7 +192,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "832dd7ac473a5c1f4e033d2caa06e7ca0f1ffcba4eba14f20de436749019a043"
+      "sha256": "613b6d20d1ab2eae57a1efe57b06e56dac46f6c9173ff985b5a6a755c78db086"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -229,6 +229,14 @@
     "src/plugins/composition.ts": {
       "source_sha256": "3252c992ce7ca633eda7da95a554e951e9471af5653734a48b35ea36712c544c",
       "sha256": "f49deea004b7f7726d00500e6cbad9da94795f1346aee5f7b7174e4b33eb9300"
+    },
+    "src/components/OverviewPage.tsx": {
+      "source_sha256": null,
+      "sha256": "45f83c2618a027f48727751d005ceec39f9a1419b4d7b7e0b68f6b5bcd7ae2bd"
+    },
+    "src/lib/format-tokens.ts": {
+      "source_sha256": null,
+      "sha256": "303d363a1d8a73884d6280f541a9f3725c099c027241e5d636fff01b1e0f0475"
     }
   }
 }
