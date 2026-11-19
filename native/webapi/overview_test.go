@@ -323,6 +323,63 @@ func TestTaskListFieldsFiltersAndPaging(t *testing.T) {
 	}
 }
 
+func TestTaskListArchived(t *testing.T) {
+	f := newGlobalFixture(t)
+	f.task("T-active", "", "进行中的演示任务", "演示", "https://active.example.test", "s-active", "2026-11-18T00:00:00Z")
+	f.task("T-archived", "", "已归档的演示任务", "演示", "https://archived.example.test", "s-archived", "2026-11-17T00:00:00Z")
+	f.exec(`UPDATE chat_sessions SET archived = 1 WHERE id = 's-archived'`)
+	// 初始会话行不存在时按未归档处理。
+	f.exec(`INSERT INTO webapi_tasks (id, known_info, objective, origins_json, initial_session_id, created_at) VALUES
+		('T-missing', '演示', '无会话行的演示任务', '["https://missing.example.test"]', 's-missing', '2026-11-16T00:00:00Z')`)
+
+	var active taskListResponse
+	f.getJSON("/api/webapi/task-list", &active)
+	if got := taskIDs(active.Items); got != "T-active,T-missing" {
+		t.Fatalf("default items = %s", got)
+	}
+	if active.Counts["all"] != 2 || active.Counts["archived"] != 1 || active.Items[0].Archived || active.Items[1].Archived {
+		t.Fatalf("default = %+v", active)
+	}
+
+	var archived taskListResponse
+	f.getJSON("/api/webapi/task-list?archived=1", &archived)
+	if got := taskIDs(archived.Items); got != "T-archived" || !archived.Items[0].Archived {
+		t.Fatalf("archived items = %+v", archived.Items)
+	}
+	if archived.Counts["all"] != 1 || archived.Counts["archived"] != 1 {
+		t.Fatalf("archived counts = %v", archived.Counts)
+	}
+	var filtered taskListResponse
+	f.getJSON("/api/webapi/task-list?archived=1&q=nothing-here", &filtered)
+	if len(filtered.Items) != 0 || filtered.Counts["all"] != 0 || filtered.Counts["archived"] != 0 {
+		t.Fatalf("archived q = %+v", filtered)
+	}
+	for _, bad := range []string{"?archived=x", "?archived=true", "?archived=2"} {
+		if status, raw := f.do("GET", "/api/webapi/task-list"+bad, ""); status != 400 || !strings.Contains(raw, "error") {
+			t.Fatalf("%s = %d %s", bad, status, raw)
+		}
+	}
+}
+
+func TestTaskListArchivedPaging(t *testing.T) {
+	f := newGlobalFixture(t)
+	f.task("T-new", "", "演示任务一", "演示", "https://one.example.test", "s-new", "2026-11-18T00:00:00Z")
+	f.task("T-mid", "", "演示任务二", "演示", "https://two.example.test", "s-mid", "2026-11-17T00:00:00Z")
+	f.task("T-old", "", "演示任务三", "演示", "https://three.example.test", "s-old", "2026-11-16T00:00:00Z")
+	f.exec(`UPDATE chat_sessions SET archived = 1 WHERE id IN ('s-new', 's-mid', 's-old')`)
+
+	var first taskListResponse
+	f.getJSON("/api/webapi/task-list?archived=1&limit=2", &first)
+	if taskIDs(first.Items) != "T-new,T-mid" || !first.HasMore || first.NextCursor == nil || first.Counts["all"] != 3 || first.Counts["archived"] != 3 {
+		t.Fatalf("first = %+v", first)
+	}
+	var second taskListResponse
+	f.getJSON("/api/webapi/task-list?archived=1&limit=2&cursor="+*first.NextCursor, &second)
+	if taskIDs(second.Items) != "T-old" || second.HasMore || second.NextCursor != nil {
+		t.Fatalf("second = %+v", second)
+	}
+}
+
 type globalVulnResponse struct {
 	Items      []GlobalVuln   `json:"items"`
 	HasMore    bool           `json:"has_more"`

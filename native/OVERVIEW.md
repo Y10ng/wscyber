@@ -4,18 +4,18 @@
 
 通用：路由在原生鉴权内（`/api/webapi`）；错误体 `{error}`；时间为 UTC RFC3339。列表参数 `limit` 1..200（默认 50，非法 400）；`q` 去首尾空白、≤200 字、不区分大小写子串；`asset_id` 规则同路径 id（非法 400，不存在则为空结果）；`cursor` 为上页 `next_cursor`（不透明，非法 400），无下一页时 `next_cursor` 为 null。
 
-## `GET /task-list?q=&status=&asset_id=&limit=&cursor=`
+## `GET /task-list?q=&status=&asset_id=&archived=&limit=&cursor=`
 
-按 `created_at` 倒序（同时间按 task_id 倒序），游标为 `created_at+task_id` 键。`q` 匹配 objective / known_info / origins。`asset_id` 只取该资产关联任务。
+按 `created_at` 倒序（同时间按 task_id 倒序），游标为 `created_at+task_id` 键。`q` 匹配 objective / known_info / origins。`asset_id` 只取该资产关联任务。`archived=0|1`（缺省 `0`，其他值 400）：初始会话（`initial_session_id`）在原生 `chat_sessions.archived=1` 即为已归档，会话行不存在视为未归档；`0` 只返回未归档，`1` 只返回已归档。
 
-项：`{task_id, title, origins[], asset:{id,name}|null, scheduled, created_at, initial_session_id, status, last_activity_at, finding_count, verification_count, supported_count, report_count, retest_count, total_tokens, policy:{scope,approval}}`
+项：`{task_id, title, origins[], asset:{id,name}|null, scheduled, created_at, initial_session_id, status, archived, last_activity_at, finding_count, verification_count, supported_count, report_count, retest_count, total_tokens, policy:{scope,approval}}`
 
 - `title` = objective 首个非空行（≤120 字，同 USAGE）。`scheduled` = 存在指向该任务的计划运行（`webapi_schedule_runs.task_id`）。`policy` 无记录时为默认 `origins/high_risk`。
 - `status`：研究会话（`initial_session_id`）持久化事件里没有任何带 turn_id 的事件 → `not_started`；否则调 C2a 的 `SessionRunning`：true → `running`，false → `idle`，出错 → `unknown`。`status=` 过滤同取值（其他值 400）。
 - `last_activity_at` = 任务全部业务会话（研究/验证/复测/报告）`chat_aop_events` 最新事件时间；无事件为 `created_at`。
 - `supported_count` = 每个候选取最新保存的验证判读（同 C3 `latest_verdict`），为 `supported` 的候选数。
 - `total_tokens` = 任务全部会话 `Event_Usage` 汇总（解析同 `USAGE.md`，损坏行跳过）。
-- 响应 `{items, has_more, next_cursor, counts:{all, running, idle, not_started, unknown}}`；counts 受 q/asset_id 影响、不受 status 影响。
+- 响应 `{items, has_more, next_cursor, counts:{all, running, idle, not_started, unknown, archived}}`；状态计数受 q/asset_id/archived 影响、不受 status 影响。`archived` 为同一 q/asset_id 下已归档任务总数（与 archived 参数无关），供前端“已归档 N”胶囊。
 
 ## `GET /vulns?status=&asset_id=&q=&limit=&cursor=`
 

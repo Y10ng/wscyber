@@ -53,6 +53,7 @@ type TaskListItem struct {
 	RetestCount       int            `json:"retest_count"`
 	TotalTokens       uint64         `json:"total_tokens"`
 	Policy            TaskListPolicy `json:"policy"`
+	Archived          bool           `json:"archived"`
 }
 
 // taskListRow 是全部任务的轻量行（过滤、状态与计数用），不含逐任务聚合。
@@ -66,10 +67,12 @@ type taskListRow struct {
 
 // taskListRows 读取全部任务（assetID 非空时只取该资产关联任务），一次 SQL + 一次计划运行集合查询。
 // hasTurn = 研究会话持久化事件里有任何带 turn_id 的事件（走 chat_aop_events(session_id, cursor) 唯一索引）。
+// archived = 初始会话原生行 archived=1；会话行不存在视为未归档。
 func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskListRow, error) {
 	query := `SELECT t.id, t.objective, t.known_info, t.origins_json, t.initial_session_id, t.created_at,
 		COALESCE(a.id, ''), COALESCE(a.name, ''), COALESCE(p.scope, ''), COALESCE(p.approval, ''),
-		EXISTS (SELECT 1 FROM chat_aop_events e WHERE e.session_id = t.initial_session_id AND e.turn_id != '')
+		EXISTS (SELECT 1 FROM chat_aop_events e WHERE e.session_id = t.initial_session_id AND e.turn_id != ''),
+		COALESCE((SELECT cs.archived = 1 FROM chat_sessions cs WHERE cs.id = t.initial_session_id), 0)
 		FROM webapi_tasks t
 		LEFT JOIN webapi_asset_tasks l ON l.task_id = t.id
 		LEFT JOIN webapi_assets a ON a.id = l.asset_id
@@ -88,7 +91,7 @@ func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskLi
 		row := &taskListRow{}
 		var originsJSON, assetRefID, assetName, scope, approval string
 		if err := rows.Scan(&row.item.TaskID, &row.objective, &row.knownInfo, &originsJSON, &row.item.InitialSessionID, &row.item.CreatedAt,
-			&assetRefID, &assetName, &scope, &approval, &row.hasTurn); err != nil {
+			&assetRefID, &assetName, &scope, &approval, &row.hasTurn, &row.item.Archived); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -423,7 +426,7 @@ func encodeKeyCursor(createdAt, id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(createdAt + "\n" + id))
 }
 
-// handleTaskList: GET /api/webapi/task-list?q=&status=&asset_id=&limit=&cursor=
+// handleTaskList: GET /api/webapi/task-list?q=&status=&asset_id=&archived=&limit=&cursor=
 func (c *Capability) handleTaskList(w http.ResponseWriter, r *http.Request) {
 	limit, needle, assetID, err := listParams(r)
 	if err != nil {
@@ -435,6 +438,15 @@ func (c *Capability) handleTaskList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "status 只能是 running、idle、not_started、unknown")
 		return
 	}
+	archived := r.URL.Query().Get("archived")
+	if archived == "" {
+		archived = "0"
+	}
+	if archived != "0" && archived != "1" {
+		writeError(w, http.StatusBadRequest, "archived 只能是 0 或 1")
+		return
+	}
+	wantArchived := archived == "1"
 	afterAt, afterID, hasCursor, err := decodeKeyCursor(r.URL.Query().Get("cursor"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -445,13 +457,19 @@ func (c *Capability) handleTaskList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取任务列表失败")
 		return
 	}
-	counts := map[string]int{"all": 0}
+	counts := map[string]int{"all": 0, "archived": 0}
 	for _, key := range taskStatusOrder {
 		counts[key] = 0
 	}
 	filtered := make([]*taskListRow, 0, len(rows))
 	for _, row := range rows {
 		if !row.matches(needle) {
+			continue
+		}
+		if row.item.Archived {
+			counts["archived"]++
+		}
+		if row.item.Archived != wantArchived {
 			continue
 		}
 		row.item.Status = c.taskRunStatus(r.Context(), row)
