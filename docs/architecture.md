@@ -55,6 +55,10 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET/PUT/POST | `/assets/{id}/vulns[?status=]`、`/assets/{id}/vulns/{vid}`、`…/vulns/{vid}/members/{finding_id}`、`…/vulns/{vid}/merge` | 资产漏洞库：各轮候选按端点键（`METHOD origin/路径`，ID 段归一为 `{id}`）归并成条目，状态 new/present/pending/unconfirmed/fixed 由验证/复测结果读时派生；标题覆盖、移动/拆分、合并为人工归并（同步不覆盖）；计划后续复测按条目去重；见 `native/ASSETS.md`「资产漏洞库」 |
 | GET | `/schedule-runs/{run_id}/followups` | 计划运行的后续明细：kind（verify/retest）、候选编号/标题、task_id、target_id、session_id、status、error、已有的 verdict/conclusion |
 | GET | `/usage?task_id=&from=&to=` | 只读 token 用量汇总（按日/模型，全局按任务、任务内按会话角色）；解 `chat_aop_events` 中 `Event_Usage`，不含费用，见 `native/USAGE.md` |
+| GET | `/task-list?q=&status=&asset_id=&limit=&cursor=` | 全局任务列表（标题、origins、资产、是否计划发起、状态 running/idle/not_started/unknown、最近活动、候选/验证/supported/报告/复测数、total_tokens、策略；counts 不受 status 过滤），见 `native/OVERVIEW.md` |
+| GET | `/vulns?status=&asset_id=&q=&limit=&cursor=` | 全局漏洞：未归档资产的 C3 条目 + 无资产任务候选（`finding:<id>`，同一状态派生），C3 排序，counts 不受 status 过滤 |
+| GET | `/report-list?q=&asset_id=&limit=&cursor=` | 全部任务的报告（任务标题、资产、草稿标题、条目数），created_at 倒序 |
+| GET | `/overview?days=7\|30\|90` | 运营总览：资产/任务/漏洞/token 汇总与按本地日补 0 的趋势、即将运行的计划与最近计划运行、最近 supported |
 
 工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 
