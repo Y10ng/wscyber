@@ -1,0 +1,182 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { timestampDate } from '@bufbuild/protobuf/wkt'
+import { Check, ChevronRight, Clock3, Loader2, ShieldAlert, X } from 'lucide-react'
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@cyber/ui'
+import type { Review } from '../cyber-proto'
+
+// B1 顶栏「待审批 N」：替换原生 GuardrailToggle（JEV 全局开关，与本平台
+// 任务策略无关、会误导）。N=0 不渲染；N>0 琥珀色。列表数据由 App 的
+// useGuardrailReviews 聚合（bySession + unavailable），本组件只做展示与
+// 批准/拒绝转发，不自行发请求。
+
+export interface PendingItem {
+  sessionId: string
+  review: Review
+  sessionName: string
+  unavailable: boolean
+}
+
+// 关键参数：HTTP 方法+URL，或命令首 120 字（与 guardrailArguments 同约定：
+// JSON 参数里找 command/cmd/script，其余键值对列出）。
+function reviewKeyParams(review: Review): { text: string; title: string } {
+  let value: unknown = ''
+  try { value = JSON.parse(new TextDecoder().decode(review.call?.arguments?.data)) } catch {
+    try { value = new TextDecoder().decode(review.call?.arguments?.data) } catch { value = '' }
+  }
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  if (record) {
+    const commandKey = ['command', 'cmd', 'script'].find((key) => typeof record[key] === 'string')
+    const command = commandKey ? record[commandKey] as string : null
+    if (command !== null) {
+      const text = command.length > 120 ? `${command.slice(0, 120)}…` : command
+      return { text, title: command }
+    }
+    if (typeof record.url === 'string') {
+      const method = typeof record.method === 'string' ? record.method.toUpperCase() : ''
+      const text = `${method ? `${method} ` : ''}${record.url}`
+      return { text, title: text }
+    }
+  }
+  if (typeof value === 'string' && value) {
+    const text = value.length > 120 ? `${value.slice(0, 120)}…` : value
+    return { text, title: value }
+  }
+  return { text: '', title: '' }
+}
+
+function useRemainingTime(expiresAt: number | undefined, active: boolean): string {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (!active || expiresAt === undefined) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [expiresAt, active])
+  return useMemo(() => {
+    if (expiresAt === undefined) return ''
+    const remaining = Math.max(0, expiresAt - now)
+    const minutes = Math.floor(remaining / 60_000)
+    const seconds = Math.floor((remaining % 60_000) / 1000)
+    return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : `${seconds}s`
+  }, [expiresAt, now])
+}
+
+function PendingReviewRow({ item, onResolve, onView, resolving }: {
+  item: PendingItem
+  onResolve: (item: PendingItem, approve: boolean) => Promise<void>
+  onView: (sessionId: string) => void
+  resolving: 'approve' | 'reject' | null
+}) {
+  const { t } = useTranslation('chat')
+  const { t: ta } = useTranslation('app')
+  const expiresAt = item.review.expiresAt ? timestampDate(item.review.expiresAt).getTime() : undefined
+  const remaining = useRemainingTime(expiresAt, resolving === null)
+  const params = reviewKeyParams(item.review)
+  const toolName = item.review.call?.name || ''
+  return (
+    <div className="min-w-0 rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+        <span className="min-w-0 max-w-full truncate font-medium text-foreground" title={item.sessionName}>{item.sessionName}</span>
+        <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">{toolName}</span>
+        {remaining && <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground"><Clock3 className="h-3 w-3" aria-hidden="true" />{t('webapi.pendingApprovalsRemaining', { time: remaining })}</span>}
+      </div>
+      {(params.text || item.review.decision?.reason) && (
+        <div className="mt-1 min-w-0 space-y-0.5">
+          {params.text && <p className="break-all font-mono text-[11px] text-foreground" title={params.title}>{params.text}</p>}
+          {item.review.decision?.reason && <p className="break-all text-[11px] text-muted-foreground" title={item.review.decision.reason}>{item.review.decision.reason}</p>}
+        </div>
+      )}
+      {item.unavailable && <p role="status" className="mt-1 text-[11px] text-warning">{ta('guardrailDisconnected')}</p>}
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="h-6 gap-1 px-2 text-[11px] text-destructive hover:text-destructive"
+          disabled={resolving !== null || item.unavailable}
+          onClick={() => { void onResolve(item, false) }}
+        >
+          {resolving === 'reject' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <X className="h-3 w-3" aria-hidden="true" />}
+          {t('webapi.pendingApprovalsReject')}
+        </Button>
+        <Button
+          type="button"
+          size="xs"
+          className="h-6 gap-1 px-2 text-[11px]"
+          disabled={resolving !== null || item.unavailable}
+          onClick={() => { void onResolve(item, true) }}
+        >
+          {resolving === 'approve' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <Check className="h-3 w-3" aria-hidden="true" />}
+          {t('webapi.pendingApprovalsApprove')}
+        </Button>
+        <button
+          type="button"
+          className="ml-auto flex shrink-0 items-center gap-0.5 rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          onClick={() => onView(item.sessionId)}
+          title={t('webapi.pendingApprovalsViewSession')}
+        >
+          {t('webapi.pendingApprovalsView')}
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface Props {
+  items: PendingItem[]
+  onResolve: (item: PendingItem, approve: boolean) => Promise<void>
+  onViewSession: (sessionId: string) => void
+}
+
+// 顶栏按钮：琥珀色「盾牌 + 待审批 N」。N=0 不渲染。Popover 列出全部待审批，
+// 每条可批准/拒绝或跳到该会话；不可用时（连接断开）显示提示、按钮禁用。
+export function PendingApprovalsButton({ items, onResolve, onViewSession }: Props) {
+  const { t } = useTranslation('chat')
+  const [open, setOpen] = useState(false)
+  const [resolving, setResolving] = useState<{ key: string; action: 'approve' | 'reject' } | null>(null)
+  const count = items.length
+  if (count === 0) return null
+
+  const resolve = async (item: PendingItem, approve: boolean) => {
+    const key = `${item.sessionId}:${item.review.operation?.operationId || ''}`
+    if (resolving) return
+    setResolving({ key, action: approve ? 'approve' : 'reject' })
+    try { await onResolve(item, approve) } finally { setResolving(null) }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="soft"
+          size="xs"
+          aria-label={t('webapi.pendingApprovalsControl', { count })}
+          data-pending-approvals={count}
+          className="h-7 gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 text-[12px] text-warning hover:bg-warning/15"
+        >
+          <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="font-medium tabular-nums text-warning">{t('webapi.pendingApprovalsLabel', { count })}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] space-y-2 p-3">
+        <p className="text-[13px] font-medium text-foreground">{t('webapi.pendingApprovalsTitle', { count })}</p>
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          {items.map((item) => {
+            const key = `${item.sessionId}:${item.review.operation?.operationId || ''}`
+            return <PendingReviewRow
+              key={key}
+              item={item}
+              onResolve={resolve}
+              onView={(sessionId) => { setOpen(false); onViewSession(sessionId) }}
+              resolving={resolving?.key === key ? resolving.action : null}
+            />
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// 会话名解析：App 传入已解析好的名称（会话标题或业务徽标），此处只做展示。

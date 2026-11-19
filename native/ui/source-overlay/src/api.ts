@@ -566,6 +566,30 @@ export interface WebApiTask {
   origins: string[]
   initial_session_id: string
   created_at: string
+  // B1 任务级测试策略；旧后端缺省 undefined 时按默认（origins + high_risk）渲染。
+  policy?: WebApiTaskPolicy
+}
+
+// scope: 'origins'（默认）| 'unrestricted'；approval: 'off' | 'high_risk'（默认）| 'all'。
+export interface WebApiTaskPolicy {
+  scope: string
+  approval: string
+  is_default: boolean
+  updated_at?: string | null
+}
+
+// 只由人经鉴权 API 设置；枚举校验在后端，保存即生效（仅影响之后的调用）。
+export async function saveWebApiPolicy(taskID: string, scope: string, approval: string): Promise<WebApiTaskPolicy> {
+  const body = await apiJSON<{ task_id: string; policy: WebApiTaskPolicy }>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/policy`,
+    'Failed to save task policy',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope, approval }),
+    },
+  )
+  return body.policy
 }
 
 export interface WebApiSaveResult {

@@ -1,5 +1,7 @@
 import type { Content, EncodedValue } from '@cyber/aop'
 import type { AOPEvent } from '@/viewer'
+import { anyUnpack, timestampDate } from '@bufbuild/protobuf/wkt'
+import { ReviewSchema, ReviewState, type Review } from '../cyber-proto'
 import { eventTime, runtimeEvents } from './jev-view'
 
 // 执行时间线（R2）纯函数层：把已加载的原生 AOP 事件派生为「模型消息 / 工具调用」
@@ -81,11 +83,45 @@ export interface ExecutionSummary {
   bizCount: number
 }
 
+// B1 审批行：待审批/已批准/已拒绝/已超时（含取消）。live pending 由 App 把
+// useGuardrailReviews 的 bySession 传入 pendingReviews，事件历史由 guardrail
+// 扩展事件（Review / Decision）归并得出；同一 operationId 以最新状态为准。
+export interface ExecutionApproval {
+  /** operationId；live 待审批可能还没有事件记录，此时 eventId 取合成键。 */
+  id: string
+  eventId: string
+  sessionId: string
+  turnId: string
+  state: 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled'
+  /** pending=true 时可批准/拒绝（App 转发 guardrails.resolve）。 */
+  actionable: boolean
+  /** 连接断开时 pending 不可操作。 */
+  unavailable: boolean
+  toolName: string
+  /** 对应的工具调用 ID（与时间线工具条目 callId 配对，用于行状态覆盖）。 */
+  callId?: string
+  /** HTTP 方法+URL 或命令首 120 字。 */
+  summary: string
+  /** 后端记录的需审批原因（decision.reason）。 */
+  reason?: string
+  /** live Review 的到期时刻（epoch ms）。 */
+  expiresAt?: number
+  /** 终态事件时间。 */
+  resolvedAt?: number
+  /** 所属轮次键（与时间线条目同口径 `${sessionId}:${turnId || 'session'}`）。 */
+  turnKey: string
+  /** 并入时间线流排序的时间戳（终态事件时间；live pending 为挂起事件时间或 0）。 */
+  timestamp: number
+}
+
 export interface ExecutionTimelineData {
   entries: ExecutionEntry[]
   turns: ExecutionTurn[]
   turnByKey: Record<string, number>
   summary: ExecutionSummary
+  approvals: ExecutionApproval[]
+  /** 仍待人工处理（pending）的审批，按时间升序；执行视图置顶渲染。 */
+  pendingApprovals: ExecutionApproval[]
 }
 
 function textOfContent(parts: readonly Content[]): string {
@@ -143,6 +179,128 @@ function urlPath(url: string): string {
 
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+// ── B1 审批行（纯函数派生）─────────────────────────────────────────────────
+// guardrail 扩展事件（Emitter=guardrail，payload=Any<Review>）带 operationId 与
+// 状态；同一 operationId 多条事件取最新状态。live pending（useGuardrailReviews）
+// 覆盖为可操作行；没有事件记录的 live pending 以合成键置顶。
+
+function decodeReview(event: AOPEvent): Review | undefined {
+  if (event.payload.case !== 'extension') return undefined
+  try { return anyUnpack(event.payload.value, ReviewSchema) } catch { return undefined }
+}
+
+function reviewStateOf(review: Review): ExecutionApproval['state'] | undefined {
+  switch (review.state) {
+    case ReviewState.PENDING: return 'pending'
+    case ReviewState.APPROVED: return 'approved'
+    case ReviewState.REJECTED: return 'rejected'
+    case ReviewState.EXPIRED: return 'expired'
+    case ReviewState.CANCELED: return 'canceled'
+    default: return undefined
+  }
+}
+
+function eventMs(event: AOPEvent): number {
+  return event.emittedAt ? timestampDate(event.emittedAt).getTime() : 0
+}
+
+// 审批摘要：与顶栏同约定 —— JSON 参数里 command/cmd/script 取命令首 120 字，
+// 否则 method+URL。
+function approvalSummary(review: Review): string {
+  let value: unknown = ''
+  try { value = JSON.parse(decoder.decode(review.call?.arguments?.data)) } catch {
+    try { value = decoder.decode(review.call?.arguments?.data) } catch { value = '' }
+  }
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  if (record) {
+    const commandKey = ['command', 'cmd', 'script'].find((key) => typeof record[key] === 'string')
+    if (commandKey) return clipCommand(record[commandKey] as string)
+    if (typeof record.url === 'string') {
+      const method = typeof record.method === 'string' ? record.method.toUpperCase() : ''
+      return `${method ? `${method} ` : ''}${record.url}`
+    }
+  }
+  if (typeof value === 'string' && value) return clipCommand(value)
+  return review.call?.name || ''
+}
+
+function clipCommand(command: string): string {
+  return command.length > 120 ? `${command.slice(0, 120)}…` : command
+}
+
+function buildApprovals(events: readonly AOPEvent[], pendingReviews: readonly Review[], connected: boolean): {
+  approvals: ExecutionApproval[]
+  pendingApprovals: ExecutionApproval[]
+} {
+  const byOperation = new Map<string, { event: AOPEvent; review: Review }>()
+  for (const event of events) {
+    const review = decodeReview(event)
+    const id = review?.operation?.operationId
+    if (!id) continue
+    const previous = byOperation.get(id)
+    // 最新状态优先；同状态取更晚事件。
+    const previousResolved = previous ? previous.review.state !== ReviewState.PENDING : true
+    const currentResolved = review.state !== ReviewState.PENDING
+    if (previous && previousResolved && !currentResolved) continue
+    if (previous && previousResolved === currentResolved && eventMs(previous.event) >= eventMs(event)) continue
+    byOperation.set(id, { event, review })
+  }
+  const approvals: ExecutionApproval[] = []
+  const liveKeys = new Set<string>()
+  for (const review of pendingReviews) {
+    const id = review.operation?.operationId
+    if (!id || review.state !== ReviewState.PENDING) continue
+    liveKeys.add(id)
+    const existing = byOperation.get(id)
+    approvals.push({
+      id,
+      eventId: existing ? `guardrail:${id}` : `pending:${id}`,
+      sessionId: review.sessionId || existing?.event.sessionId || '',
+      turnId: existing?.event.turnId || '',
+      turnKey: existing ? `${existing.event.sessionId}:${existing.event.turnId || 'session'}` : '',
+      timestamp: existing ? eventMs(existing.event) : 0,
+      state: 'pending',
+      actionable: true,
+      unavailable: !connected,
+      toolName: review.call?.name || existing?.review.call?.name || '',
+      callId: review.call?.id || review.operation?.callId || existing?.review.call?.id || undefined,
+      summary: approvalSummary(review),
+      reason: review.decision?.reason || existing?.review.decision?.reason || undefined,
+      expiresAt: review.expiresAt ? timestampDate(review.expiresAt).getTime() : undefined,
+    })
+  }
+  for (const [id, { event, review }] of byOperation) {
+    const state = reviewStateOf(review)
+    if (!state) continue
+    if (liveKeys.has(id) && state === 'pending') continue // live 行已覆盖
+    if (state === 'pending' && !liveKeys.has(id)) continue // 挂起已过期/被处理，事件未到
+    approvals.push({
+      id,
+      eventId: `guardrail:${id}`,
+      sessionId: event.sessionId,
+      turnId: event.turnId,
+      turnKey: `${event.sessionId}:${event.turnId || 'session'}`,
+      timestamp: eventMs(event),
+      state,
+      actionable: false,
+      unavailable: false,
+      toolName: review.call?.name || '',
+      callId: review.call?.id || review.operation?.callId || undefined,
+      summary: approvalSummary(review),
+      reason: review.decision?.reason || undefined,
+      resolvedAt: state === 'pending' ? undefined : eventMs(event),
+    })
+  }
+  approvals.sort((left, right) => {
+    const pendingDelta = Number(right.actionable) - Number(left.actionable)
+    if (pendingDelta !== 0) return pendingDelta
+    const a = left.resolvedAt ?? left.expiresAt ?? 0
+    const b = right.resolvedAt ?? right.expiresAt ?? 0
+    return a - b
+  })
+  return { approvals, pendingApprovals: approvals.filter((item) => item.state === 'pending') }
 }
 
 // 业务语义：按工具名识别，参数/结果是 JSON 字符串时解析；解析失败如实显示错误原文。
@@ -228,7 +386,7 @@ function usageFromProto(usage: {
 // events → 条目：单趟遍历（时间有序、按 sessionId+id/seq 去重），工具调用与结果按
 // `${sessionId}:${turnId}:tool:${callId}` 配对；消息 delta 与完整 message 按 messageId
 // 合并（完整覆盖 delta）；usage 按 turn 累计挂到该轮最后一条模型消息。
-export function buildExecutionTimeline(source: readonly AOPEvent[]): ExecutionTimelineData {
+export function buildExecutionTimeline(source: readonly AOPEvent[], pendingReviews: readonly Review[] = [], connected = true): ExecutionTimelineData {
   const events = runtimeEvents(source)
   const entries: ExecutionEntry[] = []
   const toolByKey = new Map<string, ExecutionEntry>()
@@ -374,5 +532,6 @@ export function buildExecutionTimeline(source: readonly AOPEvent[]): ExecutionTi
     turns,
     turnByKey,
     summary: { modelCount, toolCount, httpCount, bizCount },
+    ...buildApprovals(events, pendingReviews, connected),
   }
 }

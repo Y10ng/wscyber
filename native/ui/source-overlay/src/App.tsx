@@ -10,6 +10,7 @@ import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
 import WebApiTaskNav from './components/WebApiTaskNav'
 import WebApiExecutionTimeline, { ExecutionViewHeader, type ExecutionViewMode } from './components/WebApiExecutionTimeline'
 import { buildExecutionTimeline } from './lib/execution-timeline'
+import type { ExecutionApproval } from './lib/execution-timeline'
 import { WebApiVerificationBar } from './components/WebApiVerification'
 import { WebApiRetestBar } from './components/WebApiRetest'
 import WebApiReportsPanel from './components/WebApiReportsPanel'
@@ -29,7 +30,8 @@ import type { SCONode } from '@cyber/cstx-easm'
 import type { MentionPopupApi } from './viewer'
 import { useChatSession } from './hooks/useChatSession'
 import { useGuardrailReviews } from './hooks/useGuardrailReviews'
-import { GuardrailToggle } from './components/GuardrailToggle'
+import { PendingApprovalsButton, type PendingItem } from './components/WebApiPendingApprovals'
+import { cachedWebApiBadgeLabel } from './components/SessionList'
 import { usePolling } from './hooks/usePolling'
 import { isLocalModelAgent, isSessionAgentOnline } from './lib/session-agent'
 import type { IOAConsoleTarget } from './lib/ioa-navigation'
@@ -76,6 +78,26 @@ export default function App({ services }: { services: HubServices }) {
   }, [chat.agents, chat.sessions, chat.activeSessionID])
   const guardrails = useGuardrailReviews(guardrailSessions, chat.activeSessionID, chat.aopEvents)
   const pendingReviewCounts = useMemo(() => Object.fromEntries(Object.entries(guardrails.bySession).map(([id, reviews]) => [id, reviews.length])), [guardrails.bySession])
+  // 顶栏「待审批 N」：全部会话的 live pending 聚合。会话名取会话标题；demo 等
+  // 无标题会话回退到侧栏已解析的业务徽标（任务目标/验证/报告/复测），再回退短 ID。
+  const pendingApprovalItems = useMemo<PendingItem[]>(() => {
+    const items: PendingItem[] = []
+    const nameOf = (sessionId: string) => {
+      const record = chat.sessions.find((item) => item.session?.id === sessionId)
+      return record?.session?.title?.trim()
+        || cachedWebApiBadgeLabel(sessionId, tc)
+        || sessionId.slice(0, 8)
+    }
+    for (const [sessionId, reviews] of Object.entries(guardrails.bySession)) {
+      for (const review of reviews) {
+        items.push({ sessionId, review, sessionName: nameOf(sessionId), unavailable: guardrails.unavailable[sessionId] === true })
+      }
+    }
+    return items
+  }, [guardrails.bySession, guardrails.unavailable, chat.sessions, tc])
+  const resolvePendingApproval = useCallback(async (item: PendingItem, approve: boolean) => {
+    await guardrails.resolve(item.sessionId, item.review, approve)
+  }, [guardrails])
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null)
   const [llmProfiles, setLLMProfiles] = useState<LLMProviderView[]>([])
   const [activeLLMProfile, setActiveLLMProfile] = useState('')
@@ -468,9 +490,24 @@ export default function App({ services }: { services: HubServices }) {
   // 执行时间线数据：验证/报告/复测/任务会话的「执行」视图都显示（纯函数派生，不新增接口）。
   const executionSessionActive = webApiTaskActive || webApiVerificationActive || webApiReportActive || webApiRetestActive
   const executionData = useMemo(
-    () => (executionSessionActive ? buildExecutionTimeline(chat.aopEvents) : null),
-    [executionSessionActive, chat.aopEvents],
+    () => (executionSessionActive
+      ? buildExecutionTimeline(
+        chat.aopEvents,
+        Object.entries(guardrails.bySession).flatMap(([sessionId, reviews]) => reviews.map((review) => (
+          review.sessionId === sessionId ? review : { ...review, sessionId }
+        ))),
+        guardrails.unavailable[chat.activeSessionID || ''] !== true,
+      )
+      : null),
+    [executionSessionActive, chat.aopEvents, guardrails.bySession, guardrails.unavailable, chat.activeSessionID],
   )
+  // 执行视图置顶待审批卡的批准/拒绝：从 live reviews 找回原 Review 走 guardrails.resolve。
+  const resolveExecutionApproval = useCallback(async (approval: ExecutionApproval, approve: boolean) => {
+    const reviews = guardrails.bySession[approval.sessionId] || []
+    const review = reviews.find((item) => item.operation?.operationId === approval.id)
+    if (!review) throw new Error('审批已不在待处理列表，请刷新后查看最新状态。')
+    await guardrails.resolve(approval.sessionId, review, approve)
+  }, [guardrails])
 
   // 时间线「在流量中查看」：切换流量视图并定位该 evidence（模式同 focusFindingId）。
   const handleViewEvidence = useCallback((taskId: string, evidenceId: string) => {
@@ -532,7 +569,8 @@ export default function App({ services }: { services: HubServices }) {
                 <span className="hidden sm:inline">{tc('webapi.newTask')}</span>
               </Button>
             )}
-            <GuardrailToggle disabled={activeToolPanel === 'settings'} onConfigure={() => openSettings('jev')} />
+            {/* B1：原生 GuardrailToggle（JEV 全局开关）替换为本平台「待审批 N」。 */}
+            <PendingApprovalsButton items={pendingApprovalItems} onResolve={resolvePendingApproval} onViewSession={handleSelectSession} />
             <WorkbenchSlots services={services} name="shell.header.actions" />
             <QuickConnect serverURL={serverStatus?.serverUrl} version={serverStatus?.version} profiles={effectiveManifest?.profiles} />
             <HeaderIconButton label={t('logout')} onClick={() => { void logout() }}>
@@ -569,7 +607,7 @@ export default function App({ services }: { services: HubServices }) {
               </div>
             )}
             {webApiTaskActive && activeWebApiTask && (
-              <WebApiTaskBar task={activeWebApiTask} />
+              <WebApiTaskBar task={activeWebApiTask} onPolicySaved={setActiveWebApiTask} />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
               <WebApiVerificationBar verification={activeWebApiVerification} onReturnToFinding={handleReturnToFinding} />
@@ -636,6 +674,7 @@ export default function App({ services }: { services: HubServices }) {
                         data={executionData}
                         onViewEvidence={handleViewEvidence}
                         onViewFinding={handleViewFinding}
+                        onResolveApproval={resolveExecutionApproval}
                       />
                       {/* 时间线视图保留原生 composer：与控制流模式同一组件与发送路径，
                           发送后新事件追加到时间线（executionData 由会话事件驱动）。 */}

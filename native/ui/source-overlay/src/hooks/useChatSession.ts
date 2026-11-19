@@ -23,6 +23,7 @@ import {
   updateChatSession,
   type SessionFilters,
   resetChatSession,
+  saveWebApiPolicy,
   saveWebApiReport,
   saveWebApiRetest,
   saveWebApiTask,
@@ -942,12 +943,13 @@ export function useChatSession() {
     }
   }
 
-  // 保存 Web/API 任务 → 以服务端 initial_session_id 创建原生会话 → 激活 → 发送首条
-  // 信息性消息。保存是幂等 PUT（同 ID 同内容回同 task，不同内容 409 不覆盖）；失败
-  // 重试先只读核对原生会话回执，沿用原 requestID，不重复 Open、不盲发新 Run。
-  async function startWebApiTask(input: { taskID: string; knownInfo: string; objective: string; origins: string[] }): Promise<{ task: WebApiTask; sessionID: string }> {
+  // 保存 Web/API 任务 → 保存测试策略 → 以服务端 initial_session_id 创建原生会话
+  // → 激活 → 发送首条信息性消息。保存是幂等 PUT（同 ID 同内容回同 task，不同内容
+  // 409 不覆盖）；策略保存失败显示错误、不启动（任务已存，重试同 ID 幂等回放）。
+  // 失败重试先只读核对原生会话回执，沿用原 requestID，不重复 Open、不盲发新 Run。
+  async function startWebApiTask(input: { taskID: string; knownInfo: string; objective: string; origins: string[]; policy?: { scope: string; approval: string } }): Promise<{ task: WebApiTask; sessionID: string }> {
     const saved = await saveWebApiTask(input.taskID, input.knownInfo, input.objective, input.origins)
-    const task = saved.task
+    const task = input.policy ? { ...saved.task, policy: await saveWebApiPolicy(input.taskID, input.policy.scope, input.policy.approval) } : saved.task
     const sessionID = task.initial_session_id
 
     // 只选已明确提供 webapi_http 工具的就绪节点；普通远端节点不视为可用 HTTP 研究节点。

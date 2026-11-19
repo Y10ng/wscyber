@@ -52,6 +52,12 @@ const WEB_API_BADGE_NULL_TTL_MS = 30_000
 
 // 渲染期组装徽标文案（语言随当前界面）。zh：任务 / 验证 · / 报告 · / 复测 ·；
 // en：Verification · / Report · / Retest ·。编号与标题保留空格分隔。
+// 供顶栏「待审批」等外部组件复用已解析的业务标题缓存（渲染期用当前语言组装）。
+export function cachedWebApiBadgeLabel(sessionID: string, t: (key: string) => string): string | null {
+  const badge = webApiBadgeCache.get(sessionID)
+  return badge ? badgeLabel(badge, t) : null
+}
+
 function badgeLabel(badge: WebApiSessionBadge, t: (key: string) => string): string {
   const body = [badge.number, badge.title].filter(Boolean).join(' ')
   if (badge.kind === 'task') return body || badge.title
@@ -463,7 +469,7 @@ function SessionItem({
             : closed ? <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" role="status" aria-label={t('closedTask')} title={t('closedTask')} />
               : <MessageSquare className="h-2.5 w-2.5 shrink-0" />}
           <span className="truncate text-[11px] font-medium" title={badge ? badgeText : undefined}>{badge ? badgeText : title}</span>
-          {pendingReviews > 0 && <span className="ml-auto inline-flex items-center gap-0.5 text-warning" title={t('pendingReviews', { count: pendingReviews })}><ShieldAlert className="h-3 w-3" /><span className="text-[9px] tabular-nums">{pendingReviews}</span></span>}
+          {pendingReviews > 0 && <span className="ml-auto inline-flex items-center gap-0.5 text-warning" title={t('pendingApprovals', { count: pendingReviews })} data-pending-reviews={pendingReviews}><ShieldAlert className="h-3 w-3" /><span className="text-[9px] tabular-nums">{pendingReviews}</span></span>}
         </div>
         <div className="mt-0.5 text-[9px] text-muted-foreground">{time}</div>
       </button>

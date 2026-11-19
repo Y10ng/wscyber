@@ -9,7 +9,10 @@ import {
   ListChecks,
   Loader2,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
+  ShieldX,
+  ShieldOff,
   Sparkles,
   Wrench,
   type LucideIcon,
@@ -18,6 +21,7 @@ import { cn } from '@cyber/theme'
 import { Button } from '@cyber/ui'
 import { MarkdownContent } from '@/markdown'
 import type {
+  ExecutionApproval,
   ExecutionBiz,
   ExecutionEntry,
   ExecutionSummary,
@@ -41,6 +45,8 @@ interface TimelineProps {
   data: ExecutionTimelineData
   onViewEvidence: (taskId: string, evidenceId: string) => void
   onViewFinding: (findingId: string) => void
+  /** 本任务各会话待审批审批行（App 由 useGuardrailReviews 聚合传入）。 */
+  onResolveApproval: (approval: ExecutionApproval, approve: boolean) => Promise<void>
 }
 
 interface HeaderProps {
@@ -86,15 +92,6 @@ function httpStatusTone(code: number): string {
   return 'text-red-600 dark:text-red-400'
 }
 
-const HTTP_STATUS_LABEL_KEYS: Record<string, string> = {
-  claimed: 'webapi.status_claimed',
-  completed: 'webapi.status_completed',
-  denied: 'webapi.status_denied',
-  review_required: 'webapi.status_review_required',
-  unknown: 'webapi.status_unknown',
-  capture_failed: 'webapi.status_capture_failed',
-}
-
 const VERDICT_LABEL_KEYS: Record<string, string> = {
   supported: 'webapi.verdict_supported',
   counterevidence: 'webapi.verdict_counterevidence',
@@ -105,6 +102,50 @@ const RETEST_LABEL_KEYS: Record<string, string> = {
   reproducible: 'webapi.retestReproducible',
   fixed_in_scope: 'webapi.retestFixedInScope',
   inconclusive: 'webapi.retestInconclusive',
+}
+
+// 流量视图未发送原因：审批拒绝/超时的记录在状态列显示「审批拒绝」「审批超时」。
+const HTTP_STATUS_LABEL_KEYS: Record<string, string> = {
+  claimed: 'webapi.status_claimed',
+  completed: 'webapi.status_completed',
+  denied: 'webapi.status_denied',
+  review_required: 'webapi.status_review_required',
+  review_denied: 'webapi.status_review_denied',
+  review_expired: 'webapi.status_review_expired',
+  review_canceled: 'webapi.status_review_canceled',
+  unknown: 'webapi.status_unknown',
+  capture_failed: 'webapi.status_capture_failed',
+}
+
+// HTTP 摘要里的审批终态着色：拒绝红、超时/取消橙、待审琥珀。
+function reviewStatusTone(status: string): string | null {
+  if (status === 'review_denied') return 'text-red-600 dark:text-red-400'
+  if (status === 'review_expired' || status === 'review_canceled') return 'text-orange-600 dark:text-orange-400'
+  if (status === 'review_required') return 'text-amber-600 dark:text-amber-400'
+  return null
+}
+
+// 执行视图审批行（待审批/已批准/已拒绝/已超时/已取消）。
+const APPROVAL_STATE_KEYS: Record<ExecutionApproval['state'], string> = {
+  pending: 'webapi.execApprovalPending',
+  approved: 'webapi.execApprovalApproved',
+  rejected: 'webapi.execApprovalRejected',
+  expired: 'webapi.execApprovalExpired',
+  canceled: 'webapi.execApprovalCanceled',
+}
+
+function approvalIcon(state: ExecutionApproval['state']): LucideIcon {
+  if (state === 'pending') return ShieldAlert
+  if (state === 'approved') return ShieldCheck
+  if (state === 'rejected') return ShieldX
+  return ShieldOff
+}
+
+function approvalTone(state: ExecutionApproval['state']): string {
+  if (state === 'pending') return 'text-warning'
+  if (state === 'approved') return 'text-emerald-600 dark:text-emerald-400'
+  if (state === 'rejected') return 'text-red-600 dark:text-red-400'
+  return 'text-orange-600 dark:text-orange-400'
 }
 
 function entryIcon(entry: ExecutionEntry): LucideIcon {
@@ -156,33 +197,51 @@ function entrySummary(entry: ExecutionEntry, t: TFunction<'chat'>): string {
   return `${entry.toolName || '?'} ${args.slice(0, 80)}`.trimEnd()
 }
 
+// 审批终态（拒绝/超时/取消）：请求未发送，状态文字优先于工具错误/捕获失败。
+// 与流量视图的映射一致（review_denied → 审批拒绝 …），并标注「未发送」。
+const TERMINAL_REVIEW_STATUSES = ['review_denied', 'review_expired', 'review_canceled'] as const
+
+function terminalReviewPart(http: { status: string; sent?: boolean | null }, t: TFunction<'chat'>): { text: string; tone: string } | null {
+  if (!(TERMINAL_REVIEW_STATUSES as readonly string[]).includes(http.status)) return null
+  const key = HTTP_STATUS_LABEL_KEYS[http.status]
+  if (!key) return null
+  return { text: `→ ${t(key)} · ${t('webapi.notSent')}`, tone: reviewStatusTone(http.status) || 'text-red-600 dark:text-red-400' }
+}
+
 // HTTP 摘要里的结果段：`→ 200`；completed 无响应码 → 无响应；其他业务状态 → 本地化标签。
 function httpResultPart(entry: ExecutionEntry, t: TFunction<'chat'>): { text: string; tone: string } | null {
   const http = entry.biz?.kind === 'http' ? entry.biz.http : undefined
   if (!http) return null
   if (entry.pending) return { text: '…', tone: 'text-muted-foreground' }
+  // 审批拒绝/超时/取消的请求按未发送展示，不能被“捕获失败”（工具错误）覆盖。
+  const review = terminalReviewPart(http, t)
+  if (review) return review
   if (entry.error) return { text: t('webapi.status_capture_failed'), tone: 'text-red-600 dark:text-red-400' }
   if (http.httpStatus != null) return { text: `→ ${http.httpStatus}`, tone: httpStatusTone(http.httpStatus) }
   if (http.status === 'completed') return { text: t('webapi.noResponse'), tone: 'text-orange-600 dark:text-orange-400' }
   const key = HTTP_STATUS_LABEL_KEYS[http.status]
   const label = key ? t(key) : t('webapi.status_unknown')
-  return { text: `→ ${label}`, tone: http.status === 'denied' || http.status === 'capture_failed' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground' }
+  const reviewTone = reviewStatusTone(http.status)
+  return { text: `→ ${label}`, tone: reviewTone || (http.status === 'denied' || http.status === 'capture_failed' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground') }
 }
 
 // 状态列：进行中 / 完成 / 错误（HTTP 行的状态码由 httpPart 在摘要尾渲染，避免重复）。
 function entryStatus(entry: ExecutionEntry, t: TFunction<'chat'>): { text: string; tone: string; pending: boolean } {
   if (entry.type === 'model') return { text: '', tone: '', pending: false }
   if (entry.pending) return { text: t('webapi.execRunning'), tone: 'text-muted-foreground', pending: true }
-  if (entry.error) return { text: t('webapi.execFailed'), tone: 'text-red-600 dark:text-red-400', pending: false }
   const http = entry.biz?.kind === 'http' ? entry.biz.http : undefined
+  const review = http ? terminalReviewPart(http, t) : null
+  if (review) return { text: review.text.replace(/^→ /, ''), tone: review.tone, pending: false }
+  if (entry.error) return { text: t('webapi.execFailed'), tone: 'text-red-600 dark:text-red-400', pending: false }
   if (http) {
     if (http.httpStatus != null) return { text: String(http.httpStatus), tone: httpStatusTone(http.httpStatus), pending: false }
     if (http.status === 'completed') return { text: t('webapi.noResponse'), tone: 'text-orange-600 dark:text-orange-400', pending: false }
     const key = HTTP_STATUS_LABEL_KEYS[http.status]
     if (key) {
-      const tone = http.status === 'denied' || http.status === 'capture_failed'
+      const reviewTone = reviewStatusTone(http.status)
+      const tone = reviewTone || (http.status === 'denied' || http.status === 'capture_failed'
         ? 'text-red-600 dark:text-red-400'
-        : http.status === 'claimed' ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'
+        : http.status === 'claimed' ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400')
       return { text: t(key), tone, pending: false }
     }
   }
@@ -443,17 +502,107 @@ function EntryDetail({ entry, onViewEvidence, onViewFinding }: {
   )
 }
 
+// ── 审批行：置顶待审批卡（可批准/拒绝）+ 时间线内审批事件行 ────────────────
+
+function ApprovalRemaining({ expiresAt }: { expiresAt: number }) {
+  const { t } = useTranslation('chat')
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const remaining = Math.max(0, expiresAt - now)
+  const minutes = Math.floor(remaining / 60_000)
+  const seconds = Math.floor((remaining % 60_000) / 1000)
+  return <span className="shrink-0 font-mono tabular-nums text-muted-foreground">{t('webapi.execApprovalRemaining', { time: minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : `${seconds}s` })}</span>
+}
+
+// 置顶待审批卡：live pending 行（actionable），直接批准/拒绝。
+function PendingApprovalCard({ approval, onResolve, busy }: {
+  approval: ExecutionApproval
+  onResolve: (approval: ExecutionApproval, approve: boolean) => Promise<void>
+  busy: 'approve' | 'reject' | null
+}) {
+  const { t } = useTranslation('chat')
+  const [error, setError] = useState('')
+  const submitting = useRef(false)
+  const resolve = async (approve: boolean) => {
+    if (submitting.current) return
+    submitting.current = true
+    setError('')
+    try { await onResolve(approval, approve) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { submitting.current = false }
+  }
+  return (
+    <div data-approval-id={approval.id} data-approval-state="pending" className="shrink-0 border-b border-warning/30 bg-warning/5 px-3 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+        <span className="shrink-0 font-medium text-warning">{t('webapi.execApprovalPendingCard')}</span>
+        <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{approval.toolName}</span>
+        {approval.expiresAt !== undefined && <ApprovalRemaining expiresAt={approval.expiresAt} />}
+      </div>
+      <p className="mt-1 break-all font-mono text-[12px] text-foreground" title={approval.summary}>{approval.summary}</p>
+      {approval.reason && <p className="mt-1 break-all text-[11px] text-muted-foreground" title={approval.reason}>{approval.reason}</p>}
+      {approval.unavailable && <p role="status" className="mt-1 text-[11px] text-warning">{t('webapi.execApprovalUnavailable')}</p>}
+      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
+      <div className="mt-1.5 flex items-center gap-2">
+        <Button type="button" size="xs" variant="outline" className="h-6 gap-1 px-2 text-[11px] text-destructive hover:text-destructive" disabled={busy !== null || approval.unavailable} onClick={() => { void resolve(false) }}>
+          {busy === 'reject' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <ShieldX className="h-3 w-3" aria-hidden="true" />}
+          {t('webapi.execApprovalReject')}
+        </Button>
+        <Button type="button" size="xs" className="h-6 gap-1 px-2 text-[11px]" disabled={busy !== null || approval.unavailable} onClick={() => { void resolve(true) }}>
+          {busy === 'approve' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <ShieldCheck className="h-3 w-3" aria-hidden="true" />}
+          {t('webapi.execApprovalApprove')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// 时间线内审批事件行：与其它行同一栅格（时间列 → 耗时列 → 图标列 → 左对齐
+// 内容 → 右侧状态列）。状态文字带颜色，工具名小标签，参数单行截断。
+function ApprovalRow({ approval }: { approval: ExecutionApproval }) {
+  const { t } = useTranslation('chat')
+  const Icon = approvalIcon(approval.state)
+  const time = approval.resolvedAt ?? approval.timestamp
+  return (
+    <div
+      data-approval-id={approval.id}
+      data-approval-state={approval.state}
+      className="webapi-exec-row h-[34px] w-full items-center gap-2 px-3 text-left"
+    >
+      <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{time ? clockOf(time) : ''}</span>
+      <span className="webapi-exec-dur-col text-right font-mono text-[12px] tabular-nums text-muted-foreground" />
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="min-w-0 truncate text-[13px] text-foreground">
+        <span className={cn('font-medium', approvalTone(approval.state))}>{t(APPROVAL_STATE_KEYS[approval.state])}</span>
+        {approval.toolName && <span className="ml-1.5 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">{approval.toolName}</span>}
+        {approval.summary && <span className="ml-1.5 font-mono text-muted-foreground" title={approval.summary}>{approval.summary}</span>}
+      </span>
+      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[12px]" />
+    </div>
+  )
+}
+
 // ── 主组件：三栏 / 堆叠 ────────────────────────────────────────────────────
 
-export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFinding }: TimelineProps) {
+export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFinding, onResolveApproval }: TimelineProps) {
   const { t } = useTranslation('chat')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [newCount, setNewCount] = useState(0)
+  const [approvalBusy, setApprovalBusy] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
   const prevCountRef = useRef(data.entries.length)
   const turnRefs = useRef(new Map<string, HTMLDivElement>())
+
+  // 待审批解析：每条 live pending 找回 useGuardrailReviews 的原 Review 对象，
+  // 批准/拒绝经 App 的 guardrails.resolve 走（不在本组件另造请求路径）。
+  const resolveApproval = useCallback(async (approval: ExecutionApproval, approve: boolean) => {
+    if (approvalBusy) return
+    setApprovalBusy({ id: approval.id, action: approve ? 'approve' : 'reject' })
+    try { await onResolveApproval(approval, approve) } finally { setApprovalBusy(null) }
+  }, [approvalBusy, onResolveApproval])
 
   // 新事件追加：用户在底部 → 自动跟随滚底；上滚阅读 → 计数并浮出按钮。
   useEffect(() => {
@@ -498,31 +647,69 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
     [data.entries, filter],
   )
 
-  // 行序列：按 turnKey 变化插入轮次头；轮头时间取该轮首条可见条目时间，
-  // 工具计数为该轮当前筛选下的工具条目数。
+  // 行序列：工具/模型条目与已终态的审批事件按时间合并（审批行属于其事件所在
+  // 轮次，随该轮排序，不再固定显示在时间线最上方）；按 turnKey 变化插入轮次头。
+  // 轮头时间取该轮首条可见行时间；工具计数只算工具条目（审批行不计）。
   const rows = useMemo(() => {
-    const out: Array<{ kind: 'turn'; turn: ExecutionTurn; timestamp: number; toolCount: number } | { kind: 'entry'; entry: ExecutionEntry }> = []
-    const toolCountByTurn = new Map<string, number>()
-    for (const entry of visible) {
-      if (entry.type === 'tool') toolCountByTurn.set(entry.turnKey, (toolCountByTurn.get(entry.turnKey) || 0) + 1)
+    type RowItem =
+      | { kind: 'turn'; key: string; timestamp: number; toolCount: number }
+      | { kind: 'entry'; entry: ExecutionEntry }
+      | { kind: 'approval'; approval: ExecutionApproval }
+    const items: Array<{ kind: 'entry'; entry: ExecutionEntry } | { kind: 'approval'; approval: ExecutionApproval }>
+      = visible.map((entry) => ({ kind: 'entry' as const, entry }))
+    if (filter === 'all' || filter === 'tool') {
+      for (const approval of data.approvals) {
+        if (approval.state !== 'pending') items.push({ kind: 'approval' as const, approval })
+      }
     }
+    const timestampOf = (item: (typeof items)[number]) => item.kind === 'entry' ? item.entry.timestamp : item.approval.timestamp
+    const turnKeyOf = (item: (typeof items)[number]) => item.kind === 'entry' ? item.entry.turnKey : item.approval.turnKey
+    items.sort((left, right) => timestampOf(left) - timestampOf(right))
+    const toolCountByTurn = new Map<string, number>()
+    for (const item of items) {
+      if (item.kind === 'entry' && item.entry.type === 'tool') {
+        toolCountByTurn.set(item.entry.turnKey, (toolCountByTurn.get(item.entry.turnKey) || 0) + 1)
+      }
+    }
+    const out: RowItem[] = []
     let lastTurn = ''
-    for (const entry of visible) {
-      if (entry.turnKey !== lastTurn) {
-        lastTurn = entry.turnKey
+    for (const item of items) {
+      const turnKey = turnKeyOf(item)
+      if (turnKey !== lastTurn) {
+        lastTurn = turnKey
         out.push({
           kind: 'turn',
-          turn: { key: entry.turnKey, index: data.turnByKey[entry.turnKey] || 0, timestamp: entry.timestamp },
-          timestamp: entry.timestamp,
-          toolCount: toolCountByTurn.get(entry.turnKey) || 0,
+          key: turnKey,
+          timestamp: timestampOf(item),
+          toolCount: toolCountByTurn.get(turnKey) || 0,
         })
       }
-      out.push({ kind: 'entry', entry })
+      out.push(item)
     }
     return out
-  }, [visible, data.turnByKey])
+  }, [visible, data.approvals, data.turnByKey, filter])
 
   const selected = useMemo(() => data.entries.find((entry) => entry.id === selectedId) || null, [data.entries, selectedId])
+
+  // 工具调用 → 审批终态：被拒绝/超时/取消的调用行按“审批结果 · 未发送”展示，
+  // 优先于工具错误（被拒调用不会执行，结果为 deny 错误而非捕获失败）。
+  // 状态文字与流量视图同词（审批拒绝/审批超时/审批取消）。
+  const REVIEW_OUTCOME_KEYS: Record<string, string> = {
+    rejected: 'webapi.status_review_denied',
+    expired: 'webapi.status_review_expired',
+    canceled: 'webapi.status_review_canceled',
+  }
+  const terminalApprovalByCall = useMemo(() => {
+    const map = new Map<string, ExecutionApproval>()
+    for (const approval of data.approvals) {
+      if (approval.callId && approval.state !== 'pending') map.set(approval.callId, approval)
+    }
+    return map
+  }, [data.approvals])
+
+  function approvalOutcomePart(approval: ExecutionApproval, t: TFunction<'chat'>): { text: string; tone: string } {
+    return { text: t(REVIEW_OUTCOME_KEYS[approval.state] || APPROVAL_STATE_KEYS[approval.state]), tone: approvalTone(approval.state) }
+  }
 
   const scrollToTurn = useCallback((turnKey: string) => {
     turnRefs.current.get(turnKey)?.scrollIntoView({ block: 'start' })
@@ -542,23 +729,33 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
     if (item.kind === 'turn') {
       return (
         <div
-          key={`turn:${item.turn.key}`}
-          ref={(el) => { if (el) turnRefs.current.set(item.turn.key, el); else turnRefs.current.delete(item.turn.key) }}
+          key={`turn:${item.key}`}
+          ref={(el) => { if (el) turnRefs.current.set(item.key, el); else turnRefs.current.delete(item.key) }}
           className="flex h-7 items-center gap-2 border-b border-border/40 bg-muted/40 px-3 text-[11px] text-muted-foreground"
         >
-          <span className="font-medium text-foreground">{t('webapi.execTurn', { index: item.turn.index })}</span>
+          <span className="font-medium text-foreground">{t('webapi.execTurn', { index: data.turnByKey[item.key] || 0 })}</span>
           <span className="font-mono tabular-nums">{clockOf(item.timestamp)}</span>
           <span aria-hidden>·</span>
           <span className="font-mono tabular-nums">{t('webapi.execTurnTools', { count: item.toolCount })}</span>
         </div>
       )
     }
+    if (item.kind === 'approval') {
+      return <ApprovalRow key={`approval:${item.approval.eventId}`} approval={item.approval} />
+    }
     const entry = item.entry
     const icon = entryIcon(entry)
     const Icon = icon
-    const status = entryStatus(entry, t)
+    const approvalOutcome = entry.callId ? terminalApprovalByCall.get(entry.callId) : undefined
+    const status = approvalOutcome && entry.biz?.kind === 'http'
+      ? { ...approvalOutcomePart(approvalOutcome, t), pending: false }
+      : entryStatus(entry, t)
     const selectedEntry = selectedId === entry.id
-    const httpPart = entry.biz?.kind === 'http' ? httpResultPart(entry, t) : null
+    const httpPart = entry.biz?.kind === 'http'
+      ? (approvalOutcome
+        ? { ...approvalOutcomePart(approvalOutcome, t), text: `${approvalOutcomePart(approvalOutcome, t).text} · ${t('webapi.notSent')}` }
+        : httpResultPart(entry, t))
+      : null
     const summary = entrySummary(entry, t)
     return (
       <div key={entry.id}>
@@ -590,7 +787,8 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
             {entry.biz?.kind === 'http' && entry.biz.http?.captureTruncated && (
               <span className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">{t('webapi.execTruncated')}</span>
             )}
-            {entry.biz?.kind === 'http' && entry.biz.http?.sent === false && (
+            {/* 审批拒绝/超时/取消的 httpPart 已含「未发送」，不再重复渲染未发送徽标。 */}
+            {entry.biz?.kind === 'http' && entry.biz.http?.sent === false && !approvalOutcome && (
               <span className="shrink-0 text-[11px] text-muted-foreground">{t('webapi.notSent')}</span>
             )}
             {status.pending && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />}
@@ -611,6 +809,19 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
 
   return (
     <div className="webapi-exec flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* 置顶待审批卡：本任务各会话的 live pending，可直接批准/拒绝。 */}
+      {data.pendingApprovals.length > 0 && (
+        <div className="flex shrink-0 flex-col">
+          {data.pendingApprovals.map((approval) => (
+            <PendingApprovalCard
+              key={approval.eventId}
+              approval={approval}
+              onResolve={resolveApproval}
+              busy={approvalBusy?.id === approval.id ? approvalBusy.action : null}
+            />
+          ))}
+        </div>
+      )}
       {/* 窄屏：筛选收为上方一行分段（宽屏由容器查询隐藏）。 */}
       <div className="webapi-exec-filters-top flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2 py-1" role="group" aria-label={t('webapi.execution')}>
         <FilterButtons filter={filter} onFilter={setFilter} data={data} layout="top" />

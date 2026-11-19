@@ -81,6 +81,9 @@ const STATUS_LABEL_KEYS: Record<string, string> = {
   completed: 'webapi.status_completed',
   denied: 'webapi.status_denied',
   review_required: 'webapi.status_review_required',
+  review_denied: 'webapi.status_review_denied',
+  review_expired: 'webapi.status_review_expired',
+  review_canceled: 'webapi.status_review_canceled',
   unknown: 'webapi.status_unknown',
   capture_failed: 'webapi.status_capture_failed',
 }
@@ -91,8 +94,9 @@ function statusLabel(t: (key: string) => string, status: string): string {
 
 function statusTone(status: string): string {
   if (status === 'completed') return 'text-emerald-600 dark:text-emerald-400'
-  if (status === 'denied' || status === 'capture_failed') return 'text-red-600 dark:text-red-400'
+  if (status === 'denied' || status === 'capture_failed' || status === 'review_denied') return 'text-red-600 dark:text-red-400'
   if (status === 'review_required') return 'text-amber-600 dark:text-amber-400'
+  if (status === 'review_expired' || status === 'review_canceled') return 'text-orange-600 dark:text-orange-400'
   if (status === 'unknown') return 'text-orange-600 dark:text-orange-400'
   if (status === 'claimed') return 'text-blue-600 dark:text-blue-400'
   return 'text-muted-foreground'
