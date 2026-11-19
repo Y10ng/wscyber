@@ -664,6 +664,7 @@ function DraftItemBody({ taskID, draftItem, item, origins }: { taskID: string; d
                   onToggle={() => toggleEvidence(evidenceId)}
                   registerEvidenceRef={() => {}}
                   origins={origins}
+                  taskId={taskID}
                 />
               )
             })}

@@ -373,6 +373,7 @@ function RetestDetailBody({
                     onToggle={() => toggleEvidence(item.evidence_id)}
                     registerEvidenceRef={registerEvidenceRef}
                     origins={task.origins}
+                taskId={task.id}
                   />
                 ))}
               </ol>

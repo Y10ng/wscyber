@@ -1571,3 +1571,15 @@ export async function listWebApiEgress(taskId: string, limit = 100, cursor?: str
 export async function getWebApiEgress(taskId: string, flowId: string): Promise<WebApiEgressDetail> {
   return apiJSON<WebApiEgressDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/egress/${encodeURIComponent(flowId)}`, 'Failed to load egress record')
 }
+
+// 证据图片：后端按已保存的 Flow 原件确定性渲染 PNG。返回同源相对路径，
+// 浏览器以 Cookie 鉴权，可直接用于 <img src> 与下载链接。mask 默认开启。
+export function webApiEvidenceImageURL(taskId: string, evidenceId: string, opts?: { mask?: boolean }): string {
+  const mask = opts?.mask === false ? '0' : '1'
+  return `/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/image.png?mask=${mask}`
+}
+
+export function webApiEgressImageURL(taskId: string, flowId: string, opts?: { mask?: boolean }): string {
+  const mask = opts?.mask === false ? '0' : '1'
+  return `/api/webapi/tasks/${encodeURIComponent(taskId)}/egress/${encodeURIComponent(flowId)}/image.png?mask=${mask}`
+}

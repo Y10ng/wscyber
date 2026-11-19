@@ -708,6 +708,7 @@ function FindingAside({
                 onToggle={() => onToggleEvidence(item.evidence_id)}
                 registerEvidenceRef={registerEvidenceRef}
                 origins={task.origins}
+                taskId={task.id}
               />
             ))}
           </ol>

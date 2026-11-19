@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Loader2, RefreshCw, Search } from 'lucide-react'
+import { Image as ImageIcon, Info, Loader2, RefreshCw, Search } from 'lucide-react'
 import { fromBinary } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, HttpViewPanels, type TrafficHttpView } from '@cyber/traffic'
@@ -12,12 +12,15 @@ import {
   getWebApiEvidence,
   listWebApiEgress,
   listWebApiEvidence,
+  webApiEgressImageURL,
+  webApiEvidenceImageURL,
   type WebApiEgressDetail,
   type WebApiEgressItem,
   type WebApiEvidence,
   type WebApiEvidenceDetail,
   type WebApiTask,
 } from '../api'
+import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 
 interface Props {
   task: WebApiTask
@@ -196,6 +199,8 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   const [egressFlow, setEgressFlow] = useState<TrafficFlow | null>(null)
   const [egressDetailLoading, setEgressDetailLoading] = useState(false)
   const [egressDetailError, setEgressDetailError] = useState('')
+  // 证据图片预览：两个来源共用一个 Dialog，打开时固定 URL 与下载文件名。
+  const [imageDialog, setImageDialog] = useState<{ url: string; filename: string } | null>(null)
   const listSeq = useRef(0)
   const egressListSeq = useRef(0)
   const detailSeq = useRef(0)
@@ -790,6 +795,19 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                       {t('webapi.downloadResponseBody')}
                     </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="gap-1 text-muted-foreground"
+                    onClick={() => {
+                      const id = detail?.metadata.evidence_id || selectedId
+                      if (id) setImageDialog({ url: webApiEvidenceImageURL(task.id, id), filename: `evidence-${id}.png` })
+                    }}
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    {t('webapi.evidenceImage')}
+                  </Button>
                   <Button type="button" variant="ghost" size="xs" onClick={copy} className="gap-1 text-muted-foreground">
                     {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
                   </Button>
@@ -846,6 +864,19 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                       {t('webapi.downloadResponseBody')}
                     </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="gap-1 text-muted-foreground"
+                    onClick={() => {
+                      const id = egressDetail?.summary.id || egressSelectedId
+                      if (id) setImageDialog({ url: webApiEgressImageURL(task.id, id), filename: `egress-${id}.png` })
+                    }}
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    {t('webapi.evidenceImage')}
+                  </Button>
                   <Button type="button" variant="ghost" size="xs" onClick={copyEgress} className="gap-1 text-muted-foreground">
                     {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
                   </Button>
@@ -870,6 +901,12 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
           </div>
         </Panel>
       </PanelGroup>
+      <WebApiEvidenceImageDialog
+        open={imageDialog !== null}
+        onClose={() => setImageDialog(null)}
+        url={imageDialog?.url ?? ''}
+        filename={imageDialog?.filename ?? ''}
+      />
     </div>
   )
 }

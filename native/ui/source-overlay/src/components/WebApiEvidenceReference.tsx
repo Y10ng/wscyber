@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { fromBinary } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, HttpViewPanels, type TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
-import type { WebApiEvidenceDetail, WebApiFindingEvidenceSnapshot } from '../api'
+import { Button } from '@cyber/ui'
+import { webApiEvidenceImageURL, type WebApiEvidenceDetail, type WebApiFindingEvidenceSnapshot } from '../api'
+import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 
 // 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给原生 HttpViewPanels
 // 渲染；与 WebApiEvidencePanel 同一解码路径，不把替换字符当原件、不重放。
@@ -82,6 +85,7 @@ export function EvidenceReference({
   onToggle,
   registerEvidenceRef,
   origins,
+  taskId,
 }: {
   index: number
   item: WebApiFindingEvidenceSnapshot
@@ -93,8 +97,11 @@ export function EvidenceReference({
   onToggle: () => void
   registerEvidenceRef: (evidenceId: string, el: HTMLButtonElement | null) => void
   origins?: string[]
+  /** 任务 id：缺失时不显示“图片”入口（证据图片接口按任务鉴权）。 */
+  taskId?: string
 }) {
   const { t } = useTranslation('chat')
+  const [imageOpen, setImageOpen] = useState(false)
   const inScopePath = origins && origins.length > 0 ? sameOriginPath(item.url, origins) : null
   return (
     <li className="rounded-md border border-border/60">
@@ -130,6 +137,18 @@ export function EvidenceReference({
                 {detail?.metadata.reason ? <span className="min-w-0 truncate text-muted-foreground" title={detail.metadata.reason}>{detail.metadata.reason}</span> : null}
                 {detail?.capture.capture_truncated && <span className="text-warning">{t('webapi.captureTruncated')}</span>}
                 <span className="text-muted-foreground">{t('webapi.reconstructionNote')}</span>
+                {taskId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="ml-auto gap-1 text-muted-foreground"
+                    onClick={() => setImageOpen(true)}
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    {t('webapi.evidenceImage')}
+                  </Button>
+                ) : null}
               </div>
               <div className="h-72 min-h-0">
                 <HttpViewPanels
@@ -149,6 +168,14 @@ export function EvidenceReference({
           ) : null}
         </div>
       )}
+      {taskId ? (
+        <WebApiEvidenceImageDialog
+          open={imageOpen}
+          onClose={() => setImageOpen(false)}
+          url={webApiEvidenceImageURL(taskId, item.evidence_id)}
+          filename={`evidence-${item.evidence_id}.png`}
+        />
+      ) : null}
     </li>
   )
 }
