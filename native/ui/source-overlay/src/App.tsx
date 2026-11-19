@@ -877,30 +877,26 @@ export default function App({ services }: { services: HubServices }) {
                 )
               )}
               {page === 'models' && (
-                <>
-                  <Page>
-                    <PageHeader title={tc('shell.modelsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
-                  </Page>
-                  {/* 模型配置没有独立的页面级组件（原设置面板是 Dialog），按任务要求以同一
-                      组件页面形式打开；关闭即回任务页。 */}
+                <Page>
+                  <PageHeader title={tc('shell.modelsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  {/* 设置面板以页面模式内嵌：同一份内容 JSX，不渲染 Dialog/遮罩。 */}
                   <ConfigPanel
+                    variant="page"
                     open
                     status={serverStatus}
                     capabilities={capabilityIDs}
                     initialSection="llm"
-                    onClose={() => navigate('tasks')}
+                    onClose={() => {}}
                     onSaved={() => { void refreshStatus() }}
                   />
-                </>
+                </Page>
               )}
               {page === 'nodes' && (
-                <>
-                  <Page>
-                    <PageHeader title={tc('shell.nodesTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
-                  </Page>
-                  {/* Agent 控制台同样以抽屉组件呈现；以页面形式打开同一组件。 */}
-                  <AgentPanel open agents={chat.agents} onClose={() => navigate('tasks')} />
-                </>
+                <Page className="flex flex-col" contentClassName="flex min-h-0 flex-1 flex-col space-y-3">
+                  <PageHeader title={tc('shell.nodesTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  {/* Agent 控制台以页面模式内嵌：同一份内容 JSX，不渲染 ToolDrawer。 */}
+                  <AgentPanel variant="page" open agents={chat.agents} onClose={() => {}} />
+                </Page>
               )}
             </>
           )}

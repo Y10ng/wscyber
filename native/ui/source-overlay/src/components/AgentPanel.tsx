@@ -38,6 +38,8 @@ import { isLocalModelAgent } from '../lib/session-agent'
 
 interface AgentPanelProps {
   open: boolean
+  /** 'page' 内嵌为页面卡片（不渲染 ToolDrawer）；缺省 'drawer' 保持原抽屉行为。 */
+  variant?: 'drawer' | 'page'
   /** The roster from useChatSession — avoids a redundant listAgents poll. */
   agents: AgentView[]
   /** When opened from a deck node click, focus this agent's console. */
@@ -45,10 +47,60 @@ interface AgentPanelProps {
   onClose: () => void
 }
 
-export default function AgentPanel({ open, agents: rosterAgents, focusNodeID, onClose }: AgentPanelProps) {
+export default function AgentPanel({ open, variant = 'drawer', agents: rosterAgents, focusNodeID, onClose }: AgentPanelProps) {
   const { t } = useTranslation('agent')
   const { agents, selected, selectedNodeID, setSelectedNodeID } = useAgentDirectory(open, rosterAgents, focusNodeID)
   const showAgentList = agents.length > 1
+  const description = selected ? `${selected.hello?.name || ''} · ${selected.busy ? t('busy') : t('idle')}` : t('noAgentSelected')
+  const titleMeta = (
+    <Badge variant="secondary" size="sm" className="py-0 font-mono font-normal">
+      {agents.length}
+    </Badge>
+  )
+  // 抽屉与页面共用同一份内容：空状态 / 列表 + 终端。
+  const content = agents.length === 0 ? (
+    <div className="flex h-full items-center justify-center">
+      <EmptyState icon={Monitor} title={t('noAgentsConnected')} />
+    </div>
+  ) : (
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+      {showAgentList && (
+        <AgentList
+          agents={agents}
+          selectedNodeID={selectedNodeID}
+          onSelect={setSelectedNodeID}
+        />
+      )}
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {selected && (isLocalModelAgent(selected) ? (
+          <LocalModelAgentStatus agent={selected} />
+        ) : (
+          <Suspense fallback={(
+            <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground" role="status">
+              <LoaderCircle className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+              <span>{t('openingTerminal')}</span>
+            </div>
+          )}>
+            <AgentTerminal agent={selected} />
+          </Suspense>
+        ))}
+      </section>
+    </div>
+  )
+
+  if (variant === 'page') {
+    return (
+      <div className="flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
+          <Monitor className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <span className="text-[13px] font-semibold text-foreground">{t('agentConsole')}</span>
+          {titleMeta}
+          <span className="min-w-0 truncate text-[12px] text-muted-foreground">{description}</span>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
+      </div>
+    )
+  }
 
   return (
     <ToolDrawer
@@ -56,12 +108,8 @@ export default function AgentPanel({ open, agents: rosterAgents, focusNodeID, on
       onClose={onClose}
       icon={Monitor}
       title={t('agentConsole')}
-      description={selected ? `${selected.hello?.name || ''} · ${selected.busy ? t('busy') : t('idle')}` : t('noAgentSelected')}
-      titleMeta={(
-        <Badge variant="secondary" size="sm" className="py-0 font-mono font-normal">
-          {agents.length}
-        </Badge>
-      )}
+      description={description}
+      titleMeta={titleMeta}
       contentProps={{
         // The console advertises "Esc 中断". Escape from inside the terminal must
         // interrupt the running task only — otherwise the same keypress also
@@ -71,35 +119,7 @@ export default function AgentPanel({ open, agents: rosterAgents, focusNodeID, on
         },
       }}
     >
-      {agents.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <EmptyState icon={Monitor} title={t('noAgentsConnected')} />
-        </div>
-      ) : (
-        <div className="flex h-full min-h-0 flex-col lg:flex-row">
-          {showAgentList && (
-            <AgentList
-              agents={agents}
-              selectedNodeID={selectedNodeID}
-              onSelect={setSelectedNodeID}
-            />
-          )}
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {selected && (isLocalModelAgent(selected) ? (
-              <LocalModelAgentStatus agent={selected} />
-            ) : (
-              <Suspense fallback={(
-                <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground" role="status">
-                  <LoaderCircle className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
-                  <span>{t('openingTerminal')}</span>
-                </div>
-              )}>
-                <AgentTerminal agent={selected} />
-              </Suspense>
-            ))}
-          </section>
-        </div>
-      )}
+      {content}
     </ToolDrawer>
   )
 }

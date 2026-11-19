@@ -103,6 +103,8 @@ function formToDistributeConfig(form: ConfigFormState, original?: ConfigFormStat
 
 interface ConfigPanelProps {
   open: boolean
+  /** 'page' 内嵌为页面卡片（不渲染 Dialog）；缺省 'dialog' 保持原弹窗行为。 */
+  variant?: 'dialog' | 'page'
   status: ServerStatus | null
   capabilities?: readonly string[]
   initialSection?: 'llm' | 'jev'
@@ -316,7 +318,7 @@ function ConfigHelp() {
   )
 }
 
-export default function ConfigPanel({ open, status, capabilities = [], initialSection = 'llm', onClose, onSaved }: ConfigPanelProps) {
+export default function ConfigPanel({ open, variant = 'dialog', status, capabilities = [], initialSection = 'llm', onClose, onSaved }: ConfigPanelProps) {
   const { t } = useTranslation('config')
   const [cs, setCs] = useState<ConfigView | null>(null)
   const [form, setForm] = useState<ConfigFormState>(() => emptyForm(t('newProfileName')))
@@ -337,6 +339,8 @@ export default function ConfigPanel({ open, status, capabilities = [], initialSe
   // if a stale/foreign initialSection or tab state would otherwise point at a
   // non-LLM section that would never be submitted.
   const shownTab: TabKey = llmOnly ? 'llm' : activeTab
+  // 页面模式没有 Dialog 的 open 状态：加载/聚焦等 open 相关 effect 视为已打开。
+  const isOpen = variant === 'page' ? true : open
   // Controlled Dialog has no DialogTrigger, so Radix cannot rely on triggerRef to
   // return focus on close. Remember the opening element and the content so focus
   // can be restored precisely without stealing it from a moved target.
@@ -344,7 +348,7 @@ export default function ConfigPanel({ open, status, capabilities = [], initialSe
   const contentElement = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    if (!open) return
+    if (!isOpen) return
     setActiveTab('llm')
     setFocusJEV(initialSection === 'jev')
     setLoading(true)
@@ -359,14 +363,14 @@ export default function ConfigPanel({ open, status, capabilities = [], initialSe
       })
       .catch((err: Error) => setError(err.message || t('failedLoad')))
       .finally(() => setLoading(false))
-  }, [open, initialSection, localModel])
+  }, [isOpen, initialSection, localModel])
 
   useEffect(() => {
-    if (!open || loading || activeTab !== 'llm' || !focusJEV || !jevInputRef.current) return
+    if (!isOpen || loading || activeTab !== 'llm' || !focusJEV || !jevInputRef.current) return
     jevInputRef.current.focus()
     jevInputRef.current.scrollIntoView({ block: 'center' })
     setFocusJEV(false)
-  }, [open, loading, activeTab, focusJEV])
+  }, [isOpen, loading, activeTab, focusJEV])
 
   const handleSave = async (event: FormEvent) => {
     event.preventDefault()
@@ -405,31 +409,15 @@ export default function ConfigPanel({ open, status, capabilities = [], initialSe
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent
-        closeLabel={t('close')}
-        aria-describedby={undefined}
-        onInteractOutside={(event) => event.preventDefault()}
-        onOpenAutoFocus={(event) => {
-          returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-          contentElement.current = event.target instanceof HTMLElement ? event.target : null
-        }}
-        onCloseAutoFocus={(event) => {
-          const active = document.activeElement
-          if (!event.defaultPrevented && returnFocus.current?.isConnected
-            && (active === document.body || contentElement.current?.contains(active))) {
-            event.preventDefault()
-            returnFocus.current.focus()
-          }
-        }}
-        className="flex h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0"
-      >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
+  const content = (
+    <>
+        <div className={cn('flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3', variant === 'dialog' && 'pr-12')}>
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
             <Settings className="h-4 w-4" />
           </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('settings')}</DialogTitle>
+          {variant === 'page'
+            ? <h2 className="truncate text-sm font-semibold text-foreground">{t('settings')}</h2>
+            : <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('settings')}</DialogTitle>}
         </div>
 
         <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col">
@@ -501,10 +489,42 @@ export default function ConfigPanel({ open, status, capabilities = [], initialSe
           </div>
 
           <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
-            <Button type="button" variant="outline" onClick={onClose}>{t('close')}</Button>
+            {variant === 'dialog' && <Button type="button" variant="outline" onClick={onClose}>{t('close')}</Button>}
             <Button type="submit" disabled={loading || saving}>{saving && <Spinner className="h-4 w-4" />}{t('save')}</Button>
           </div>
         </form>
+    </>
+  )
+
+  if (variant === 'page') {
+    return (
+      <div className="flex min-h-0 max-w-3xl flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent
+        closeLabel={t('close')}
+        aria-describedby={undefined}
+        onInteractOutside={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+          contentElement.current = event.target instanceof HTMLElement ? event.target : null
+        }}
+        onCloseAutoFocus={(event) => {
+          const active = document.activeElement
+          if (!event.defaultPrevented && returnFocus.current?.isConnected
+            && (active === document.body || contentElement.current?.contains(active))) {
+            event.preventDefault()
+            returnFocus.current.focus()
+          }
+        }}
+        className="flex h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0"
+      >
+        {content}
       </DialogContent>
     </Dialog>
   )

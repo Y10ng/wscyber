@@ -258,21 +258,21 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                     <col className="w-[120px]" />
                     <col />
                     <col className="w-[100px]" />
-                    <col className="w-[90px]" />
+                    <col className="w-[110px]" />
                     <col className="w-[90px]" />
                     <col className="w-[110px]" />
                     <col className="w-16" />
                   </colgroup>
                   <thead>
                     <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
-                      <th className="px-3 text-left font-medium">#</th>
-                      <th className="px-3 text-left font-medium">{t('shell.colCreated')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.colTask')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.colStatus')}</th>
-                      <th className="px-3 text-right font-medium">{t('shell.colFindings')}</th>
-                      <th className="px-3 text-right font-medium">{t('shell.colTokens')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.colLastActivity')}</th>
-                      <th className="px-3 text-right font-medium">{t('shell.colActions')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">#</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colCreated')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colTask')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
+                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colFindings')}</th>
+                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colTokens')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colLastActivity')}</th>
+                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -351,12 +351,12 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                   </colgroup>
                   <thead>
                     <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
-                      <th className="px-3 text-left font-medium">{t('shell.scheduleAsset')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.scheduleCron')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.scheduleStatus')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.scheduleNext')}</th>
-                      <th className="px-3 text-left font-medium">{t('shell.scheduleLast')}</th>
-                      <th className="px-3 text-right font-medium">{t('shell.colActions')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleAsset')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleCron')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleStatus')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleNext')}</th>
+                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleLast')}</th>
+                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
                     </tr>
                   </thead>
                   <tbody>

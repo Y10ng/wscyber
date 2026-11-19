@@ -4,10 +4,14 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 
 /** 页面容器：正文滚动区，内容最大宽 1600px、超宽居左（docs/ui-shell.md §2）。 */
-export function Page({ children }: { children: ReactNode }) {
+export function Page({ children, className, contentClassName }: {
+  children: ReactNode
+  className?: string
+  contentClassName?: string
+}) {
   return (
-    <div className="flex-1 overflow-auto px-6 py-5">
-      <div className="max-w-[1600px] space-y-3">{children}</div>
+    <div className={cn('flex-1 overflow-auto px-6 py-5', className)}>
+      <div className={cn('max-w-[1600px] space-y-3', contentClassName)}>{children}</div>
     </div>
   )
 }
