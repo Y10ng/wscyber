@@ -7,6 +7,7 @@
   python3 scripts/demo-stack.py fix on|off        切换模拟目标“已修复”模式
   python3 scripts/demo-stack.py selftest [--chain] 经 Hub API 跑一遍研究（--chain 再跑验证/报告/复测）
   python3 scripts/demo-stack.py approval-demo     经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）
+  python3 scripts/demo-stack.py egress-demo       经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
@@ -403,6 +404,25 @@ def script_approval(conv, origin):
     return {'text': '\n'.join(lines)}
 
 
+EGRESS_MARK = '出口演示'
+EGRESS_DENIED_URL = 'http://127.0.0.1:18089/ping'  # 未授权端口，无服务；用于演示“授权外被代理拦截”
+
+
+def script_egress(conv, origin):
+    """可选剧本（首条消息含“出口演示”）：用终端分别访问授权 origin 与一个未授权的本地端口。"""
+    bash_results = conv.of('bash')
+    inside_command = f"curl -s -o /dev/null -w '%{{http_code}}\\n' {origin}/api/items"
+    outside_command = f"curl -s -o /dev/null -w '%{{http_code}}\\n' --max-time 5 {EGRESS_DENIED_URL}"
+    if not bash_results:
+        return {'text': '出口演示：用终端分别访问授权 origin 与一个未授权的本地端口。',
+                'calls': [('bash', {'command': inside_command}), ('bash', {'command': outside_command})]}
+    lines = ['出口演示结束：']
+    for result in bash_results:
+        command = (result['args'] or {}).get('command', '?')
+        lines.append(f'- 命令 {command}：{(result["raw"] or "（无输出）")[:240]}')
+    return {'text': '\n'.join(lines)}
+
+
 def script_research(conv):
     origins = conv.origins()
     if not origins:
@@ -410,6 +430,8 @@ def script_research(conv):
     origin = origins[0]
     if APPROVAL_MARK in conv.first_user:
         return script_approval(conv, origin)
+    if EGRESS_MARK in conv.first_user:
+        return script_egress(conv, origin)
     http_results, finding_results = conv.of('webapi_http'), conv.of('webapi_finding')
     if not http_results:
         lines = [f'先在授权 origin {origin} 内做一轮只读摸底，共 {len(RESEARCH_PLAN)} 个 GET 请求：']
@@ -1292,6 +1314,35 @@ def cmd_approval_demo(_args):
         approval_round(node['hello']['nodeId'], approve)
 
 
+# ---------------------------------------------------------------------------
+# egress-demo：任务级 scope=origins、approval=off 下，终端 curl 经 B2 代理放行/拒绝并落库
+# ---------------------------------------------------------------------------
+
+
+def cmd_egress_demo(_args):
+    node = demo_node()
+    if not node:
+        sys.exit('没有已应用演示模型配置且提供 webapi_http 的节点；先 up 并查看 status')
+    node_id = node['hello']['nodeId']
+    task_id = 'demo-egress-' + uuid.uuid4().hex[:8]
+    task = api('PUT', f'/api/webapi/tasks/{task_id}', {
+        'known_info': f'本地演示库存 API，地址 {ORIGIN}，全部为测试数据。',
+        'objective': f'{EGRESS_MARK}：终端 curl 访问授权 origin（期望放行）与未授权本地端口 18089（期望拒绝）。',
+        'authorization': {'confirmed': True, 'origins': [ORIGIN]}})['task']
+    saved = api('PUT', f'/api/webapi/tasks/{task_id}/policy', {'scope': 'origins', 'approval': 'off'})
+    policy = saved.get('policy') or {}
+    log(f'[出口演示] task={task_id} 策略 scope={policy.get("scope")} approval={policy.get("approval")}')
+    session_id = task['initial_session_id']
+    first = '\n'.join(['开始探索任务。', '', f'目标／已知信息：{task["known_info"]}', f'希望达到的目标：{task["objective"]}', '',
+                       'HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：', *[f'- {o}' for o in task['origins']]])
+    run_session('出口演示', session_id, node_id, first)
+    flows = list_all(f'/api/webapi/tasks/{task_id}/egress')
+    log(f'[出口演示] 出口记录 {len(flows)} 条：')
+    for flow in flows:
+        log(f'- decision={flow.get("decision")} method={flow.get("method")} url={flow.get("url")} '
+            f'http_status={flow.get("http_status", "-")} error={flow.get("error") or "-"}')
+
+
 def main():
     parser = argparse.ArgumentParser(description='wscyber 本地演示环境（测试数据）')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1303,7 +1354,8 @@ def main():
     fix.add_argument('mode', choices=['on', 'off'])
     selftest = sub.add_parser('selftest')
     selftest.add_argument('--chain', action='store_true', help='研究后继续跑验证、报告与两次复测')
-    sub.add_parser('approval-demo')
+    sub.add_parser('approval-demo', help='经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）')
+    sub.add_parser('egress-demo', help='经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）')
     target = sub.add_parser('_target')
     target.add_argument('--fix-flag', required=True)
     sub.add_parser('_model')
@@ -1312,7 +1364,8 @@ def main():
         return serve_target(args.fix_flag)
     if args.command == '_model':
         return serve_model()
-    {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest, 'approval-demo': cmd_approval_demo}[args.command](args)
+    {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest,
+     'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo}[args.command](args)
 
 
 if __name__ == '__main__':
