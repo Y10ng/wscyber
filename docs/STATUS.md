@@ -31,18 +31,18 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 进度（2026-11-18）
 
-已提交：F1、U1、B1 后端（79b6eec）+ 前端（dd791e8）、C1 资产后端（5025b38）、C2a 周期调度后端（c44b9d3）、C2b 计划后续（ddc1042）、C3 资产漏洞库后端（fbc63f5）、C1/C2 资产前端（eb44d11：资产视图、测试账号、周期计划/运行记录/后续明细、发起测试、任务顶栏资产标签、侧栏 15s 轮询显示服务端发起的会话）。接口契约见 `native/POLICY.md`、`native/ASSETS.md`。
+已提交：F1、U1、B1 前后端、C1 资产、C2a/C2b 周期计划与后续、C3 资产漏洞库前后端（fbc63f5、f233c9c）、C1/C2 资产前端（eb44d11）、S1 会话归属批量接口（888c226）、B2 全工具出口后端（d6fbd25，终端流量经 MITM 代理按任务策略拦截/记录，新增 19 个依赖，见 `native/POLICY.md`）、F2 资产空已知信息不再发起失败（49b0012）。接口契约见 `native/POLICY.md`、`native/ASSETS.md`、`native/VERIFICATION.md`。
 
-进行中：**C3 资产漏洞库前端**（ds-flash，`var/c3-vulns-frontend/task.md`）；B2 全工具出口调研。
+进行中：**S1 侧栏会话归组前端**（ds-flash，`var/s1-sidebar-frontend/task.md`）。演示 Hub `var/demo/wscyber-hub` 已于 11-18 23:39 从 HEAD 重建。
 
 ## 下一步
 
-1. 侧栏会话归组（ds-flash）：验证/复测/报告会话归到所属任务下、默认折叠（自动验证 7 轮即产生 28 个验证会话，淹没侧栏）；同名计划任务在侧栏可区分（显示时间）。
-2. 小打磨（攒一片 ds-flash）：用量按会话表按角色排序（研究在前）；全局用量 Dialog 高度随内容；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端拼装与 `webAPIFirstMessage` 需同步改）。
-3. 之后按 [roadmap](roadmap.md)：B2 全工具出口（周期任务已上线，需补）→ D1/D2 证据图片与企业微信 → B2 全工具出口 → D3 SDL。
+1. B2 前端：任务页“出口流量”视图（列表/详情、拒绝记录）与策略指示里如实说明“终端出口为代理强制，可被刻意绕过”。
+2. 小打磨（ds-flash）：用量按会话表按角色排序（研究在前）；全局用量 Dialog 高度随内容；scope=unrestricted 时首条消息仍写“仅限以下 origin”（前端拼装与 `webAPIFirstMessage` 需同步改）。
+3. 之后按 [roadmap](roadmap.md)：D1 证据图片 → D2 企业微信（需用户提供群机器人 webhook）→ D3 SDL（需接口文档）。
 4. 更新 42453 预览前须从 HEAD 重建 `var/wscyber-hub`；重建 UI 后运行中的 Hub 缓存旧清单，须重启 Hub 才生效。
 
-已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；审批超时/取消的前端显示只经代码路径验证；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖，真实模型端到端未跑；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝。
+已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；审批超时/取消的前端显示只经代码路径验证；B2 出口为代理强制（unset 代理变量/--noproxy/原始 socket 可绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式，不覆盖 here-doc 与解释器脚本；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖，真实模型端到端未跑；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝。
 
 ## 验收方式
 
@@ -50,4 +50,4 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 执行会话
 
-C3 漏洞库前端（ds-flash，`var/c3-vulns-frontend`）运行中。
+S1 侧栏归组前端（ds-flash，`var/s1-sidebar-frontend`）运行中。
