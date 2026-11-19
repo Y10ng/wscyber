@@ -33,7 +33,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（本日）：B2 前端、侧栏归组、D1 证据图片前后端、U2a 全局导航后端（契约 `native/OVERVIEW.md`）、D2 企业微信推送后端（812d6bf，契约 `native/NOTIFY.md`；用户暂无 webhook，未配置不推送）、主题提亮、U2b 界面外壳（74a37a1）及纠正（8c239b5：模型/节点页内卡片）、任务列表归档过滤后端（f130ddc）、**U2c 总览页 + 任务归档**（a9eb363）。界面改版设计见 [ui-shell](ui-shell.md)。
 
-**11-19 用户要求暂停**，下次从“下一步”继续。D2 前端任务包已写好未派：`var/d2-wecom-frontend/task.md`（演示 Hub `var/demo/wscyber-hub` 已含 D2 与归档过滤）。
+进行中（11-19 用户恢复）：**D2 前端集成页**（ds-flash，`var/d2-wecom-frontend/task.md`）、**B3 审计后端**（o-latest，`var/b3-audit-backend/task.md`，只做 Go 测试不用演示环境）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口（设计为任务页“类型：对话”筛选）未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；总览漏洞趋势“新发现”按确认事件计、状态卡按当前状态计，两处数字可能不同（语义如此）。
 
@@ -51,4 +51,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-无（已暂停）。
+D2 前端（ds-flash）与 B3 审计后端（o-latest）运行中。
