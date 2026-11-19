@@ -98,7 +98,7 @@ func newFixtureProfile(request profile.Request, directory string, report *fixtur
 	session.NodeName, session.SkipBaseSkills, session.Logger = fixtureNodeID, true, telemetry.NopLogger()
 	h, err := harness.New(harness.Config{Base: harness.BaseConfig{
 		Directory: directory, SkillExclude: []string{"cyber"}, Logger: telemetry.NopLogger(),
-		Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(),
+		Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(), // fixture 节点不装 webapi 能力，无任务/策略可归属；不发布路由（不代表网络隔离）。
 		Terminal: terminalext.Config{Timeout: 5, MaximumTimeout: 5 * time.Second},
 	}, Session: &session})
 	if err != nil {

@@ -9,17 +9,36 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/anytls/sing-anytls v0.0.11 // indirect
+	github.com/apernet/hysteria/core/v2 v2.9.2 // indirect
+	github.com/apernet/quic-go v0.59.1-0.20260425001925-6c6cc9bcb716 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/carapace-sh/carapace v1.16.3 // indirect
 	github.com/carapace-sh/carapace-shlex v1.1.1 // indirect
+	github.com/chainreactors/proxyclient/extra v0.0.0-20260527160727-36cf133952c3 // indirect
 	github.com/chainreactors/tui/console v0.0.0-20260712082522-2ba36ad7841f // indirect
 	github.com/chainreactors/tui/readline v0.0.0-20261010062516-bb32632d1a4e // indirect
+	github.com/chainreactors/utils/cert v0.0.0-20260722180147-5b1816060721 // indirect
+	github.com/chainreactors/utils/mitmproxy v0.0.0-20261002195803-fc9e07c4b4fd // indirect
 	github.com/charmbracelet/bubbles v1.0.0 // indirect
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
+	github.com/gofrs/uuid/v5 v5.3.2 // indirect
+	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/sagernet/sing v0.7.6 // indirect
+	github.com/sagernet/sing-vmess v0.2.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
+	github.com/satori/go.uuid v1.2.0 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
+	github.com/stretchr/testify v1.12.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20260529124908-c761662dc8c9 // indirect
 )
 

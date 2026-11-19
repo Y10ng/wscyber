@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -81,6 +81,7 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_schedule_followups":     {"id", "run_id", "kind", "task_id", "finding_id", "revision_id", "target_id", "status", "error", "created_at", "updated_at"},
 			"webapi_asset_vulns":            {"id", "asset_id", "endpoint_key", "title_override", "created_at", "updated_at"},
 			"webapi_asset_vuln_members":     {"finding_id", "vuln_id", "asset_id", "task_id", "link", "created_at", "updated_at"},
+			"webapi_egress_flows":           {"id", "task_id", "session_id", "turn_id", "call_id", "tool", "method", "url", "host", "decision", "sent", "http_status", "error", "flow_pb", "request_bytes", "response_bytes", "preview_truncated", "created_at", "completed_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -103,6 +104,8 @@ func SchemaModule() webservice.SchemaModule {
 			{Model: (*assetVulnModel)(nil), Name: "webapi_asset_vulns_asset", Columns: []string{"asset_id"}},
 			{Model: (*assetVulnMemberModel)(nil), Name: "webapi_asset_vuln_members_vuln", Columns: []string{"vuln_id"}},
 			{Model: (*assetVulnMemberModel)(nil), Name: "webapi_asset_vuln_members_asset", Columns: []string{"asset_id"}},
+			{Model: (*egressFlowModel)(nil), Name: "webapi_egress_flows_task_created", Columns: []string{"task_id", "created_at"}},
+			{Model: (*egressFlowModel)(nil), Name: "webapi_egress_flows_session", Columns: []string{"session_id"}},
 		},
 	}
 }

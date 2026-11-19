@@ -293,6 +293,8 @@ type Capability struct {
 	sched       scheduler
 	scheduleNow func() time.Time
 	scheduleLoc *time.Location
+	// egressCADir 是全工具出口 MITM CA 目录：state-dir 下 egress-ca/，不在节点工作区内。
+	egressCADir string
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -301,7 +303,8 @@ func NewCapability(database string) (*Capability, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	return &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName))}, nil
+	return &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName)),
+		egressCADir: filepath.Join(filepath.Dir(database), egressCADirName)}, nil
 }
 
 func (c *Capability) ID() string { return "webapi" }
@@ -328,6 +331,8 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "PUT /api/webapi/tasks/{id}/policy", Handler: http.HandlerFunc(c.handlePutPolicy)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence", Handler: http.HandlerFunc(c.handleEvidenceList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence/{evidence_id}", Handler: http.HandlerFunc(c.handleEvidenceGet)},
+		{Pattern: "GET /api/webapi/tasks/{id}/egress", Handler: http.HandlerFunc(c.handleEgressList)},
+		{Pattern: "GET /api/webapi/tasks/{id}/egress/{flow_id}", Handler: http.HandlerFunc(c.handleEgressGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/findings", Handler: http.HandlerFunc(c.handleFindingList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}", Handler: http.HandlerFunc(c.handleFindingCurrent)},
 		{Pattern: "GET /api/webapi/tasks/{id}/findings/{finding_id}/history", Handler: http.HandlerFunc(c.handleFindingHistory)},

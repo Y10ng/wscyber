@@ -1,0 +1,387 @@
+{
+ "scope": "2026-11-18 Linux/amd64 B2 全工具出口 cmd/wscyber-hub 实际 go list -deps 增量（引入上游 tools/proxy）；不代表全模块图/扫描发行版/UI",
+ "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+ "reachable_module_count": 112,
+ "new_module_count": 19,
+ "baseline": {
+  "files": [
+   {
+    "file": "dependency-licenses.json",
+    "sha256": "650f1217cbb16def18397753d04dc5df32685fc53a49797bd760fe369465668a"
+   },
+   {
+    "file": "hub-dependency-licenses.json",
+    "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+   },
+   {
+    "file": "node-dependency-licenses.json",
+    "sha256": "a01642fcc776ecab4f62847f3143a8776575daad7e3c209a9c1a368a215ca674"
+   }
+  ],
+  "same_version_modules": [
+   "connectrpc.com/connect",
+   "dario.cat/mergo",
+   "github.com/alecthomas/chroma/v2",
+   "github.com/atotto/clipboard",
+   "github.com/aymanbagabas/go-osc52/v2",
+   "github.com/aymanbagabas/go-pty",
+   "github.com/aymerick/douceur",
+   "github.com/bahlo/generic-list-go",
+   "github.com/buger/jsonparser",
+   "github.com/carapace-sh/carapace",
+   "github.com/carapace-sh/carapace-shlex",
+   "github.com/chainreactors/cyber",
+   "github.com/chainreactors/cyber/aop",
+   "github.com/chainreactors/logs",
+   "github.com/chainreactors/proxyclient",
+   "github.com/chainreactors/tui/console",
+   "github.com/chainreactors/tui/readline",
+   "github.com/chainreactors/utils",
+   "github.com/chainreactors/utils/parsers",
+   "github.com/chainreactors/utils/proc",
+   "github.com/charmbracelet/bubbles",
+   "github.com/charmbracelet/bubbletea",
+   "github.com/charmbracelet/colorprofile",
+   "github.com/charmbracelet/glamour",
+   "github.com/charmbracelet/lipgloss",
+   "github.com/charmbracelet/x/ansi",
+   "github.com/charmbracelet/x/cellbuf",
+   "github.com/charmbracelet/x/exp/slice",
+   "github.com/charmbracelet/x/term",
+   "github.com/clipperhouse/displaywidth",
+   "github.com/clipperhouse/uax29/v2",
+   "github.com/creack/pty",
+   "github.com/dlclark/regexp2/v2",
+   "github.com/dop251/goja",
+   "github.com/dustin/go-humanize",
+   "github.com/facebookincubator/nvdtools",
+   "github.com/go-dedup/megophone",
+   "github.com/go-dedup/simhash",
+   "github.com/go-dedup/text",
+   "github.com/go-sourcemap/sourcemap",
+   "github.com/go-viper/mapstructure/v2",
+   "github.com/goccy/go-yaml",
+   "github.com/google/pprof",
+   "github.com/google/uuid",
+   "github.com/gookit/config/v2",
+   "github.com/gookit/goutil",
+   "github.com/gorilla/css",
+   "github.com/gorilla/websocket",
+   "github.com/invopop/jsonschema",
+   "github.com/jessevdk/go-flags",
+   "github.com/jinzhu/inflection",
+   "github.com/kballard/go-shellquote",
+   "github.com/lucasb-eyer/go-colorful",
+   "github.com/mattn/go-isatty",
+   "github.com/mattn/go-runewidth",
+   "github.com/microcosm-cc/bluemonday",
+   "github.com/muesli/ansi",
+   "github.com/muesli/cancelreader",
+   "github.com/muesli/reflow",
+   "github.com/muesli/termenv",
+   "github.com/pb33f/ordered-map/v2",
+   "github.com/puzpuzpuz/xsync/v3",
+   "github.com/remyoudompheng/bigfft",
+   "github.com/rivo/uniseg",
+   "github.com/sahilm/fuzzy",
+   "github.com/santhosh-tekuri/jsonschema/v6",
+   "github.com/spf13/cobra",
+   "github.com/spf13/pflag",
+   "github.com/tmthrgd/go-hex",
+   "github.com/twmb/murmur3",
+   "github.com/u-root/u-root",
+   "github.com/uptrace/bun",
+   "github.com/uptrace/bun/dialect/sqlitedialect",
+   "github.com/vmihailenco/msgpack/v5",
+   "github.com/vmihailenco/tagparser/v2",
+   "github.com/xo/terminfo",
+   "github.com/yuin/goldmark",
+   "github.com/yuin/goldmark-emoji",
+   "go.yaml.in/yaml/v4",
+   "golang.org/x/crypto",
+   "golang.org/x/exp",
+   "golang.org/x/net",
+   "golang.org/x/sync",
+   "golang.org/x/sys",
+   "golang.org/x/term",
+   "golang.org/x/text",
+   "google.golang.org/protobuf",
+   "gopkg.in/yaml.v3",
+   "modernc.org/libc",
+   "modernc.org/mathutil",
+   "modernc.org/memory",
+   "modernc.org/sqlite",
+   "mvdan.cc/sh/v3"
+  ]
+ },
+ "modules": [
+  {
+   "module": "github.com/andybalholm/brotli",
+   "version": "v1.2.1",
+   "source": "https://pkg.go.dev/github.com/andybalholm/brotli@v1.2.1",
+   "purpose": "mitmproxy 响应解码（brotli）可达依赖",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/anytls/sing-anytls",
+   "version": "v0.0.11",
+   "source": "https://pkg.go.dev/github.com/anytls/sing-anytls@v0.0.11",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "GNU GPL Version 3 (or later) root text",
+     "sha256": "df8e304aaa400c40a02bb48836a6172ee9ffb3666a5b28088d7201cf1a8b740e"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/apernet/hysteria/core/v2",
+   "version": "v2.9.2",
+   "source": "https://pkg.go.dev/github.com/apernet/hysteria/core/v2@v2.9.2",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT root text",
+     "sha256": "b279cfdac4db4b077f0660b5d8156d50a8bc7bd410036dc356499af43c4e84f5"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/apernet/quic-go",
+   "version": "v0.59.1-0.20260425001925-6c6cc9bcb716",
+   "source": "https://pkg.go.dev/github.com/apernet/quic-go@v0.59.1-0.20260425001925-6c6cc9bcb716",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "77d0b7b53e8abb84cf4dd3f9945a7fdf27044240d2e8023966a721a9a46fe96e"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/chainreactors/proxyclient/extra",
+   "version": "v0.0.0-20260527160727-36cf133952c3",
+   "source": "https://pkg.go.dev/github.com/chainreactors/proxyclient/extra@v0.0.0-20260527160727-36cf133952c3",
+   "purpose": "上游 tools/proxy 的上游链/订阅协议（clash/anytls/hysteria2/trojan/vmess）可达依赖；B2 使用直连上游，不启用这些协议",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "GNU GPL Version 3 root text",
+     "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/chainreactors/utils/cert",
+   "version": "v0.0.0-20260722180147-5b1816060721",
+   "source": "https://pkg.go.dev/github.com/chainreactors/utils/cert@v0.0.0-20260722180147-5b1816060721",
+   "purpose": "mitmproxy 自签 CA 与证书签发；B2 出口 CA 生成于 state-dir/egress-ca",
+   "root_license_files": [],
+   "license_text": "UNKNOWN：模块根未找到许可文件（无 LICENSE/LICENCE/COPYING/NOTICE/COPYRIGHT，根亦无 README 许可补充）",
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/chainreactors/utils/mitmproxy",
+   "version": "v0.0.0-20261002195803-fc9e07c4b4fd",
+   "source": "https://pkg.go.dev/github.com/chainreactors/utils/mitmproxy@v0.0.0-20261002195803-fc9e07c4b4fd",
+   "purpose": "上游 tools/proxy 的 MITM 代理引擎（ProxyHub 监听、CONNECT/MITM、SetAuthProxy 入口鉴权）；B2 全工具出口直接使用",
+   "root_license_files": [],
+   "license_text": "UNKNOWN：模块根未找到许可文件（无 LICENSE/LICENCE/COPYING/NOTICE/COPYRIGHT，根亦无 README 许可补充）",
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/gofrs/uuid/v5",
+   "version": "v5.3.2",
+   "source": "https://pkg.go.dev/github.com/gofrs/uuid/v5@v5.3.2",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "92a328e1d5f3269b42e2ce32b4494eafdb3132f204a911c5c95cf3d8465490e4"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/golang/groupcache",
+   "version": "v0.0.0-20241129210726-2c02b8208cf8",
+   "source": "https://pkg.go.dev/github.com/golang/groupcache@v0.0.0-20241129210726-2c02b8208cf8",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0 root text",
+     "sha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/klauspost/compress",
+   "version": "v1.18.6",
+   "source": "https://pkg.go.dev/github.com/klauspost/compress@v1.18.6",
+   "purpose": "mitmproxy 响应解码（gzip/zstd 等）可达依赖",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause root text, with Apache-2.0 and MIT sections for bundled parts",
+     "sha256": "0d9e582ee4bff57bf1189c9e514e6da7ce277f9cd3bc2d488b22fbb39a6d87cf"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/quic-go/qpack",
+   "version": "v0.6.0",
+   "source": "https://pkg.go.dev/github.com/quic-go/qpack@v0.6.0",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT root text",
+     "sha256": "1b6a897efd39b20b3cdce8cd306160d115dbded39d855ceeffe21dc11e4d53df"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/sagernet/sing",
+   "version": "v0.7.6",
+   "source": "https://pkg.go.dev/github.com/sagernet/sing@v0.7.6",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "GNU GPL Version 3 (or later) root text",
+     "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/sagernet/sing-vmess",
+   "version": "v0.2.7",
+   "source": "https://pkg.go.dev/github.com/sagernet/sing-vmess@v0.2.7",
+   "purpose": "上游 tools/proxy（mitmproxy / proxyclient extra 协议）的可达传递依赖；B2 未直接调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "GNU GPL Version 3 (or later) root text",
+     "sha256": "2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/satori/go.uuid",
+   "version": "v1.2.0",
+   "source": "https://pkg.go.dev/github.com/satori/go.uuid@v1.2.0",
+   "purpose": "mitmproxy flow id",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "92a328e1d5f3269b42e2ce32b4494eafdb3132f204a911c5c95cf3d8465490e4"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/sirupsen/logrus",
+   "version": "v1.9.4",
+   "source": "https://pkg.go.dev/github.com/sirupsen/logrus@v1.9.4",
+   "purpose": "mitmproxy 日志；拒绝请求时 Hub 标准错误会出现其 error 级日志",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "51a0c9ec7f8b7634181b8d4c03e5b5d204ac21d6e72f46c313973424664b2e6b"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/stretchr/objx",
+   "version": "v0.5.3",
+   "source": "https://pkg.go.dev/github.com/stretchr/objx@v0.5.3",
+   "purpose": "经 proxyclient/extra → apernet/hysteria/core/v2/client 导入 testify/mock 而可达；B2 未调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "b2663894033a05fd80261176cd8da1d72546e25842d5c1abcc852ca23b6b61b0"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/stretchr/testify",
+   "version": "v1.12.1",
+   "source": "https://pkg.go.dev/github.com/stretchr/testify@v1.12.1",
+   "purpose": "经 proxyclient/extra → apernet/hysteria/core/v2/client 导入 testify/mock 而可达；B2 未调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT root text",
+     "sha256": "f8e536c1c7b695810427095dc85f5f80d44ff7c10535e8a9486cf393e2599189"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "go.uber.org/atomic",
+   "version": "v1.11.0",
+   "source": "https://pkg.go.dev/go.uber.org/atomic@v1.11.0",
+   "purpose": "mitmproxy 可达依赖",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT root text",
+     "sha256": "edbb5a4d165ac69376c765b551c0662ff42bea87e1f1eda85f42ac90c34b09d0"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "go.yaml.in/yaml/v3",
+   "version": "v3.0.5",
+   "source": "https://pkg.go.dev/go.yaml.in/yaml/v3@v3.0.5",
+   "purpose": "经 proxyclient/extra → apernet/hysteria/core/v2/client 导入 testify/mock 而可达；B2 未调用",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT and Apache-2.0 root text (dual, per-file split)",
+     "sha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b"
+    },
+    {
+     "file": "NOTICE",
+     "license_text": "Apache-2.0 notice (Canonical Ltd.)",
+     "sha256": "f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00"
+    }
+   ],
+   "review": "仅核对模块根实际文本；不是完整嵌套/资产/组合许可审查"
+  }
+ ],
+ "limitations": [
+  "新增模块版本与 go.sum 校验和逐行与上游 f4b1fb2 go.sum 一致；原 93 个模块版本不变。",
+  "github.com/chainreactors/utils/mitmproxy 与 github.com/chainreactors/utils/cert 模块根未找到许可文件，保持 UNKNOWN，不按其可能的上游来源推断许可。",
+  "新增 GPL-3.0 文本模块（proxyclient/extra、sagernet/sing、sagernet/sing-vmess、anytls/sing-anytls）与既有 Cyber AGPL、proxyclient GPL 的组合及源代码/通知义务未处理；部署/分发前须核对。",
+  "stretchr/testify（mock 包）及其依赖 stretchr/objx、go.yaml.in/yaml/v3 经 proxyclient/extra → apernet/hysteria/core/v2/client 的 import 实际可达（go list -deps 核实）；本片不直接使用。",
+  "模块获取：指定代理 192.168.1.2:9567 本次不可达（connect: no route to host），改为直连公共 Go 模块代理并经 sum.golang.org 校验。"
+ ]
+}

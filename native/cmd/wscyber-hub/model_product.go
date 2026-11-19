@@ -64,7 +64,7 @@ func newProductModelProfile(request profile.Request, directory string, capabilit
 	h, err := harness.New(harness.Config{
 		Base: harness.BaseConfig{
 			Directory: directory, Logger: telemetry.NopLogger(),
-			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(),
+			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: capability.EgressExtension(),
 		},
 		Extensions: []extension.Extension{capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,
 	})

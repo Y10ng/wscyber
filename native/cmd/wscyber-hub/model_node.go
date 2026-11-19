@@ -175,7 +175,7 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 	h, err := harness.New(harness.Config{
 		Base: harness.BaseConfig{
 			Directory: directory, SkillExclude: []string{"cyber"}, Logger: telemetry.NopLogger(),
-			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: harness.NoEgress(),
+			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: capability.EgressExtension(),
 			Terminal: terminalext.Config{Timeout: 5, MaximumTimeout: 5 * time.Second},
 		},
 		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,

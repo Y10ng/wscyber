@@ -127,3 +127,31 @@ H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIG
 本片没有新增/变更 Go 模块；静态边界只使用标准库及既有原生 host/extension/web。固定 root 同上，原生 cyber-ui gitlink 为 `147423bd42b665aab361409c57258d9370f75bb0`。实际固定归档/树/lock/已有 Wasm 哈希见 [ui/sources.lock.json](ui/sources.lock.json)，使用方式和未验证阶段见 [ui/README.md](ui/README.md)。
 
 **cyber-ui 固定归档内未找到许可证声明，保持 UNKNOWN，不自动继承 Cyber 根 AGPL，不外推为整个上游无许可。** H3-A的4项缺依赖由H3-A2明确补充锁解决：4直接+18传递依赖匹配固定UI pnpm版本/integrity，原465非根项完整不变，实际锁488项。主在执行会话正常退出后安装437包、完整tsc/Vite及24项真实资源HTTP通过，原始锁/实际锁/覆盖分别记录。通知清单已生成，新增22包中21采得根部文本，react-arborist虽锁声明MIT但未采得根部通知，仍需补核。lock字段或通知采集均不等完整法律审查，不解决cyber-ui UNKNOWN或组合许可问题。详细来源、审源范围与部署/分发前待办见 [ui/LICENSES.md](ui/LICENSES.md)。所有既有 Go 许可缺口继续保留。
+
+## B2：全工具出口（上游 tools/proxy）的可达依赖增量
+
+核验日期：2026-11-18。同一固定 Cyber/AOP 版本；wscyber 自有出口扩展直接复用上游 `tools/proxy.NewProxyHub`（不使用 `exts/proxy`，不注册 `proxy/mitm` 命令），用户已同意引入此依赖。唯一 Hub 入口 `go list -deps` 得到 **112 个模块：原 93 个版本全不变，新增 19 个**；新增模块版本与 `go.sum` 校验和逐行与上游 f4b1fb2 的 `go.sum` 一致。版本、公开来源与根文本 SHA-256 见 [egress-dependency-licenses.json](egress-dependency-licenses.json)。模块获取：指定代理 `192.168.1.2:9567` 本次不可达（no route to host），改为直连公共 Go 模块代理并经 sum.golang.org 校验；未改上游、未改 fork replace。
+
+| 新增可达模块 | 固定版本 | 用途 / 模块根实际文本 |
+|---|---|---|
+| `github.com/chainreactors/utils/mitmproxy` | `v0.0.0-20261002195803-fc9e07c4b4fd` | MITM 代理引擎（监听、CONNECT/MITM、入口鉴权）；**未找到许可文件，UNKNOWN** |
+| `github.com/chainreactors/utils/cert` | `v0.0.0-20260722180147-5b1816060721` | mitmproxy 自签 CA/证书签发；**未找到许可文件，UNKNOWN** |
+| `github.com/chainreactors/proxyclient/extra` | `v0.0.0-20260527160727-36cf133952c3` | 上游链/订阅协议（clash/anytls/hysteria2/trojan/vmess）可达；B2 用直连上游；GNU GPL v3 |
+| `github.com/sagernet/sing` | `v0.7.6` | proxyclient/extra 传递；GNU GPL v3 或更新版 |
+| `github.com/sagernet/sing-vmess` | `v0.2.7` | proxyclient/extra 传递；GNU GPL v3 或更新版 |
+| `github.com/anytls/sing-anytls` | `v0.0.11` | proxyclient/extra 传递；GNU GPL v3 或更新版 |
+| `github.com/apernet/hysteria/core/v2` | `v2.9.2` | proxyclient/extra 传递；MIT |
+| `github.com/apernet/quic-go` | `v0.59.1-0.20260425001925-6c6cc9bcb716` | hysteria 传递；MIT |
+| `github.com/quic-go/qpack` | `v0.6.0` | quic-go 传递；MIT |
+| `github.com/sirupsen/logrus` | `v1.9.4` | mitmproxy 日志；MIT |
+| `github.com/klauspost/compress` | `v1.18.6` | mitmproxy 解码；BSD-3-Clause 根文本，附 Apache-2.0/MIT 段 |
+| `github.com/andybalholm/brotli` | `v1.2.1` | mitmproxy 解码；MIT |
+| `github.com/satori/go.uuid` | `v1.2.0` | mitmproxy flow id；MIT |
+| `github.com/gofrs/uuid/v5` | `v5.3.2` | 传递；MIT |
+| `github.com/golang/groupcache` | `v0.0.0-20241129210726-2c02b8208cf8` | 传递；Apache-2.0 |
+| `go.uber.org/atomic` | `v1.11.0` | 传递；MIT |
+| `github.com/stretchr/testify` | `v1.12.1` | hysteria client 导入 testify/mock 而可达；MIT |
+| `github.com/stretchr/objx` | `v0.5.3` | testify/mock 传递；MIT |
+| `go.yaml.in/yaml/v3` | `v3.0.5` | testify 传递；MIT + Apache-2.0（另有 NOTICE） |
+
+**新增待核实事项：** mitmproxy 与 cert 两个模块根无许可文本，保持 UNKNOWN，不按其可能的派生来源推断。新增四个 GPL-3.0 文本模块与既有 Cyber AGPL、proxyclient GPL 的组合及源代码/通知义务未处理；本增量不作法律结论或可部署声明，部署/分发前须核对。模块根文本存在不代表嵌套代码/资产已审查。

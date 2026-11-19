@@ -25,8 +25,6 @@ import (
 	corehooks "github.com/chainreactors/cyber/core/hooks"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -515,20 +513,15 @@ func (c *Capability) handleEvidenceGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "任务内证据不存在"})
 		return
 	}
-	var flow traffic.Flow
-	if err := proto.Unmarshal(model.FlowPB, &flow); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "Flow原件损坏"})
-		return
-	}
-	flowJSON, err := protojson.Marshal(&flow)
+	flowJSON, err := flowDetailJSON(model.FlowPB)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "Flow protojson编码失败"})
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, 200, map[string]any{
 		"metadata": evidenceMetadata(*model), "preview": string(model.Preview),
 		"flow_protobuf_base64": base64Encode(model.FlowPB),
-		"flow":                 json.RawMessage(flowJSON),
+		"flow":                 flowJSON,
 		"capture":              map[string]any{"request": "结构化重建，含完整请求body；非逐字节线上报文", "response_body_limit": maxCaptureBytes, "preview_limit": maxPreviewBytes, "capture_truncated": model.CaptureTruncated, "preview_truncated": model.PreviewTruncated, "auto_decompressed": false},
 	})
 }

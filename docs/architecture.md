@@ -22,7 +22,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 |---|---|
 | `native/cmd/wscyber-hub/` | 入口与装配：Hub、正式模型节点（`model_product.go`）、模型配置、UI 静态挂载。`--fixture-node`/`--model-endpoint` 为本机测试分支 |
 | `native/cmd/wscyber-native/` | 早期 CLI fixture（原生会话/工具最小链），仅测试参考 |
-| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查 |
+| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录 |
 | `native/modeltransport/` | 本机测试用的模型连接目的地约束 |
 | `native/patches/` | 上游 SQLite 事务锁一行补丁（`_txlock=immediate`），经 `scripts/cyber-go-overlay.py` 构建时应用 |
 | `native/ui/source-overlay/` | 对原生前端的覆盖文件（App、任务/候选/证据/验证面板、配置、i18n）；清单 `source-overlay.json` |
@@ -36,6 +36,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` 与 `asset:{id,name}\|null` |
 | PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |
+| GET | `/tasks/{id}/egress?session_id=&decision=&limit=&cursor=`、`/tasks/{id}/egress/{flow_id}` | 全工具出口记录（终端经代理的放行/拒绝请求，倒序分页；详情含 Flow 头与 4KiB body 预览），见 `native/POLICY.md`「全工具出口（B2）」 |
 | GET | `/tasks/{id}/findings[/{fid}[/history\|/revisions/{rid}]]` | 候选、修订 |
 | PUT/GET | `/tasks/{id}/findings/{fid}/verifications[/{vid}]` | 发起/读取独立验证（客户端稳定 UUID，幂等） |
 | GET | `/verifications?session_id=` | 由验证会话反查上下文 |
@@ -58,11 +59,12 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 
 ## 4. 关键约束与已知缺口
 
-- 授权：`webapi_http` 按任务测试策略强制 origin（scope=unrestricted 时不限制、仍完整记录）；原生终端等工具**没有**强制出口。
+- 授权：`webapi_http` 按任务测试策略强制 origin（scope=unrestricted 时不限制、仍完整记录）。
+- 出口（B2）：模型节点装 `Capability.EgressExtension()`（复用上游 `tools/proxy.NewProxyHub`，CA 在 `state-dir/egress-ca/`），终端（bash/tmux）每个进程注入带令牌的代理与 CA 变量；代理在连目标前按会话所属任务策略放行/拒绝（origins 时越界 407，unrestricted 只记录，普通对话放行记录），放行与拒绝都写 `webapi_egress_flows`。是代理强制，可被刻意绕过（unset 代理变量、`--noproxy`、nc/原始 socket、DNS、已建隧道内不复核），不是 netns/iptables 隔离；浏览器工具未接入。见 `native/POLICY.md`。
 - 审批：任务测试策略 approval（默认 high_risk）经原生 `tool.before` 挂起高危 `webapi_http` / 终端命令（all 时还有全部非只读 HTTP、终端与 `write`），以 `guardrail.Review` 事件出卡片，人经 Hub guardrail 命名空间 Pending/Resolve 批准；拒绝/超时（10 分钟）不执行，HTTP 记 `review_denied/review_expired` 未发送。终端规则是静态表，见 `native/POLICY.md`。
 - unknown：同任务相同请求指纹的发送未知状态阻止自动重发。
-- 旧库升级：新 Hub 打开已知旧结构库（四/六/八/十/十二/十五/十七表阶段）时事务性补齐到完整结构（含测试策略、资产、周期计划、计划后续表）；其他结构报错。没有通用迁移框架。
-- 未做：全工具流量捕获、模型报告、复测、用量/原文记录、资料库接入、图谱/时间线。
+- 旧库升级：新 Hub 打开已知旧结构库（四/六/八/十/十二/十五/十七/二十/二十二表阶段）时事务性补齐到完整结构（含测试策略、资产、周期计划、计划后续、漏洞库、出口记录表）；其他结构报错。没有通用迁移框架。
+- 未做：出口流量被候选/验证引用、浏览器工具出口、模型报告、复测、用量/原文记录、资料库接入、图谱/时间线。
 
 ## 5. 扩展原则
 

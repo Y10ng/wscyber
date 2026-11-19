@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -134,7 +135,8 @@ func TestProductModelNativeEntryAndReopen(t *testing.T) {
 
 // 第二个短专项只核对 borrowed Provider 的关闭时机和原生 Runtime 命名空间。
 func TestProductModelProfileOwnershipAndNativeProtocol(t *testing.T) {
-	capability, err := webapi.NewCapability(t.TempDir() + "/hub.sqlite")
+	stateDir := t.TempDir()
+	capability, err := webapi.NewCapability(stateDir + "/hub.sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +147,10 @@ func TestProductModelProfileOwnershipAndNativeProtocol(t *testing.T) {
 	}
 	if err := p.Load(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	// 正式节点接上全工具出口（不是 NoEgress）：Load 即启动代理并在 state-dir/egress-ca 导出 CA。
+	if _, err := os.Stat(stateDir + "/egress-ca/mitmproxy-ca-cert.pem"); err != nil {
+		t.Fatalf("正式节点未接全工具出口: %v", err)
 	}
 	state, _ := p.Providers()
 	first := provider.ProviderConfig{Provider: "openai", BaseURL: "https://example.invalid/v1", APIKey: "not-a-credential", Model: "model-a"}
