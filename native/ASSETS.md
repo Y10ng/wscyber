@@ -44,7 +44,7 @@
 - 触发：扫描 `launched` 且后续未完成的计划运行——已规划未完成的，或未规划且是该资产**最近一次** launched 运行（被更新的计划运行取代时不再补规划；旧库升级后也只会规划各资产最近一次）。研究会话 `SessionRunning=false` 且事件里至少一个 `TurnEnded`（launcher `TurnEnded`）才规划；判定出错本轮跳过。手动从资产发起的任务没有 run，不触发。
 - 规划（单事务写运行级标记 `webapi_schedule_run_followups` 与全部 pending 项，开关取当时值快照）：
   - `auto_verify`：本次任务中**还没有任何验证**的候选（当前修订）→ 验证项，`task_id`＝本次任务。
-  - `auto_retest`：同资产在本次任务之前关联的任务（`webapi_asset_tasks.created_at` 更早，含手动发起）里，**最新一条已有判读**的验证为 `supported`、且**最新一条已有结论**的复测不是 `fixed_in_scope` 的候选（当前修订）→ 复测项，`task_id`＝原任务（授权沿用原任务 origins，现有复测语义）。本次任务候选不复测。
+  - `auto_retest`（C3 起按漏洞条目去重）：先同步资产漏洞库（见下节），对状态 `new`/`present` 且**本次任务没有成员**的条目（本轮重新发现的由本轮验证覆盖），取一个代表成员复测——最新决定性“存在”事件（验证 supported / 复测 reproducible）所属的候选，要求其任务在本次任务之前关联（`webapi_asset_tasks.created_at` 更早，含手动发起）；在其原任务下按其**当前修订**复测，`task_id`＝原任务（授权沿用原任务 origins）。`fixed`/`pending`/`unconfirmed` 条目不复测；同条目其余候选不复测。
   - 项表 `webapi_schedule_followups(id, run_id, kind, task_id, finding_id, revision_id, target_id, status, error, created_at, updated_at)`，`(run_id, kind, finding_id)` 唯一；`target_id` = UUIDv5(固定命名空间, `run_id\nfinding_id\nrevision_id\nverify|retest`)。
 - 发起（每个 pending 项）：先查跳过——资产不存在/已归档、计划已删除、对应开关已关闭 → `skipped`（文案即原因）；验证项若候选已有本项以外的验证 → `skipped`“候选已有验证”。再用 `target_id` 走现有验证/复测认领（`saveVerification`/`saveRetest`，同 ID 回放），然后与 `LaunchAssetTask` 共用的 `startSession`：会话已存在不再 Open、已有用户消息不再 Run，节点选择同资产发起。首条消息由 Go `pinnedFirstMessage` 生成，与前端 `webApiVerificationFirstMessage`（`hooks/useChatSession.ts`）/`buildWebApiRetestFirstMessage`（`lib/retest-message.ts`）逐行一致。
   - 成功 → `launched`；确定失败 → `failed`，`error`＝`阶段：文案`（`create`/`select_node`/`open_session`/`run_turn` 等，文案里对象为“验证/复测已保存…”），**不自动重试**。存储异常或 Hub 关闭 → 保持 pending，下轮/重启后以同 ID 续完，不重复建或 Run。
@@ -54,3 +54,20 @@
 - `GET /api/webapi/schedule-runs/{run_id}/followups` → `{run: 运行视图(含 followups), items:[{id, kind, task_id, finding_id, finding_number, finding_title, revision_id, target_id, session_id, status, error, verdict, conclusion, created_at, updated_at}]}`（验证项在前；`session_id`/`verdict`/`conclusion` 尚无为 null）；运行不存在 404。
 - 旧库：C2a 阶段（十七表）补 `webapi_schedule_options`、`webapi_schedule_run_followups`、`webapi_schedule_followups` 三表与唯一索引，不改原表。
 - 已知限制：研究会话因 Hub 重启缺 `TurnEnded` 时该运行停在 waiting，直到下一次计划运行将其取代（not_planned）；同资产下一次计划研究不会等待上一次的后续会话结束（仍受全局上限约束）。
+
+## 资产漏洞库（C3 后端）
+
+把同一资产各轮任务的候选归并成“漏洞条目”，资产层面看“新发现 / 仍存在 / 已修复”。状态读时派生、不存储；归并关系可人工修改。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
+
+- 表：`webapi_asset_vulns(id, asset_id, endpoint_key, title_override, created_at, updated_at)`、`webapi_asset_vuln_members(finding_id PK, vuln_id, asset_id, task_id, link auto|manual, created_at, updated_at)`；一个候选最多属于一个条目。旧库：C2b 阶段（二十表）补这两表与三个索引，不改原表。
+- **端点键**：候选当前修订证据快照里第一条 `supporting`（无则第一条任意关系）的 `METHOD origin/规范化路径`——METHOD 大写；origin 同任务 origin 规范化（小写、去默认端口）；去 query/fragment；纯数字、UUID、≥16 位 hex 的路径段替换为 `{id}`；去尾 `/`（根路径保留 `/`）。无证据或 URL 不能解析为 http(s) 的候选为 `finding:<finding_id>`（自成一条）。
+- **同步**（按资产串行、单事务、幂等）：资产关联任务（`webapi_asset_tasks`）中尚未入库的候选按端点键加入 auto 条目，id = UUIDv5(固定命名空间, `asset_id\nendpoint_key`)，不存在则建，`link=auto`。已入库成员**不再重新计算**（候选改修订也不挪动）。触发：漏洞库各 API 处理前、C2b 规划复测前。
+- **人工操作**写 `link=manual`，同步永不覆盖。人工条目 id 由客户端生成（规则同任务 id），`endpoint_key` 为空。成员被移空：人工条目删除；auto 条目保留行但不返回（GET 404），之后同键新候选仍落入该条目。
+- **状态**：收集条目全部成员的决定性事件——验证判读 `supported`（存在）、复测 `reproducible`（存在）、复测 `fixed_in_scope`（已修复），时间为结果保存时间（按时间解析比较）。有决定性事件取最新一条：已修复 → `fixed`；存在 → 条目最早成员（候选创建时间最早）所属任务是该资产最近一次任务（`webapi_asset_tasks` created_at 最新，含手动）时 `new`，否则 `present`。无决定性事件：有任何已出结果的验证 → `unconfirmed`，否则 `pending`（只有 inconclusive 复测也是 pending）。
+- API（原生鉴权内；资产不存在 404；未知字段 400；错误体 `{error}`）：
+  - `GET /assets/{id}/vulns?status=new|present|pending|unconfirmed|fixed`（其他值 400）→ `{asset_id, latest_task_id|null, counts:{new,present,pending,unconfirmed,fixed}（全量，不受过滤影响）, vulns:[View]}`；排序 new, present, pending, unconfirmed, fixed，同状态按 `last_event.at`（无事件用最新成员创建时间）倒序。
+  - View = `{id, title, status, endpoint_key, first_seen_at, last_confirmed_at, fixed_at, last_event:{kind verify|retest, value, at, task_id, finding_id}|null, member_count, task_count, members:[{task_id, finding_id, number, title, link, latest_verdict, latest_retest, created_at, initial_session_id}]}`：title = `title_override` 或最新成员当前修订标题；`first_seen_at` = 最早成员候选创建时间；`last_confirmed_at` = 最新“存在”事件时间；`fixed_at` 仅 fixed 时为最新已修复事件时间；`last_event` = 最新一条结果事件（**含非决定性**，如 counterevidence、inconclusive）；成员按候选创建时间倒序，`created_at` 为候选创建时间，`latest_verdict`/`latest_retest` 为该候选最新保存的判读/结论（无为 null）。
+  - `GET /assets/{id}/vulns/{vid}` → View（不存在/已移空 404）；`PUT` 同路径 `{title}`（必填，去首尾空白，≤200 字，`""` 清除覆盖）→ View。
+  - `PUT /assets/{id}/vulns/{vid}/members/{finding_id}`（空体或 `{}`）→ 把候选移入该条目；`vid` 不存在则新建人工条目（拆分，201），否则 200（已在该条目不变）。候选不存在 404；候选不属于该资产的任务 409；`vid` 属于其他资产 409。返回目标条目 View。
+  - `POST /assets/{id}/vulns/{vid}/merge` `{from}` → from 全部成员移入 vid（`link=manual`），from 的标题覆盖丢弃；同 id 400；任一不存在（或已移空、属其他资产）404；返回 View。
+- 已知限制：端点键只看一条证据，同端点不同问题会归入同一条目、同问题不同端点会分开，需人工拆分/合并；归并不跨资产；人工条目 id 与将来 auto 条目 id 碰撞的可能性按 UUID 忽略。

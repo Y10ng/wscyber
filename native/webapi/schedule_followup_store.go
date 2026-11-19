@@ -172,22 +172,6 @@ func (s *taskStore) verifyCandidates(ctx context.Context, taskID string) ([]foll
 		ORDER BY f.number ASC`, taskID))
 }
 
-// retestCandidates：同资产在本次任务之前关联的任务里，最新一条已有判读的验证为 supported、
-// 且最新一条已有结论的复测不是 fixed_in_scope 的候选（按编号）。
-func (s *taskStore) retestCandidates(ctx context.Context, assetID, taskID string) ([]followupCandidate, error) {
-	return scanCandidates(s.db.QueryContext(ctx, `SELECT f.task_id, f.id, f.current_revision_id FROM webapi_findings f
-		JOIN webapi_asset_tasks l ON l.task_id = f.task_id
-		WHERE l.asset_id = ? AND f.task_id <> ?
-		  AND l.created_at < (SELECT c.created_at FROM webapi_asset_tasks c WHERE c.task_id = ?)
-		  AND (SELECT json_extract(r.payload_json, '$.payload.verdict') FROM webapi_verifications v
-		       JOIN webapi_verification_results r ON r.verification_id = v.id
-		       WHERE v.finding_id = f.id ORDER BY v.created_at DESC, v.id DESC LIMIT 1) = 'supported'
-		  AND COALESCE((SELECT json_extract(r.payload_json, '$.payload.conclusion') FROM webapi_retests t
-		       JOIN webapi_retest_results r ON r.retest_id = t.id
-		       WHERE t.finding_id = f.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1), '') <> 'fixed_in_scope'
-		ORDER BY f.number ASC`, assetID, taskID, taskID))
-}
-
 // otherVerificationExists：候选是否已有 exceptID 以外的验证（人工或其他来源）。
 func (s *taskStore) otherVerificationExists(ctx context.Context, findingID, exceptID string) (bool, error) {
 	var id string

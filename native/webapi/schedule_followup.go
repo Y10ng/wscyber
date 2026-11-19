@@ -9,7 +9,7 @@ import (
 
 // 计划后续（C2b）：计划研究会话结束后，调度器（同一 goroutine）自动
 //  1. 为本次任务尚无任何验证的候选建验证并 Open+Run；
-//  2. 为同资产之前任务里已判读 supported、最新复测不是 fixed_in_scope 的候选在原任务下建复测并 Open+Run。
+//  2. 按资产漏洞库条目去重复测（C3）：状态 new/present 且本次任务没有成员的条目，取代表候选在原任务下建复测并 Open+Run。
 // 确定性 target_id + 先查后发（startSession 按 session 幂等），Hub 重启后从 pending 续完。
 
 // followupTargetID = UUIDv5(run_id, finding_id, revision_id, kind)。
@@ -238,7 +238,7 @@ func (c *Capability) planRunFollowups(ctx context.Context, run scheduleRunModel)
 		add(FollowupVerify, candidates)
 	}
 	if autoRetest {
-		candidates, err := c.store.retestCandidates(ctx, run.AssetID, run.TaskID)
+		candidates, err := c.vulnRetestCandidates(ctx, run.AssetID, run.TaskID)
 		if err != nil {
 			return false, err
 		}

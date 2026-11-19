@@ -33,8 +33,13 @@ func scheduleTaskID(assetID, scheduledFor string) string {
 
 // scheduleUUID 是计划相关确定性 ID：UUIDv5(固定命名空间, 各部分以换行连接)。
 func scheduleUUID(parts ...string) string {
+	return namespacedUUID(scheduleTaskNamespace, parts...)
+}
+
+// namespacedUUID = UUIDv5(namespace, 各部分以换行连接)。
+func namespacedUUID(namespace [16]byte, parts ...string) string {
 	hash := sha1.New()
-	hash.Write(scheduleTaskNamespace[:])
+	hash.Write(namespace[:])
 	hash.Write([]byte(strings.Join(parts, "\n")))
 	sum := hash.Sum(nil)
 	sum[6] = (sum[6] & 0x0f) | 0x50

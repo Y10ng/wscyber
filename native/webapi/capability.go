@@ -287,6 +287,8 @@ type Capability struct {
 	// launcher 由 Routes 从原生管理 API 注入（从资产发起任务用）；测试可替换。
 	launcher    sessionLauncher
 	launchLocks sync.Map
+	// vulnLocks 按资产串行漏洞库同步与人工归并操作。
+	vulnLocks sync.Map
 	// 周期计划调度器（Routes 拿到原生管理 API 时启动，Close 停止）；测试可注入时钟与时区。
 	sched       scheduler
 	scheduleNow func() time.Time
@@ -355,6 +357,11 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "PUT /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleSchedulePut)},
 		{Pattern: "DELETE /api/webapi/assets/{id}/schedule", Handler: http.HandlerFunc(c.handleScheduleDelete)},
 		{Pattern: "GET /api/webapi/assets/{id}/schedule/runs", Handler: http.HandlerFunc(c.handleScheduleRuns)},
+		{Pattern: "GET /api/webapi/assets/{id}/vulns", Handler: http.HandlerFunc(c.handleVulnList)},
+		{Pattern: "GET /api/webapi/assets/{id}/vulns/{vid}", Handler: http.HandlerFunc(c.handleVulnGet)},
+		{Pattern: "PUT /api/webapi/assets/{id}/vulns/{vid}", Handler: http.HandlerFunc(c.handleVulnTitle)},
+		{Pattern: "PUT /api/webapi/assets/{id}/vulns/{vid}/members/{finding_id}", Handler: http.HandlerFunc(c.handleVulnMember)},
+		{Pattern: "POST /api/webapi/assets/{id}/vulns/{vid}/merge", Handler: http.HandlerFunc(c.handleVulnMerge)},
 		{Pattern: "GET /api/webapi/schedules", Handler: http.HandlerFunc(c.handleScheduleList)},
 		{Pattern: "GET /api/webapi/schedule-runs/{run_id}/followups", Handler: http.HandlerFunc(c.handleScheduleRunFollowups)},
 	}

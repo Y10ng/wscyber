@@ -49,6 +49,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | PUT/GET | `/assets/{id}/tasks[/{task_id}]` | 从资产一次发起任务（建任务+策略+关联→Open→Run，按 task_id 幂等、可续完；Go 层 `Capability.LaunchAssetTask`）/ 关联任务列表 |
 | GET/PUT/DELETE | `/assets/{id}/schedule` | 资产周期计划 `{cron, enabled, auto_verify, auto_retest}`（5 字段 cron，按 Hub 本地时区；保存即生效并重算 `next_run_at`，响应带下 3 次预计时间；两开关省略＝true）；Hub 内单 goroutine 每 30s 到点经 `LaunchAssetTask` 发起，研究结束后自动做候选验证与已知漏洞复测，见 `native/ASSETS.md`「周期计划」「计划后续」 |
 | GET | `/assets/{id}/schedule/runs?limit=&cursor=`、`/schedules` | 计划运行记录（launched/failed/skipped，按 scheduled_for 倒序分页，每项带 `followups` 摘要）/ 全部计划（资产名、cron、enabled、开关、next_run_at、最近一次 run） |
+| GET/PUT/POST | `/assets/{id}/vulns[?status=]`、`/assets/{id}/vulns/{vid}`、`…/vulns/{vid}/members/{finding_id}`、`…/vulns/{vid}/merge` | 资产漏洞库：各轮候选按端点键（`METHOD origin/路径`，ID 段归一为 `{id}`）归并成条目，状态 new/present/pending/unconfirmed/fixed 由验证/复测结果读时派生；标题覆盖、移动/拆分、合并为人工归并（同步不覆盖）；计划后续复测按条目去重；见 `native/ASSETS.md`「资产漏洞库」 |
 | GET | `/schedule-runs/{run_id}/followups` | 计划运行的后续明细：kind（verify/retest）、候选编号/标题、task_id、target_id、session_id、status、error、已有的 verdict/conclusion |
 | GET | `/usage?task_id=&from=&to=` | 只读 token 用量汇总（按日/模型，全局按任务、任务内按会话角色）；解 `chat_aop_events` 中 `Event_Usage`，不含费用，见 `native/USAGE.md` |
 
