@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { ClipboardEdit, ExternalLink, Loader2, RefreshCw, Timer } from 'lucide-react'
 import {
   Badge, Button, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { FilterPills, IconAction, Page, PageHeader, TableCard, type FilterPillItem } from './PageFrame'
+import VulnSlaDialog from './VulnSlaDialog'
+import VulnTriageSheet from './VulnTriageSheet'
 import { usePolling } from '../hooks/usePolling'
 import {
   listWebApiAssets,
@@ -13,6 +15,8 @@ import {
   type WebApiAsset,
   type WebApiGlobalVuln,
   type WebApiGlobalVulnCounts,
+  type WebApiVulnDisposition,
+  type WebApiVulnSeverity,
   type WebApiVulnStatus,
 } from '../api'
 
@@ -21,12 +25,18 @@ interface VulnsPageProps {
   onOpenAssetVuln: (assetId: string, vulnId: string) => void
   onOpenTaskFinding: (taskId: string, findingId: string) => void
   onOpenMenu: () => void
+  /** 总览“逾期 N”跳转：置为 true 时筛出逾期条目，消费后由上层清空。 */
+  overdueRequested?: boolean
+  onOverdueRequestedConsumed?: () => void
 }
 
 type VulnFilter = 'all' | WebApiVulnStatus
+type SeverityFilter = '' | Exclude<WebApiVulnSeverity, ''> | 'none'
+type DispositionFilter = '' | WebApiVulnDisposition
 
 const PAGE_LIMIT = 50
 const ALL_ASSETS = '__all__'
+const ALL_OPTION = '__all__'
 const STATUS_ORDER: WebApiVulnStatus[] = ['new', 'present', 'pending', 'unconfirmed', 'fixed']
 
 // 状态色与资产漏洞库/总览一致：new danger、present warning、pending info、
@@ -43,17 +53,65 @@ const STATUS_META: Record<WebApiVulnStatus, {
   fixed: { key: 'webapi.vulnStatusFixed', variant: 'success', dot: 'bg-success' },
 }
 
-const EMPTY_COUNTS: WebApiGlobalVulnCounts = { new: 0, present: 0, pending: 0, unconfirmed: 0, fixed: 0 }
+const SEVERITY_ORDER: Exclude<WebApiVulnSeverity, ''>[] = ['critical', 'high', 'medium', 'low', 'info']
+const SEVERITY_META: Record<Exclude<WebApiVulnSeverity, ''> | 'none', {
+  key: string
+  variant: 'destructive' | 'danger' | 'warning' | 'info' | 'muted'
+  className?: string
+}> = {
+  critical: { key: 'shell.triageSeverityCritical', variant: 'destructive' },
+  high: { key: 'shell.triageSeverityHigh', variant: 'danger' },
+  medium: { key: 'shell.triageSeverityMedium', variant: 'warning' },
+  low: { key: 'shell.triageSeverityLow', variant: 'info' },
+  info: { key: 'shell.triageSeverityInfo', variant: 'muted' },
+  none: { key: 'shell.triageSeverityNone', variant: 'muted', className: 'border border-border' },
+}
+
+const DISPOSITION_ORDER: WebApiVulnDisposition[] = ['open', 'fixing', 'risk_accepted', 'false_positive']
+const DISPOSITION_META: Record<WebApiVulnDisposition, {
+  key: string
+  variant: 'info' | 'muted'
+}> = {
+  open: { key: 'shell.triageDispositionOpen', variant: 'muted' },
+  fixing: { key: 'shell.triageDispositionFixing', variant: 'info' },
+  risk_accepted: { key: 'shell.triageDispositionRiskAccepted', variant: 'muted' },
+  false_positive: { key: 'shell.triageDispositionFalsePositive', variant: 'muted' },
+}
+
+const EMPTY_COUNTS: WebApiGlobalVulnCounts = {
+  new: 0, present: 0, pending: 0, unconfirmed: 0, fixed: 0, overdue: 0,
+  by_severity: { critical: 0, high: 0, medium: 0, low: 0, info: 0, none: 0 },
+}
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu }: VulnsPageProps) {
+function severityKey(severity: WebApiVulnSeverity): Exclude<WebApiVulnSeverity, ''> | 'none' {
+  return severity || 'none'
+}
+
+/** 逾期天数：Hub 本地日与到期日按日期差，至少 1 天（期限当天不算逾期）。 */
+function overdueDays(due: string): number {
+  const parts = due.split('-').map(Number)
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return 1
+  const now = new Date()
+  const dueUTC = Date.UTC(parts[0], parts[1] - 1, parts[2])
+  const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.max(1, Math.round((todayUTC - dueUTC) / 86400000))
+}
+
+export default function VulnsPage({
+  webapiEnabled, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
+  overdueRequested, onOverdueRequestedConsumed,
+}: VulnsPageProps) {
   const { t, i18n } = useTranslation('chat')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<VulnFilter>('all')
+  const [severity, setSeverity] = useState<SeverityFilter>('')
+  const [disposition, setDisposition] = useState<DispositionFilter>('')
+  const [overdueOnly, setOverdueOnly] = useState(false)
   const [assetId, setAssetId] = useState('')
   const [assets, setAssets] = useState<WebApiAsset[]>([])
   const [assetError, setAssetError] = useState('')
@@ -63,6 +121,8 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
+  const [triageItem, setTriageItem] = useState<WebApiGlobalVuln | null>(null)
+  const [slaOpen, setSlaOpen] = useState(false)
   const seq = useRef(0)
   const cursorRef = useRef<string | null>(null)
 
@@ -71,6 +131,13 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
     const timer = window.setTimeout(() => setQuery(searchInput.trim()), 300)
     return () => window.clearTimeout(timer)
   }, [searchInput])
+
+  // 总览“逾期 N”跳转：打开逾期筛选，并通知上层消费该请求。
+  useEffect(() => {
+    if (!overdueRequested) return
+    setOverdueOnly(true)
+    onOverdueRequestedConsumed?.()
+  }, [overdueRequested, onOverdueRequestedConsumed])
 
   const loadAssets = useCallback(async () => {
     if (!webapiEnabled) return
@@ -97,6 +164,9 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
     try {
       const data = await listWebApiGlobalVulns({
         status: filter === 'all' ? undefined : filter,
+        severity: severity || undefined,
+        disposition: disposition || undefined,
+        overdue: overdueOnly || undefined,
         asset_id: assetId || undefined,
         q: query || undefined,
         limit: PAGE_LIMIT,
@@ -117,7 +187,7 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
         setLoadingMore(false)
       }
     }
-  }, [webapiEnabled, filter, assetId, query])
+  }, [webapiEnabled, filter, severity, disposition, overdueOnly, assetId, query])
 
   // 条件变化时回到第一页。
   useEffect(() => {
@@ -154,7 +224,7 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
       dot: STATUS_META[status].dot,
     })),
   ]
-  const filtered = filter !== 'all' || query !== '' || assetId !== ''
+  const filtered = filter !== 'all' || query !== '' || assetId !== '' || severity !== '' || disposition !== '' || overdueOnly
 
   const openVuln = (item: WebApiGlobalVuln) => {
     if (item.kind === 'asset_vuln') {
@@ -165,6 +235,12 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
     onOpenTaskFinding(item.task_id, findingId)
   }
 
+  const refreshAfterSave = () => {
+    // 保存后刷新列表当前页：重置到第一页取最新派生值（期限/逾期读时计算）。
+    cursorRef.current = null
+    void loadVulns({ reset: true, silent: true })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <Page>
@@ -173,9 +249,21 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
           onOpenMenu={onOpenMenu}
           menuLabel={t('shell.openMenu')}
           actions={(
-            <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading}>
-              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-            </IconAction>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => setSlaOpen(true)}
+              >
+                <Timer className="mr-1.5 h-3.5 w-3.5" />
+                {t('shell.triageSlaSettings')}
+              </Button>
+              <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading}>
+                <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+              </IconAction>
+            </>
           )}
         >
           <Input
@@ -196,9 +284,53 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
               ))}
             </SelectContent>
           </Select>
+          <Select
+            value={severity || ALL_OPTION}
+            onValueChange={(value) => setSeverity(value === ALL_OPTION ? '' : value as SeverityFilter)}
+          >
+            <SelectTrigger aria-label={t('shell.triageSeverityFilter')} className="h-9 w-[120px] shrink-0">
+              <SelectValue placeholder={t('shell.triageSeverityAll')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_OPTION}>{t('shell.triageSeverityAll')}</SelectItem>
+              {SEVERITY_ORDER.map((value) => (
+                <SelectItem key={value} value={value}>{t(SEVERITY_META[value].key)}</SelectItem>
+              ))}
+              <SelectItem value="none">{t('shell.triageSeverityNone')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={disposition || ALL_OPTION}
+            onValueChange={(value) => setDisposition(value === ALL_OPTION ? '' : value as DispositionFilter)}
+          >
+            <SelectTrigger aria-label={t('shell.triageDispositionFilter')} className="h-9 w-[120px] shrink-0">
+              <SelectValue placeholder={t('shell.triageDispositionAll')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_OPTION}>{t('shell.triageDispositionAll')}</SelectItem>
+              {DISPOSITION_ORDER.map((value) => (
+                <SelectItem key={value} value={value}>{t(DISPOSITION_META[value].key)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </PageHeader>
 
-        <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+          <button
+            type="button"
+            aria-pressed={overdueOnly}
+            onClick={() => setOverdueOnly((value) => !value)}
+            className={cn(
+              'flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+              overdueOnly ? 'border border-border bg-accent font-medium text-foreground' : 'border border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+            )}
+          >
+            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-destructive" />
+            <span>{t('shell.triageOverdue')}</span>
+            <span className={cn('tabular-nums', overdueOnly ? 'text-foreground/70' : 'text-muted-foreground')}>{counts.overdue}</span>
+          </button>
+        </div>
         {(error || assetError) && (
           <p role="status" className="text-[12px] text-warning">{t('shell.loadFailed')}：{error || assetError}</p>
         )}
@@ -224,22 +356,28 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
             <EmptyState title={filtered ? t('shell.vulnsFilterEmpty') : t('shell.vulnsEmpty')} />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] table-fixed border-collapse text-[13px]">
+              <table className="w-full min-w-[1180px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
                 <colgroup>
-                  <col className="w-[96px]" />
+                  <col className="w-[84px]" />
                   <col />
-                  <col className="w-[160px]" />
-                  <col className="w-[240px]" />
+                  <col className="w-[84px]" />
+                  <col className="w-[120px]" />
                   <col className="w-[110px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-16" />
-                  <col className="w-14" />
+                  <col className="w-[100px]" />
+                  <col className="w-[180px]" />
+                  <col className="w-[92px]" />
+                  <col className="w-[92px]" />
+                  <col className="w-[52px]" />
+                  <col className="w-[72px]" />
                 </colgroup>
                 <thead>
                   <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colVuln')}</th>
+                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageSeverity')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colAsset')}</th>
+                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageOwner')}</th>
+                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageDue')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colEndpoint')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colFirstSeen')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colLastConfirmed')}</th>
@@ -251,6 +389,13 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
                   {items.map((item) => {
                     const first = formatCreated(item.first_seen_at)
                     const meta = STATUS_META[item.status]
+                    const triage = item.triage
+                    const sev = severityKey(triage?.severity || '')
+                    const sevMeta = SEVERITY_META[sev]
+                    const disp = triage?.disposition || 'open'
+                    const dispMeta = DISPOSITION_META[disp]
+                    const falsePositive = disp === 'false_positive'
+                    const ownerFromAsset = Boolean(triage && !triage.owner && triage.owner_effective)
                     const fixedAt = item.status === 'fixed' && item.fixed_at ? formatCreated(item.fixed_at) : null
                     const confirmed = fixedAt || (item.last_confirmed_at ? formatCreated(item.last_confirmed_at) : null)
                     return (
@@ -263,12 +408,47 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
                           <Badge variant={meta.variant} size="sm">{t(meta.key)}</Badge>
                         </td>
                         <td className="min-w-0 px-3">
-                          <span className="block truncate text-[13px] font-medium text-foreground" title={item.title}>{item.title}</span>
+                          <span
+                            className={cn('block truncate text-[13px] font-medium text-foreground', falsePositive && 'text-muted-foreground line-through')}
+                            title={item.title}
+                          >
+                            {item.title}
+                          </span>
+                          {disp !== 'open' && (
+                            <Badge variant={dispMeta.variant} size="sm" className="mt-0.5">{t(dispMeta.key)}</Badge>
+                          )}
+                        </td>
+                        <td className="px-3">
+                          <Badge variant={sevMeta.variant} size="sm" className={sevMeta.className}>{t(sevMeta.key)}</Badge>
                         </td>
                         <td className="px-3">
                           {item.asset
                             ? <span className="block truncate text-[12px] text-foreground" title={item.asset.name}>{item.asset.name}</span>
                             : <Badge variant="muted" size="sm">{t('shell.vulnsNoAsset')}</Badge>}
+                        </td>
+                        <td className="px-3">
+                          {triage?.owner_effective
+                            ? (
+                              <span
+                                className={cn('block truncate text-[12px]', ownerFromAsset ? 'text-muted-foreground' : 'text-foreground')}
+                                title={triage.owner_effective}
+                              >
+                                {triage.owner_effective}
+                              </span>
+                            )
+                            : <span className="text-[12px] text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 leading-tight">
+                          {triage?.due_effective ? (
+                            <>
+                              <div className={cn('text-[12px]', triage.overdue ? 'text-destructive' : 'text-foreground')}>{triage.due_effective}</div>
+                              {triage.overdue && (
+                                <div className="text-[11px] text-destructive">
+                                  {t('shell.triageOverdueDays', { count: overdueDays(triage.due_effective) })}
+                                </div>
+                              )}
+                            </>
+                          ) : <span className="text-[12px] text-muted-foreground">—</span>}
                         </td>
                         <td className="min-w-0 px-3">
                           <span className="block truncate font-mono text-[12px] text-muted-foreground" title={item.endpoint_key || undefined}>
@@ -291,7 +471,10 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
                         </td>
                         <td className="px-3 text-right tabular-nums text-foreground">{item.member_count}</td>
                         <td className="px-3" onClick={(event) => event.stopPropagation()}>
-                          <div className="flex justify-end">
+                          <div className="flex justify-end gap-1">
+                            <IconAction label={t('shell.triageOpen')} onClick={() => setTriageItem(item)}>
+                              <ClipboardEdit className="h-3.5 w-3.5" />
+                            </IconAction>
                             <IconAction label={t('shell.vulnsOpen')} onClick={() => openVuln(item)}>
                               <ExternalLink className="h-3.5 w-3.5" />
                             </IconAction>
@@ -306,6 +489,18 @@ export default function VulnsPage({ webapiEnabled, onOpenAssetVuln, onOpenTaskFi
           )}
         </TableCard>
       </Page>
+
+      <VulnTriageSheet
+        open={triageItem !== null}
+        item={triageItem}
+        onClose={() => setTriageItem(null)}
+        onSaved={refreshAfterSave}
+      />
+      <VulnSlaDialog
+        open={slaOpen}
+        onClose={() => setSlaOpen(false)}
+        onSaved={refreshAfterSave}
+      />
     </div>
   )
 }

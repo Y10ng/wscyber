@@ -723,6 +723,40 @@ export async function listWebApiTaskList(params: {
 // --- 全局漏洞（U2a，只读）：GET /vulns，字段见 native/OVERVIEW.md ---
 // 全局漏洞 = 未归档资产的漏洞条目 + 未关联资产任务的候选（kind=task_finding，
 // id=finding:<finding_id>）。状态与排序由后端按资产漏洞库同一规则派生。
+// 漏洞处置（V1）：严重度、处置、负责人、修复期限。空串严重度 = 未定级；
+// owner/due_date 为空时由后端读时派生 owner_effective/due_effective。
+export type WebApiVulnSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info' | ''
+export type WebApiVulnDisposition = 'open' | 'fixing' | 'risk_accepted' | 'false_positive'
+
+export interface WebApiVulnTriage {
+  vuln_key: string
+  severity: WebApiVulnSeverity
+  disposition: WebApiVulnDisposition
+  owner: string
+  owner_effective: string
+  due_date: string
+  due_effective: string | null
+  overdue: boolean
+  note: string
+  updated_at: string | null
+}
+
+export interface WebApiVulnTriageInput {
+  severity?: WebApiVulnSeverity
+  disposition?: WebApiVulnDisposition
+  owner?: string
+  due_date?: string
+  note?: string
+}
+
+export interface WebApiVulnSLA {
+  critical_days: number
+  high_days: number
+  medium_days: number
+  low_days: number
+  updated_at: string | null
+}
+
 export interface WebApiGlobalVuln {
   id: string
   kind: 'asset_vuln' | 'task_finding'
@@ -737,6 +771,17 @@ export interface WebApiGlobalVuln {
   last_event: WebApiVulnEvent | null
   member_count: number
   task_count: number
+  triage: WebApiVulnTriage
+}
+
+// 严重度计数（by_severity）：none = 未定级。
+export interface WebApiVulnSeverityCounts {
+  critical: number
+  high: number
+  medium: number
+  low: number
+  info: number
+  none: number
 }
 
 export interface WebApiGlobalVulnCounts {
@@ -745,6 +790,8 @@ export interface WebApiGlobalVulnCounts {
   pending: number
   unconfirmed: number
   fixed: number
+  overdue: number
+  by_severity: WebApiVulnSeverityCounts
 }
 
 export interface WebApiGlobalVulnList {
@@ -756,6 +803,9 @@ export interface WebApiGlobalVulnList {
 
 export async function listWebApiGlobalVulns(params: {
   status?: WebApiVulnStatus
+  severity?: string
+  disposition?: string
+  overdue?: boolean
   asset_id?: string
   q?: string
   limit?: number
@@ -763,12 +813,45 @@ export async function listWebApiGlobalVulns(params: {
 } = {}): Promise<WebApiGlobalVulnList> {
   const query = new URLSearchParams()
   if (params.status) query.set('status', params.status)
+  if (params.severity) query.set('severity', params.severity)
+  if (params.disposition) query.set('disposition', params.disposition)
+  if (params.overdue) query.set('overdue', '1')
   if (params.asset_id) query.set('asset_id', params.asset_id)
   if (params.q) query.set('q', params.q)
   if (params.limit) query.set('limit', String(params.limit))
   if (params.cursor) query.set('cursor', params.cursor)
   const suffix = query.toString()
   return apiJSON<WebApiGlobalVulnList>(`/api/webapi/vulns${suffix ? `?${suffix}` : ''}`, 'Failed to load vulnerabilities')
+}
+
+// 保存漏洞人工处置（V1）：PUT /vulns/{key}/triage，返回 Triage View。
+// key 来自全局漏洞 id（资产条目 vid 或 finding:<id>），路径段整体编码。
+export async function saveWebApiVulnTriage(key: string, body: WebApiVulnTriageInput): Promise<WebApiVulnTriage> {
+  return apiJSON<WebApiVulnTriage>(
+    `/api/webapi/vulns/${encodeURIComponent(key)}/triage`,
+    'Failed to save triage',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+}
+
+export async function getWebApiVulnSLA(): Promise<WebApiVulnSLA> {
+  return apiJSON<WebApiVulnSLA>('/api/webapi/vuln-sla', 'Failed to load SLA')
+}
+
+export async function saveWebApiVulnSLA(body: Partial<Omit<WebApiVulnSLA, 'updated_at'>>): Promise<WebApiVulnSLA> {
+  return apiJSON<WebApiVulnSLA>(
+    '/api/webapi/vuln-sla',
+    'Failed to save SLA',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
 }
 
 // --- 全局报告（U2a，只读）：GET /report-list，字段见 native/OVERVIEW.md ---
@@ -854,7 +937,12 @@ export interface WebApiOverview {
   days: number
   assets: { total: number; archived: number; scheduled_enabled: number }
   tasks: { total: number; running: number; created_in_range: number; by_day: WebApiOverviewDayCount[] }
-  vulns: { counts: Record<WebApiVulnStatus, number>; confirmed_by_day: WebApiOverviewVulnDay[] }
+  vulns: {
+    counts: Record<WebApiVulnStatus, number>
+    open_by_severity: WebApiVulnSeverityCounts
+    overdue: number
+    confirmed_by_day: WebApiOverviewVulnDay[]
+  }
   tokens: { total: number; by_day: WebApiOverviewTokenDay[] }
   schedules: { next: WebApiOverviewNextSchedule[]; recent_runs: WebApiOverviewRecentRun[] }
   recent_supported: WebApiOverviewRecentSupported[]

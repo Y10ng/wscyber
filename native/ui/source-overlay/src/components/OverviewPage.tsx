@@ -21,6 +21,7 @@ interface OverviewPageProps {
   onOpenTask: (sessionId: string) => void
   onOpenAsset: (assetId: string) => void
   onOpenUsage: () => void
+  onOpenVulnsOverdue: () => void
   onOpenMenu: () => void
 }
 
@@ -264,7 +265,7 @@ function scheduleRunBadge(status: string): { label: string; variant: 'success' |
   return { label: 'shell.runSkipped', variant: 'muted' }
 }
 
-export default function OverviewPage({ onNavigate, onOpenTask, onOpenAsset, onOpenUsage, onOpenMenu }: OverviewPageProps) {
+export default function OverviewPage({ onNavigate, onOpenTask, onOpenAsset, onOpenUsage, onOpenVulnsOverdue, onOpenMenu }: OverviewPageProps) {
   const { t, i18n } = useTranslation('chat')
   const [days, setDays] = useState<Days>(getInitialDays)
   const [data, setData] = useState<WebApiOverview | null>(null)
@@ -458,6 +459,26 @@ export default function OverviewPage({ onNavigate, onOpenTask, onOpenAsset, onOp
                         </div>
                       )
                     })}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-[12px]">
+                    <span className="text-muted-foreground">{t('shell.triageOpenUnfixed')}</span>
+                    {(['critical', 'high', 'medium', 'low'] as const).map((severity) => (
+                      <span key={severity} className="text-muted-foreground">
+                        {t(`shell.triageSeverity${severity.charAt(0).toUpperCase()}${severity.slice(1)}`)}
+                        {' '}
+                        <span className="tabular-nums text-foreground">{data.vulns.open_by_severity?.[severity] || 0}</span>
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={onOpenVulnsOverdue}
+                      className="flex items-center gap-1 rounded text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      {t('shell.triageOverdue')}
+                      <span className={cn('tabular-nums', (data.vulns.overdue || 0) > 0 ? 'text-destructive' : 'text-foreground')}>
+                        {data.vulns.overdue || 0}
+                      </span>
+                    </button>
                   </div>
                 </div>
               )}

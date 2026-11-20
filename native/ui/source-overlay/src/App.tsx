@@ -130,6 +130,8 @@ export default function App({ services }: { services: HubServices }) {
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
   const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
   const [focusVulnId, setFocusVulnId] = useState<string | null>(null)
+  // 总览“逾期 N” → 漏洞页：一次性请求，漏洞页消费后清空。
+  const [vulnsOverdueRequested, setVulnsOverdueRequested] = useState(false)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
   // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
@@ -895,6 +897,7 @@ export default function App({ services }: { services: HubServices }) {
                   onOpenTask={openTaskSession}
                   onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
                   onOpenUsage={() => setUsageDialogOpen(true)}
+                  onOpenVulnsOverdue={() => { setVulnsOverdueRequested(true); navigate('vulns') }}
                   onOpenMenu={() => setSidebarOpen(true)}
                 />
               )}
@@ -915,6 +918,8 @@ export default function App({ services }: { services: HubServices }) {
                     onOpenAssetVuln={handleOpenAssetVuln}
                     onOpenTaskFinding={handleOpenTaskFinding}
                     onOpenMenu={() => setSidebarOpen(true)}
+                    overdueRequested={vulnsOverdueRequested}
+                    onOverdueRequestedConsumed={() => setVulnsOverdueRequested(false)}
                   />
                 ) : (
                   <Page>
