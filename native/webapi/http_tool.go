@@ -86,6 +86,8 @@ func (c *Capability) ToolExtension() extension.Extension {
 				}
 				return agenthooks.ModelPolicy{}, nil
 			}))
+			// 研究会话按任务场景注入身份/边界/黑板纪律/证据标准/方法/完成标准（M1，见 native/SCENARIO.md）。
+			subscriptions = append(subscriptions, agenthooks.BeforeRun.On(registry, "wscyber-webapi-scenario", c.scenarioBeforeRun))
 			return nil
 		},
 		CloseFunc: func(ctx context.Context) error {

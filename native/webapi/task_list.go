@@ -53,6 +53,7 @@ type TaskListItem struct {
 	RetestCount       int            `json:"retest_count"`
 	TotalTokens       uint64         `json:"total_tokens"`
 	Policy            TaskListPolicy `json:"policy"`
+	Scenario          TaskScenario   `json:"scenario"`
 	Archived          bool           `json:"archived"`
 }
 
@@ -71,12 +72,14 @@ type taskListRow struct {
 func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskListRow, error) {
 	query := `SELECT t.id, t.objective, t.known_info, t.origins_json, t.initial_session_id, t.created_at,
 		COALESCE(a.id, ''), COALESCE(a.name, ''), COALESCE(p.scope, ''), COALESCE(p.approval, ''),
+		COALESCE(sc.scenario, ''), COALESCE(sc.done_criteria, ''),
 		EXISTS (SELECT 1 FROM chat_aop_events e WHERE e.session_id = t.initial_session_id AND e.turn_id != ''),
 		COALESCE((SELECT cs.archived = 1 FROM chat_sessions cs WHERE cs.id = t.initial_session_id), 0)
 		FROM webapi_tasks t
 		LEFT JOIN webapi_asset_tasks l ON l.task_id = t.id
 		LEFT JOIN webapi_assets a ON a.id = l.asset_id
-		LEFT JOIN webapi_task_policies p ON p.task_id = t.id`
+		LEFT JOIN webapi_task_policies p ON p.task_id = t.id
+		LEFT JOIN webapi_task_scenarios sc ON sc.task_id = t.id`
 	args := []any{}
 	if assetID != "" {
 		query += ` WHERE l.asset_id = ?`
@@ -89,9 +92,9 @@ func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskLi
 	out := []*taskListRow{}
 	for rows.Next() {
 		row := &taskListRow{}
-		var originsJSON, assetRefID, assetName, scope, approval string
+		var originsJSON, assetRefID, assetName, scope, approval, scenarioKey, doneCriteria string
 		if err := rows.Scan(&row.item.TaskID, &row.objective, &row.knownInfo, &originsJSON, &row.item.InitialSessionID, &row.item.CreatedAt,
-			&assetRefID, &assetName, &scope, &approval, &row.hasTurn, &row.item.Archived); err != nil {
+			&assetRefID, &assetName, &scope, &approval, &scenarioKey, &doneCriteria, &row.hasTurn, &row.item.Archived); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -109,6 +112,10 @@ func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskLi
 			policy.Scope, policy.Approval = scope, approval
 		}
 		row.item.Policy = TaskListPolicy{Scope: policy.Scope, Approval: policy.Approval}
+		row.item.Scenario = defaultTaskScenario()
+		if scenarioKey != "" {
+			row.item.Scenario = newTaskScenario(scenarioKey, doneCriteria, false)
+		}
 		row.createdAt = parseAt(row.item.CreatedAt)
 		out = append(out, row)
 	}

@@ -311,6 +311,11 @@ func (c *Capability) auditTaskCreate(ctx context.Context, task *Task, assetID, s
 	}
 	actor := auditActorOf(ctx)
 	detail := map[string]any{"origins": task.Origins, "policy": policyDetail(scope, approval), "session_id": task.InitialSessionID}
+	if task.Scenario != nil {
+		detail["scenario"] = task.Scenario.Key
+	} else if scenario, err := c.store.scenarioForTask(ctx, task.ID); err == nil {
+		detail["scenario"] = scenario.Key
+	}
 	summary := "新建任务：" + usageTitle(task.Objective)
 	if assetID != "" {
 		detail["asset_id"] = assetID
@@ -405,6 +410,7 @@ func (c *Capability) auditReview(ctx context.Context, sessionID, operationID str
 var assetFieldLabels = []struct{ key, label string }{
 	{"name", "名称"}, {"owner", "负责人"}, {"environment", "环境"}, {"known_info", "已知信息"}, {"objective", "默认目标"},
 	{"origins", "origins"}, {"forbidden", "禁止行为"}, {"scope", "范围"}, {"approval", "审批"}, {"archived", "归档"},
+	{"scenario", "研究场景"}, {"done_criteria", "完成标准"},
 }
 
 func assetFieldValues(model *assetModel) map[string]any {
@@ -413,7 +419,8 @@ func assetFieldValues(model *assetModel) map[string]any {
 	}
 	origins, _ := decodeOrigins(model.OriginsJSON)
 	return map[string]any{"name": model.Name, "owner": model.Owner, "environment": model.Environment, "known_info": model.KnownInfo, "objective": model.Objective,
-		"origins": origins, "forbidden": model.Forbidden, "scope": model.Scope, "approval": model.Approval, "archived": model.Archived}
+		"origins": origins, "forbidden": model.Forbidden, "scope": model.Scope, "approval": model.Approval, "archived": model.Archived,
+		"scenario": model.ScenarioKey, "done_criteria": model.DoneCriteria}
 }
 
 // auditAssetSave：before 为保存前的资产（新建为 nil）；无变化不登记。
@@ -427,7 +434,7 @@ func (c *Capability) auditAssetSave(ctx context.Context, before *assetModel, aft
 			continue
 		}
 		changed, labels = append(changed, field.key), append(labels, field.label)
-		if slices.Contains([]string{"name", "owner", "environment", "origins", "scope", "approval", "archived"}, field.key) {
+		if slices.Contains([]string{"name", "owner", "environment", "origins", "scope", "approval", "archived", "scenario"}, field.key) {
 			values[field.key] = current[field.key]
 		}
 	}

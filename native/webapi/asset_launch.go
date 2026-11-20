@@ -282,7 +282,18 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 			return nil, launchFail(http.StatusBadRequest, "validate", err.Error(), nil)
 		}
 	}
-	task, created, err := c.store.createAssetTask(ctx, assetID, taskID, knownInfo, objective, origins, scope, approval)
+	// 资产默认研究场景（M1）拷贝到新任务；资产无记录＝任务也用默认（不写记录）。
+	var scenario *taskScenarioModel
+	if existing == nil {
+		assetScenario, err := assetScenarioModelOf(ctx, c.store.orm, assetID)
+		if err != nil {
+			return nil, launchFail(http.StatusInternalServerError, "task", "读取资产研究场景失败", nil)
+		}
+		if assetScenario != nil {
+			scenario = &taskScenarioModel{Scenario: assetScenario.Scenario, DoneCriteria: assetScenario.DoneCriteria}
+		}
+	}
+	task, created, err := c.store.createAssetTask(ctx, assetID, taskID, knownInfo, objective, origins, scope, approval, scenario)
 	if errors.Is(err, errAssetTaskOther) {
 		return nil, launchFail(http.StatusConflict, "task", errAssetTaskOther.Error(), nil)
 	}

@@ -77,6 +77,9 @@ type saveAsset struct {
 	Scope       string   `json:"scope"`
 	Approval    string   `json:"approval"`
 	Archived    bool     `json:"archived"`
+	// 默认研究场景（M1）：未提供＝保留当前值（新资产为默认）；提供则校验后保存，空串＝默认。
+	Scenario     *string `json:"scenario"`
+	DoneCriteria *string `json:"done_criteria"`
 }
 
 func validateSaveAsset(id string, body *saveAsset) (*assetModel, error) {
@@ -185,10 +188,31 @@ func (c *Capability) handleAssetPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取资产失败")
 		return
 	}
+	beforeScenario, err := assetScenarioModelOf(r.Context(), c.store.orm, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取资产研究场景失败")
+		return
+	}
+	currentScenario := beforeScenario.view()
+	if before != nil {
+		before.ScenarioKey, before.DoneCriteria = currentScenario.Key, currentScenario.DoneCriteria
+	}
+	input := scenarioInput{Scenario: body.Scenario, DoneCriteria: body.DoneCriteria}
+	model.ScenarioKey, model.DoneCriteria, err = input.resolve(currentScenario.Key, currentScenario.DoneCriteria)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	created, err := c.store.putAsset(r.Context(), *model)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存资产失败")
 		return
+	}
+	if input.provided() {
+		if err := c.store.putAssetScenario(r.Context(), id, model.ScenarioKey, model.DoneCriteria); err != nil {
+			writeError(w, http.StatusInternalServerError, "保存资产研究场景失败")
+			return
+		}
 	}
 	c.auditAssetSave(r.Context(), before, *model)
 	status := http.StatusOK

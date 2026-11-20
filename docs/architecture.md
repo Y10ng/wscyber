@@ -35,6 +35,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 |---|---|---|
 | PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` 与 `asset:{id,name}\|null` |
 | PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
+| GET/PUT | `/scenarios`（GET 选项）、`/tasks/{id}/scenario`（PUT `{scenario?, done_criteria?}`） | 研究场景（`webapi_pentest` 默认 \| `autonomous`）与完成标准：任务/任务列表/资产响应带 `scenario`，资产默认场景在发起与计划发起时拷贝到任务；研究会话每次 Run 经 `BeforeRun` 替换身份段并追加边界/黑板纪律/证据标准/方法/完成标准；见 `native/SCENARIO.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |
 | GET | `/tasks/{id}/egress?session_id=&decision=&limit=&cursor=`、`/tasks/{id}/egress/{flow_id}` | 全工具出口记录（终端经代理的放行/拒绝请求，倒序分页；详情含 Flow 头与 4KiB body 预览），见 `native/POLICY.md`「全工具出口（B2）」 |
 | GET | `/tasks/{id}/evidence/{evidence_id}/image.png`、`/tasks/{id}/egress/{flow_id}/image.png`（`?mark=&max_lines=&mask=`） | 由 Flow 原件确定性渲染请求/响应 PNG（遮盖敏感头、mark 高亮、截断如实标注；404/400/422），包内 `renderEvidenceImage` 供推送调用；见 `native/VERIFICATION.md`「证据图片」 |

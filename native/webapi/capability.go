@@ -39,6 +39,8 @@ type Task struct {
 	Policy *TaskPolicy `json:"policy,omitempty"`
 	// Asset 只在接口响应中附带：从资产发起的任务为 {id,name}，否则 null。
 	Asset *TaskAssetRef `json:"asset"`
+	// Scenario 只在接口响应中附带当前研究场景（M1），不进入任务规范比较。
+	Scenario *TaskScenario `json:"scenario,omitempty"`
 }
 
 // taskAuthorization 是规范保存的授权部分（已规范化 origins）。
@@ -52,6 +54,9 @@ type SaveTask struct {
 	KnownInfo     string             `json:"known_info"`
 	Objective     string             `json:"objective"`
 	Authorization *taskAuthorization `json:"authorization"`
+	// 可选研究场景（M1）：只在新建任务时随任务保存；不参与规范比较。
+	Scenario     *string `json:"scenario,omitempty"`
+	DoneCriteria *string `json:"done_criteria,omitempty"`
 }
 
 // SaveResult 是 PUT 响应体。已存在且内容一致时返回同一任务（规范字段一致，
@@ -211,7 +216,16 @@ func (c *Capability) handlePutTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	result, err := c.store.Save(r.Context(), id, body.KnownInfo, body.Objective, origins)
+	var scenario *taskScenarioModel
+	if input := (scenarioInput{Scenario: body.Scenario, DoneCriteria: body.DoneCriteria}); input.provided() {
+		key, criteria, err := input.resolve(ScenarioWebAPIPentest, "")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		scenario = &taskScenarioModel{Scenario: key, DoneCriteria: criteria}
+	}
+	result, err := c.store.SaveWithScenario(r.Context(), id, body.KnownInfo, body.Objective, origins, scenario)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存任务失败"})
 		return
@@ -337,6 +351,8 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks", Handler: http.HandlerFunc(c.handleGetTaskBySession)},
 		{Pattern: "GET /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handleGetTask)},
 		{Pattern: "PUT /api/webapi/tasks/{id}/policy", Handler: http.HandlerFunc(c.handlePutPolicy)},
+		{Pattern: "PUT /api/webapi/tasks/{id}/scenario", Handler: http.HandlerFunc(c.handlePutTaskScenario)},
+		{Pattern: "GET /api/webapi/scenarios", Handler: http.HandlerFunc(c.handleScenarioList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence", Handler: http.HandlerFunc(c.handleEvidenceList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence/{evidence_id}", Handler: http.HandlerFunc(c.handleEvidenceGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/evidence/{evidence_id}/image.png", Handler: http.HandlerFunc(c.handleEvidenceImage)},

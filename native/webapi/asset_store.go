@@ -27,6 +27,10 @@ type assetModel struct {
 	Archived    bool   `bun:"archived,notnull"`
 	CreatedAt   string `bun:"created_at,notnull"`
 	UpdatedAt   string `bun:"updated_at,notnull"`
+
+	// 默认研究场景（M1）存 webapi_asset_scenarios，不是本表列；这里只供审计比较。
+	ScenarioKey  string `bun:"-"`
+	DoneCriteria string `bun:"-"`
 }
 
 // assetCredentialModel 的 secret 只以 AES-GCM 密文落库；空串表示未设置。
@@ -68,6 +72,8 @@ type Asset struct {
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
 	Credentials []AssetCredential `json:"credentials"`
+	// Scenario 是资产默认研究场景（M1），发起任务与计划发起时拷贝到任务。
+	Scenario TaskScenario `json:"scenario"`
 }
 
 type AssetCredential struct {
@@ -155,7 +161,16 @@ func (s *taskStore) asset(ctx context.Context, id string) (*Asset, error) {
 	if err != nil {
 		return nil, err
 	}
-	return model.toAsset(credentials[id])
+	scenarios, err := s.assetScenarios(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	asset, err := model.toAsset(credentials[id])
+	if err != nil {
+		return nil, err
+	}
+	asset.Scenario = scenarios[id].view()
+	return asset, nil
 }
 
 // listAssets 按 archived 过滤，最近更新在前。
@@ -172,12 +187,17 @@ func (s *taskStore) listAssets(ctx context.Context, archived bool) ([]*Asset, er
 	if err != nil {
 		return nil, err
 	}
+	scenarios, err := s.assetScenarios(ctx, ids...)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*Asset, 0, len(models))
 	for index := range models {
 		asset, err := models[index].toAsset(credentials[models[index].ID])
 		if err != nil {
 			return nil, err
 		}
+		asset.Scenario = scenarios[models[index].ID].view()
 		out = append(out, asset)
 	}
 	return out, nil
@@ -291,9 +311,10 @@ func (s *taskStore) listAssetTasks(ctx context.Context, assetID string) ([]Asset
 	return out, rows.Err()
 }
 
-// createAssetTask 在一个事务内建任务、写策略（含变更记录）与资产关联。按 task_id 幂等：
+// createAssetTask 在一个事务内建任务、写策略（含变更记录）、研究场景与资产关联。按 task_id 幂等：
 // 已是该资产的任务则原样返回（created=false），被其他用途占用返回 errAssetTaskOther。
-func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownInfo, objective string, origins []string, scope, approval string) (*Task, bool, error) {
+// scenario 非空时（资产有默认场景或发起时覆盖）在同一事务内拷贝为任务场景；为空＝任务用默认场景。
+func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownInfo, objective string, origins []string, scope, approval string, scenario *taskScenarioModel) (*Task, bool, error) {
 	originsJSON, err := marshalOrigins(origins)
 	if err != nil {
 		return nil, false, err
@@ -338,6 +359,11 @@ func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownI
 		}
 		if _, err := tx.NewInsert().Model(&assetTaskModel{TaskID: taskID, AssetID: assetID, CreatedAt: now}).Exec(ctx); err != nil {
 			return err
+		}
+		if scenario != nil {
+			if err := putTaskScenarioTx(ctx, tx, taskID, scenario.Scenario, scenario.DoneCriteria); err != nil {
+				return err
+			}
 		}
 		saved, err = task.toTask()
 		return err

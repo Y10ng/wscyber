@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil), (*taskScenarioModel)(nil), (*assetScenarioModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -92,6 +92,8 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_board_facts":            {"id", "task_id", "kind", "subject", "statement", "confidence", "evidence_ids_json", "status", "session_id", "turn_id", "call_id", "created_at", "updated_at"},
 			"webapi_board_oracles":          {"id", "task_id", "number", "question", "category", "endpoint_keys_json", "priority", "status", "origin", "claimed_session_id", "result_summary", "evidence_ids_json", "finding_id", "dedupe_key", "created_at", "updated_at"},
 			"webapi_board_oracle_events":    {"id", "oracle_id", "task_id", "from_status", "to_status", "actor", "session_id", "at", "summary"},
+			"webapi_task_scenarios":         {"task_id", "scenario", "done_criteria", "updated_at"},
+			"webapi_asset_scenarios":        {"asset_id", "scenario", "done_criteria", "updated_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -230,6 +232,12 @@ func (s *taskStore) Get(ctx context.Context, id string) (*Task, error) {
 // 做规范比较：事务首条 SQL 即写，避免与原生 Hub 其它连接并发写时的
 // SQLite 读事务升级 BUSY/SNAPSHOT 窗口；唯一约束保证并发同 ID 只有一条。
 func (s *taskStore) Save(ctx context.Context, id, knownInfo, objective string, origins []string) (*SaveOutcome, error) {
+	return s.SaveWithScenario(ctx, id, knownInfo, objective, origins, nil)
+}
+
+// SaveWithScenario 同 Save；scenario 非空且本次新建时在同一事务内写任务场景（M1）。
+// 幂等重放与冲突都不改已保存场景（改场景走 PUT /tasks/{id}/scenario）。
+func (s *taskStore) SaveWithScenario(ctx context.Context, id, knownInfo, objective string, origins []string, scenario *taskScenarioModel) (*SaveOutcome, error) {
 	want := canonicalKey(knownInfo, objective, origins)
 	originsJSON, err := marshalOrigins(origins)
 	if err != nil {
@@ -268,6 +276,9 @@ func (s *taskStore) Save(ctx context.Context, id, knownInfo, objective string, o
 		outcome.Task = task
 		if affected > 0 {
 			outcome.Created = true
+			if scenario != nil {
+				return putTaskScenarioTx(ctx, tx, id, scenario.Scenario, scenario.DoneCriteria)
+			}
 			return nil
 		}
 		if canonicalKey(existing.KnownInfo, existing.Objective, existingOrigins) != want {
