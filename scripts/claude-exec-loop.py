@@ -6,6 +6,7 @@
 例：  scripts/claude-exec-loop.py wangsu-o-latest r3-backend var/r3-report
 --session 续跑已有会话（如主机重启后），直接以“继续”恢复，不新建会话。
 --prompt  与 --session 合用：首轮发送该文本（如主会话的纠正意见）代替“继续”。
+若存在 ~/.config/wscyber/<model>.settings.json，以 --settings 加载（该型号走其它网关/key）。
 """
 import argparse
 import json
@@ -67,6 +68,10 @@ def main() -> int:
             "--dangerously-skip-permissions", "--model", args.model,
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--disallowedTools", "Agent", "Workflow"]
+    # 非默认网关的型号：本机 ~/.config/wscyber/<model>.settings.json（env 覆盖网关与 key，不入库）
+    override = os.path.expanduser(f"~/.config/wscyber/{args.model}.settings.json")
+    if os.path.isfile(override):
+        base += ["--settings", override]
     for round_no in range(1, args.rounds + 1):
         if round_no == 1 and not args.session:
             cmd = base + ["--session-id", session, "--name", f"wscyber-{args.name}", "--",
