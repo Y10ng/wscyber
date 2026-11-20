@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Boxes, Globe, ShieldCheck } from 'lucide-react'
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@cyber/ui'
+import { ArrowLeft, Boxes, Compass, Globe, ShieldCheck } from 'lucide-react'
+import { Button, Callout, Popover, PopoverContent, PopoverTrigger, Spinner } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { getWebApiTask, type WebApiTask, type WebApiTaskPolicy } from '../api'
+import { getWebApiTask, putWebApiTaskScenario, type WebApiScenario, type WebApiTask, type WebApiTaskPolicy } from '../api'
 import { useWebApiTaskViewCounts } from '../hooks/useWebApiTaskViewCounts'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
+import WebApiScenarioPicker, { normalizeWebApiScenario, scenarioDraftOf, type WebApiScenarioDraft } from './WebApiScenarioPicker'
 
 export type WebApiView = 'execution' | 'traffic' | 'board' | 'findings' | 'reports' | 'usage'
 
@@ -13,6 +14,8 @@ interface Props {
   task: WebApiTask
   /** 策略保存成功后回写 App 的任务对象（App 持有 activeWebApiTask 状态）。 */
   onPolicySaved: (task: WebApiTask) => void
+  /** 场景保存成功后回写 App 的任务对象。 */
+  onScenarioSaved: (task: WebApiTask) => void
   /** 任务来自资产时，点击资产标签回到资产详情。 */
   onOpenAsset?: (assetId: string) => void
   /** 返回任务列表（离开任务工作区，由 App 导航并离开会话）。 */
@@ -34,7 +37,7 @@ const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'bo
 
 // 任务工作区顶栏（高 48px）：返回 · 资产标签 · 任务标题 · origin · 策略指示
 // …… 右侧视图页签（替代原左侧任务导航列；计数取数逻辑抽到 useWebApiTaskViewCounts）。
-export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0 }: Props) {
+export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0 }: Props) {
   const { t, i18n } = useTranslation('chat')
   const counts = useWebApiTaskViewCounts(task.id, countsRevision)
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
@@ -47,6 +50,15 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset, onBack
   const [saved, setSaved] = useState<WebApiTaskPolicy>(policy)
   const [open, setOpen] = useState(false)
   const [reloadError, setReloadError] = useState('')
+  // 场景指示：独立 Popover（策略指示左侧）。打开时同样重新拉取任务，以最新值为基线。
+  const [scenarioOpen, setScenarioOpen] = useState(false)
+  const [scenarioSaved, setScenarioSaved] = useState<WebApiScenario>(normalizeWebApiScenario(task.scenario))
+  const [scenarioDraft, setScenarioDraft] = useState<WebApiScenarioDraft>(scenarioDraftOf(task.scenario))
+  const [scenarioSaving, setScenarioSaving] = useState(false)
+  const [scenarioError, setScenarioError] = useState('')
+  const scenarioName = normalizeWebApiScenario(task.scenario).name || t('scenario.pentestName')
+  const scenarioChanged = scenarioDraft.scenario !== scenarioSaved.key
+    || scenarioDraft.doneCriteria.trim() !== (scenarioSaved.done_criteria ?? '')
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -65,6 +77,45 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset, onBack
     // policy 不进依赖：打开瞬间以上次渲染值为基线，异步再校正，避免闭包旧值。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, task.id])
+
+  useEffect(() => {
+    if (!scenarioOpen) return
+    let cancelled = false
+    setScenarioDraft(scenarioDraftOf(task.scenario))
+    setScenarioSaved(normalizeWebApiScenario(task.scenario))
+    setScenarioError('')
+    getWebApiTask(task.id)
+      .then((fresh) => {
+        if (cancelled) return
+        setScenarioDraft(scenarioDraftOf(fresh.scenario))
+        setScenarioSaved(normalizeWebApiScenario(fresh.scenario))
+      })
+      .catch((err) => { if (!cancelled) setScenarioError(err instanceof Error ? err.message : String(err)) })
+    return () => { cancelled = true }
+    // 与策略同一模式：打开瞬间用当前渲染值，异步再校正。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarioOpen, task.id])
+
+  const saveScenario = async () => {
+    if (scenarioSaving || !scenarioChanged) return
+    setScenarioSaving(true)
+    setScenarioError('')
+    try {
+      // 下一次 Run 生效；空完成标准传空串＝恢复场景默认。
+      const next = await putWebApiTaskScenario(task.id, {
+        scenario: scenarioDraft.scenario,
+        done_criteria: scenarioDraft.doneCriteria.trim(),
+      })
+      setScenarioSaved(next)
+      setScenarioDraft(scenarioDraftOf(next))
+      setScenarioOpen(false)
+      onScenarioSaved({ ...task, scenario: next })
+    } catch (err) {
+      setScenarioError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setScenarioSaving(false)
+    }
+  }
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-background px-3">
@@ -101,6 +152,32 @@ export default function WebApiTaskBar({ task, onPolicySaved, onOpenAsset, onBack
             <span key={origin} className="font-mono text-[12px]" title={origin}>{origin}</span>
           ))}
         </span>
+        {/* 场景指示：策略指示左侧；点击打开场景与完成标准编辑 Popover。 */}
+        <Popover open={scenarioOpen} onOpenChange={setScenarioOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              title={t('scenario.title')}
+              className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <Compass className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <span>{scenarioName}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 space-y-3 p-3">
+            <div className="space-y-0.5">
+              <p className="text-[13px] font-medium text-foreground">{t('scenario.title')}</p>
+              <p className="text-[11px] text-muted-foreground">{t('scenario.hint')}</p>
+            </div>
+            <WebApiScenarioPicker value={scenarioDraft} onChange={setScenarioDraft} disabled={scenarioSaving} />
+            {scenarioError && <Callout tone="destructive">{scenarioError}</Callout>}
+            <div className="flex justify-end">
+              <Button type="button" size="xs" disabled={scenarioSaving || !scenarioChanged} onClick={() => { void saveScenario() }}>
+                {scenarioSaving && <Spinner className="h-3.5 w-3.5" />}{t('scenario.save')}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
         {/* 策略指示：origin 之后；不限制/审批关用琥珀色文字。点击打开编辑 Popover。 */}
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>

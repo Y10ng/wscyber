@@ -568,8 +568,47 @@ export interface WebApiTask {
   created_at: string
   // B1 任务级测试策略；旧后端缺省 undefined 时按默认（origins + high_risk）渲染。
   policy?: WebApiTaskPolicy
+  // M1 研究场景与完成标准（native/SCENARIO.md）；旧后端缺省时按默认场景渲染。
+  scenario?: WebApiScenario
   // 从资产发起的任务带资产引用；普通任务为 null/缺省。
   asset?: { id: string; name: string } | null
+}
+
+// M1 研究场景：任务/资产视图里的 scenario。done_criteria 为保存的自定义文本
+// （空＝用场景默认），done_criteria_effective 为实际生效文本，is_default＝无保存记录。
+export interface WebApiScenario {
+  key: string
+  name: string
+  done_criteria: string
+  done_criteria_effective: string
+  is_default: boolean
+}
+
+// 新建任务/资产表单用的场景选项（GET /api/webapi/scenarios，按展示顺序，第一项默认）。
+export interface WebApiScenarioOption {
+  key: string
+  name: string
+  default_done_criteria: string
+  is_default: boolean
+}
+
+export async function listWebApiScenarios(): Promise<WebApiScenarioOption[]> {
+  const body = await apiJSON<{ scenarios: WebApiScenarioOption[] }>('/api/webapi/scenarios', 'Failed to load scenarios')
+  return body.scenarios
+}
+
+// 未提供的字段沿用当前值；done_criteria 传空串即恢复场景默认。下一次 Run 生效。
+export async function putWebApiTaskScenario(taskID: string, input: { scenario?: string; done_criteria?: string }): Promise<WebApiScenario> {
+  const body = await apiJSON<{ task_id: string; scenario: WebApiScenario }>(
+    `/api/webapi/tasks/${encodeURIComponent(taskID)}/scenario`,
+    'Failed to save task scenario',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  )
+  return body.scenario
 }
 
 // scope: 'origins'（默认）| 'unrestricted'；approval: 'off' | 'high_risk'（默认）| 'all'。
@@ -645,11 +684,22 @@ export interface WebApiEvidenceDetail {
 
 // 相同 ID 同规范内容由后端幂等返回同一 task；不同内容 409 会以 APIError 抛出，
 // 前端不自行覆盖授权。客户端只生成一次 ID，重试复用同一 ID。
-export async function saveWebApiTask(id: string, knownInfo: string, objective: string, origins: string[]): Promise<WebApiSaveResult> {
+// M1：scenario/done_criteria 只在本次新建时随任务保存；幂等重放不改已保存值。
+export async function saveWebApiTask(
+  id: string,
+  knownInfo: string,
+  objective: string,
+  origins: string[],
+  scenario?: string,
+  doneCriteria?: string,
+): Promise<WebApiSaveResult> {
+  const body: Record<string, unknown> = { known_info: knownInfo, objective, authorization: { confirmed: true, origins } }
+  if (scenario) body.scenario = scenario
+  if (doneCriteria) body.done_criteria = doneCriteria
   return apiJSON<WebApiSaveResult>(`/api/webapi/tasks/${encodeURIComponent(id)}`, 'Failed to save task', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ known_info: knownInfo, objective, authorization: { confirmed: true, origins } }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -683,6 +733,8 @@ export interface WebApiTaskListItem {
   retest_count: number
   total_tokens: number
   policy: { scope: string; approval: string }
+  // M1 研究场景；旧响应缺省时按默认场景处理。
+  scenario?: WebApiScenario
 }
 
 export interface WebApiTaskListCounts {
@@ -1639,6 +1691,8 @@ export interface WebApiAsset {
   created_at: string
   updated_at: string
   credentials: WebApiAssetCredential[]
+  // M1 默认研究场景；旧响应缺省时按默认场景处理。
+  scenario?: WebApiScenario
 }
 
 export interface WebApiAssetTaskItem {
@@ -1718,6 +1772,9 @@ export interface WebApiAssetSaveInput {
   scope?: string
   approval?: string
   archived?: boolean
+  // M1 资产默认研究场景；未提供＝保留当前值，done_criteria 空串＝场景默认。
+  scenario?: string
+  done_criteria?: string
 }
 
 export interface WebApiAssetCredentialInput {

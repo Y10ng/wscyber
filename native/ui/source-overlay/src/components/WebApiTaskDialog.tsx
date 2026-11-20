@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Globe, Plus, Trash2 } from 'lucide-react'
 import { newID } from '@cyber/aop'
 import { Button, Callout, Checkbox, Chip, Dialog, DialogContent, DialogTitle, Field, Input, Spinner, Textarea } from '@cyber/ui'
-import type { WebApiTask, WebApiTaskPolicy } from '../api'
+import { saveWebApiTask, putWebApiTaskScenario, type WebApiTask, type WebApiTaskPolicy } from '../api'
 import { DEFAULT_WEB_API_POLICY, WebApiPolicyFields } from './WebApiPolicyShared'
+import WebApiScenarioPicker, { DEFAULT_SCENARIO_KEY, type WebApiScenarioDraft } from './WebApiScenarioPicker'
 
 export interface WebApiTaskInput {
   taskID: string
@@ -14,6 +15,8 @@ export interface WebApiTaskInput {
   // B1：提交顺序 保存任务 → 保存策略 → 启动；startWebApiTask 在保存任务之后、
   // 打开会话之前保存策略，失败即抛错（不启动）。
   policy: { scope: string; approval: string }
+  // M1：场景随任务保存；默认场景也显式提交，空完成标准不带。
+  scenario: WebApiScenarioDraft
 }
 
 interface Props {
@@ -48,6 +51,7 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
   const [confirmed, setConfirmed] = useState(false)
   const [origins, setOrigins] = useState<string[]>([''])
   const [policy, setPolicy] = useState<WebApiTaskPolicy>({ ...DEFAULT_WEB_API_POLICY, is_default: false })
+  const [scenario, setScenario] = useState<WebApiScenarioDraft>({ scenario: DEFAULT_SCENARIO_KEY, doneCriteria: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   // 客户端只生成一次保存 ID：首次提交生成，重试复用；正常关闭不丢，成功后 reset。
@@ -75,6 +79,7 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
     setConfirmed(false)
     setOrigins([''])
     setPolicy({ ...DEFAULT_WEB_API_POLICY, is_default: false })
+    setScenario({ scenario: DEFAULT_SCENARIO_KEY, doneCriteria: '' })
     setError('')
     taskIDRef.current = ''
   }
@@ -92,6 +97,7 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
     // 冻结本次提交快照：只 Trim 判空，传原文；提交中编辑不改变本次启动内容。
     const snapshot = { knownInfo, objective }
     const snapshotPolicy = { scope: policy.scope, approval: policy.approval }
+    const snapshotScenario = { scenario: scenario.scenario, doneCriteria: scenario.doneCriteria.trim() }
     const normalizedOrigins = origins.map((origin) => origin.trim()).filter(Boolean)
     if (!snapshot.knownInfo.trim()) { setError(t('webapi.requiredKnownInfo')); return }
     if (!snapshot.objective.trim()) { setError(t('webapi.requiredObjective')); return }
@@ -102,9 +108,27 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
     setSaving(true)
     setError('')
     try {
+      // M1：场景必须在新建任务的同一次 PUT 保存（下一次 Run 才生效）；启动流程
+      // （useChatSession.startWebApiTask）不承载场景字段且本片不改它，这里先用相同
+      // 两输入/授权 + 场景建任务，随后启动 PUT 是同内容幂等回放，不覆盖场景。
+      // 若任务已存在（失败重试后改了场景），幂等回放不改已存值，改用场景接口更新。
+      const preSaved = await saveWebApiTask(
+        taskIDRef.current,
+        snapshot.knownInfo,
+        snapshot.objective,
+        normalizedOrigins,
+        snapshotScenario.scenario,
+        snapshotScenario.doneCriteria || undefined,
+      )
+      const savedScenario = preSaved.task.scenario
+      if (!savedScenario
+        || savedScenario.key !== snapshotScenario.scenario
+        || (savedScenario.done_criteria ?? '') !== snapshotScenario.doneCriteria) {
+        await putWebApiTaskScenario(taskIDRef.current, { scenario: snapshotScenario.scenario, done_criteria: snapshotScenario.doneCriteria })
+      }
       // onSubmit（startWebApiTask）在保存任务后、开会话前保存策略并启动；
       // 策略保存失败会抛错显示在这里，任务已存、会话未开。
-      await onSubmit({ taskID: taskIDRef.current, knownInfo: snapshot.knownInfo, objective: snapshot.objective, origins: normalizedOrigins, policy: snapshotPolicy })
+      await onSubmit({ taskID: taskIDRef.current, knownInfo: snapshot.knownInfo, objective: snapshot.objective, origins: normalizedOrigins, policy: snapshotPolicy, scenario: snapshotScenario })
       reset()
       onClose()
     } catch (err) {
@@ -185,6 +209,12 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* 研究场景：两输入与授权之后、测试策略之前。只由人设置，进系统提示词。 */}
+            <div className="space-y-2">
+              <span className="block text-[13px] font-medium text-foreground/75">{t('scenario.section')}</span>
+              <WebApiScenarioPicker value={scenario} onChange={setScenario} disabled={saving} />
             </div>
 
             {/* 测试策略：无卡片边框，与上方字段同一栅格。只由人设置，不进模型上下文。 */}

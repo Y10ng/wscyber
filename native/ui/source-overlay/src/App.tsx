@@ -681,6 +681,7 @@ export default function App({ services }: { services: HubServices }) {
               <WebApiTaskBar
                 task={activeWebApiTask}
                 onPolicySaved={setActiveWebApiTask}
+                onScenarioSaved={setActiveWebApiTask}
                 onOpenAsset={webapiEnabled ? (assetId) => { setFocusAssetId(assetId); navigate('assets') } : undefined}
                 onBack={() => navigate('tasks')}
                 view={workspaceView}

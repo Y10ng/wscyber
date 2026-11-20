@@ -317,8 +317,11 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                               {item.scheduled && <Badge variant="outline" size="sm" className="shrink-0">{t('shell.scheduled')}</Badge>}
                               <span className="min-w-0 truncate text-[13px] font-medium text-foreground" title={item.title}>{item.title || item.task_id.slice(0, 8)}</span>
                             </div>
-                            <div className="truncate font-mono text-[11px] text-muted-foreground" title={item.origins.join(', ')}>
-                              {item.origins.join(', ')}
+                            <div className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[11px] text-muted-foreground" title={item.origins.join(', ')}>
+                              <span className="truncate">{item.origins.join(', ')}</span>
+                              {item.scenario && item.scenario.key !== 'webapi_pentest' && (
+                                <span className="shrink-0 font-sans text-muted-foreground">{item.scenario.name}</span>
+                              )}
                             </div>
                           </td>
                           <td className="px-3">

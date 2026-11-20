@@ -35,6 +35,7 @@ import {
 import { usePolling } from '../hooks/usePolling'
 import { formatTime } from './WebApiEvidenceReference'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields } from './WebApiPolicyShared'
+import WebApiScenarioPicker, { scenarioDraftOf } from './WebApiScenarioPicker'
 import WebApiAssetLaunchDialog from './WebApiAssetLaunchDialog'
 import WebApiAssetVulns from './WebApiAssetVulns'
 import './WebApiAssetsPanel.css'
@@ -66,6 +67,8 @@ interface AssetForm {
   forbidden: string
   scope: string
   approval: string
+  scenario: string
+  doneCriteria: string
 }
 
 function formFromAsset(asset: WebApiAsset | null): AssetForm {
@@ -74,6 +77,7 @@ function formFromAsset(asset: WebApiAsset | null): AssetForm {
     approval: asset.approval,
     is_default: !asset.scope && !asset.approval,
   } : null)
+  const scenario = scenarioDraftOf(asset?.scenario)
   return {
     name: asset?.name ?? '',
     owner: asset?.owner ?? '',
@@ -84,6 +88,8 @@ function formFromAsset(asset: WebApiAsset | null): AssetForm {
     forbidden: asset?.forbidden ?? '',
     scope: policy.scope,
     approval: policy.approval,
+    scenario: scenario.scenario,
+    doneCriteria: scenario.doneCriteria,
   }
 }
 
@@ -488,6 +494,8 @@ function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, focusVulnI
         forbidden: form.forbidden,
         scope: form.scope,
         approval: form.approval,
+        scenario: form.scenario,
+        done_criteria: form.doneCriteria.trim(),
         archived: asset?.archived ?? false,
       })
       onSaved(saved)
@@ -629,6 +637,15 @@ function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, focusVulnI
               >
                 <Textarea value={form.forbidden} onChange={(event) => patch({ forbidden: event.target.value })} rows={3} disabled={saving} />
               </Field>
+              <div className="assets-form-col space-y-1.5">
+                <span className="block text-[13px] font-medium text-foreground/75">{t('scenario.assetSection')}</span>
+                <p className="text-xs text-muted-foreground">{t('scenario.assetHint')}</p>
+                <WebApiScenarioPicker
+                  value={{ scenario: form.scenario, doneCriteria: form.doneCriteria }}
+                  onChange={(next) => patch({ scenario: next.scenario, doneCriteria: next.doneCriteria })}
+                  disabled={saving}
+                />
+              </div>
               <div className="assets-form-col">
                 <WebApiPolicyFields
                   scope={form.scope}
