@@ -35,17 +35,17 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 路线（11-20 用户确认）：新增 **M 挖掘能力** 排在 V2 前——上游可复用循环/Goal 评估器/子 Agent，共享黑板（地图/事实/Oracle）须自建；场景内容自写（[scenarios](scenarios.md)）。M0 真实对比用户稍后自行建任务做。不抓取、不照抄线上 Cyber 平台的模板与提示词。
 
-已提交（续）：V1 前端（548c57e）、M2 黑板后端（d741d40，契约 `native/BOARD.md`）。
+已提交（续）：V1 前端（548c57e）、M2 黑板后端（d741d40，`native/BOARD.md`）、M1 场景后端（46023e3，`native/SCENARIO.md`）、M4 黑板界面（c901021）；设计需求说明 `docs/design-brief.md`（用户找设计师出总览/漏洞卡高保真稿）；路线新增 K 漏洞卡、D3 改为 SDL 申请单入站 + 工单出站。
 
-进行中：**M1 场景后端**（o-latest，`var/m1-scenario-backend/task.md`）、**M4 黑板界面**（ds-flash，`var/m4-board-frontend/task.md`，用演示环境）。
+进行中：**M3 持续探索后端**（o-latest，`var/m3-explore-backend/task.md`）、**M1 场景前端**（ds-flash，`var/m1-scenario-frontend/task.md`，用演示环境）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. M1 后端验收 → M1 前端（建任务/资产选场景与完成标准）→ M3 Goal 持续探索 → M4 验收 → M5。用户 11-20 讨论方向（未定）：漏洞卡/最小复现、测试申请单、SLA 工单闭环。
+1. M3 验收 → K1 漏洞卡/最小复现（后端：验证结果加关键请求/对照/一句话影响，确定性 curl；前端待设计稿）→ M5（子 Agent 并行、多账号越权、爬虫/浏览器）→ D3（需 SDL 接口文档）。M3 完成后用户可自建任务做真实对比。
 2. B3 审计页前端；U2e 走查；V2–V4。
-3. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
+3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
 4. D3 SDL（需接口文档）。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；B2 出口为代理强制（可被刻意绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝（V4 推送待审批缓解）；审计无保留期、无用户名（单 key）。
@@ -56,4 +56,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-M1 场景后端（o-latest）与 M4 黑板界面（ds-flash）运行中。
+M3 持续探索后端（o-latest）与 M1 场景前端（ds-flash）运行中。
