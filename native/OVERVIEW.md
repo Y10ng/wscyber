@@ -44,7 +44,13 @@
   vulns: {counts:{new,present,pending,unconfirmed,fixed}, confirmed_by_day:[{date,new,present,fixed}]},
   tokens: {total, by_day:[{date,total_tokens}]},
   schedules: {next:[{asset_id,asset_name,next_run_at}]≤5, recent_runs:[{asset_id,asset_name,scheduled_for,status,task_id,followups_state}]≤5},
-  recent_supported:[{vuln_id,title,asset:{id,name}|null,task_id,at}]≤5 }
+  recent_supported:[{vuln_id,title,asset:{id,name}|null,task_id,at,severity}]≤5,
+  todo: {unrated, pending_push, overdue},
+  sla: {rate|null, closed_on_time, closed_total, avg_fix_days:{critical,high,medium,low}(数值|null),
+        overdue_top:[{vuln_key,title,asset:{id,name}|null,owner_effective,overdue_days}]≤5},
+  coverage: {window_days:30, tested, total, stale_top:[{asset_id,name,last_tested_at|null,days_since|null}]≤5},
+  running: [{task_id,title,asset:{id,name}|null,started_at,elapsed_seconds,board:{endpoints,covered_endpoints}}]≤5,
+  recent_failed_runs: [{asset_id,asset_name,scheduled_for,status,error}]≤3 }
 ```
 
 - 区间 = 今天（Hub 本地时区）往前 `days` 个本地日（含今天）；`by_day`/`confirmed_by_day` 覆盖每一天，无数据补 0，日期 `YYYY-MM-DD`；`timezone` 同 USAGE。
@@ -54,9 +60,19 @@
 - `schedules.next` = 启用、未归档、有 next_run_at 的计划，最早在前；`recent_runs` = 全部资产计划运行按 `scheduled_for` 倒序前 5，`followups_state` 同 C2b 摘要 `state`（非 launched 为 null）。
 - `recent_supported` = 有 `supported` 判读的全局条目，按其最新 `supported` 时间倒序前 5；`task_id` 为该判读所属候选的任务。
 
+OV2 新增（只加字段，旧字段不变；处置/期限派生见 `TRIAGE.md`，“本地日”= Hub 本地时区）：
+
+- `recent_supported[].severity`：条目 triage 严重度，空串 = 未定级。
+- `todo`：`unrated` = 全局条目中“待修复”（status ∈ {new, present} 且 disposition ∈ {open, fixing}）且未定级的数；`pending_push` = 通知 `pending_confirm` 数（`NOTIFY.md`）；`overdue` = `/vulns` 无过滤时的 `counts.overdue`（同 `vulns.overdue`）。待审批数不在此处（前端已有来源）。
+- `sla`：样本 = 全局条目中 status=fixed、`fixed_at` 的本地日落在 `days` 区间内、且有 `due_effective` 的条目。`closed_on_time` = `fixed_at` 本地日 ≤ `due_effective`（期限当天算准时）；`rate` = closed_on_time / closed_total（无样本 null，原始比值不取整）。`avg_fix_days` = 区间内已修复条目（不要求有期限）按**当前**严重度 critical/high/medium/low 分组，`first_confirmed_at → fixed_at` 天数（小时/24）的平均，保留 1 位小数，无样本 null；info/未定级、无首次存在时间的条目不计。`overdue_top` = 当前逾期条目，`overdue_days` = 今天本地日 − `due_effective`，按逾期天数倒序、同天数按 `vuln_key`，前 5。样本不按处置排除（误报/接受风险的已修复条目同样计入）。
+- `coverage`：固定 30 个本地日窗口（含今天），与 `days` 无关。范围 = 未归档资产；某资产在窗口内有关联任务创建（`webapi_asset_tasks.created_at`）即 `tested`。`stale_top` = 全部未归档资产按“最久未测”排序前 5：从未测过的在前（资产创建时间早者优先，再按 id），其余按最近一次关联任务创建时间早者优先（再按 id）。`last_tested_at` = 最近一次关联任务创建时间（存储原值），`days_since` = 今天本地日 − 其本地日；从未测过均为 null。
+- `running`：任务列表状态为 `running` 的任务（同 task-list 判定，含已归档任务），按 `started_at` 倒序（同时间按 task_id）前 5。`started_at` = 研究会话首个带 turn_id 的持久化事件时间（按 cursor 最早，UTC RFC3339），`elapsed_seconds` = 生成时刻 − started_at（向下取整秒，≥0；中间空闲时间也计入）。`board.endpoints` = 黑板端点数，`covered_endpoints` = endpoints − untested_endpoints（`BOARD.md` counts）。
+- `recent_failed_runs`：全部资产的计划运行中，运行本身 `failed` 或其后续（`webapi_schedule_followups`）有 `failed` 项的，按 `scheduled_for` 倒序（再按 id）前 3。`status` 为运行状态；`error` = 运行失败时取运行的错误，否则取首个失败后续（创建时间最早，再按 id）的错误。`asset_name` 含已归档资产（同 `recent_runs`）。
+
 ## 性能说明
 
 - 任务列表：全部任务一条 SQL（含 `EXISTS` 走 `chat_aop_events (session_id, cursor)` 唯一索引判断有无轮次）＋计划运行集合一条；有轮次的任务逐个调 `SessionRunning`（生产实现先看节点 Busy，空闲时不读事件），以便计算 counts。计数、supported、会话集合与事件扫描只对**本页**任务批量 `IN (...)`（每块 500）：约 4+1+3+1 条 SQL；事件扫描按 session_id 走索引，读取这些会话的全部事件行。
 - 全局漏洞：每个未归档资产一次同步＋C3 派生（约 5 条 SQL），无资产候选 3 条；内存排序。适合数千条目量级。
 - 总览：在上述两者之上加一次 `Usage`（与 `/usage` 相同，按 UTC 日期前缀粗筛后扫描 `chat_aop_events` 区间内全部行）。
+- 总览 OV2 字段：复用同一次已加载的全局漏洞条目与 triage 上下文（不重复同步、不重读处置），另加通知计数 1 条、资产与关联任务各 1 条、失败运行 1 条（＋每条非失败运行 1 条取后续错误，≤3）、每个运行中任务 1 条首轮次事件查询（走 `(session_id, cursor)` 索引）＋前 5 个各 3 条黑板计数。
 - 未新增索引；数据量增大后可考虑给 `webapi_verifications/reports/retests (task_id)` 与 `webapi_schedule_runs (task_id)` 补索引。
