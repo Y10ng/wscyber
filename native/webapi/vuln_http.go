@@ -53,6 +53,10 @@ func (c *Capability) writeVuln(w http.ResponseWriter, r *http.Request, assetID, 
 		writeError(w, http.StatusNotFound, errVulnNotFound.Error())
 		return
 	}
+	if err := c.attachAssetTriage(r.Context(), assetID, view); err != nil {
+		writeError(w, http.StatusInternalServerError, "读取漏洞处置失败")
+		return
+	}
 	writeJSON(w, status, view)
 }
 
@@ -73,6 +77,10 @@ func (c *Capability) handleVulnList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sortAssetVulns(vulns)
+	if err := c.attachAssetTriage(r.Context(), assetID, vulns...); err != nil {
+		writeError(w, http.StatusInternalServerError, "读取漏洞处置失败")
+		return
+	}
 	counts := map[string]int{VulnNew: 0, VulnPresent: 0, VulnPending: 0, VulnUnconfirmed: 0, VulnFixed: 0}
 	items := make([]*AssetVuln, 0, len(vulns))
 	for _, vuln := range vulns {

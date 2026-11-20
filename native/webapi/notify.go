@@ -245,7 +245,7 @@ func notifyVerificationSupported(ctx context.Context, store *taskStore, verifica
 	}
 }
 
-// registerVerificationNotification：未配置 webhook 或未启用不登记；去重键为 C3 条目 id（任务关联资产时，先同步）
+// registerVerificationNotification：未配置 webhook 或未启用不登记；条目处置为误报不登记（V1）；去重键为 C3 条目 id（任务关联资产时，先同步）
 // 或 finding:<id>。同键只登记一次；本次之前最新决定性事件为已修复时登记 regression。
 func (c *Capability) registerVerificationNotification(ctx context.Context, verificationID string) error {
 	settings, err := c.store.notifySettings(ctx)
@@ -289,6 +289,12 @@ func (c *Capability) registerVerificationNotification(ctx context.Context, verif
 	dedupeKey := "finding:" + verification.FindingID
 	if vulnID != "" {
 		dedupeKey = vulnID
+	}
+	// V1：条目处置为误报时不再登记（接受风险照常登记，含 regression）。
+	if disposition, err := c.store.vulnDisposition(ctx, dedupeKey); err != nil {
+		return err
+	} else if disposition == DispositionFalsePositive {
+		return nil
 	}
 	events, err := c.store.notifyEvents(ctx, vulnID, verification.FindingID)
 	if err != nil {
@@ -504,6 +510,7 @@ type notifyMessage struct {
 // notifyFields 是 markdown 的全部字段（只来自已保存的候选与验证文字）。
 type notifyFields struct {
 	Regression bool
+	Severity   string // 处置严重度中文等级（严重/高危/…），未定级为空
 	Title      string
 	Asset      string
 	Location   string
@@ -539,6 +546,10 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	if err != nil {
 		return nil, err
 	}
+	triage, err := c.store.triageRecord(ctx, item.DedupeKey)
+	if err != nil {
+		return nil, err
+	}
 	fields := notifyFields{
 		Regression: item.Kind == NotifyKindRegression,
 		Title:      revision.Title,
@@ -549,6 +560,9 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	}
 	if fields.Title == "" {
 		fields.Title = source.Content.Title
+	}
+	if triage != nil && triage.Severity != "" {
+		fields.Severity = severityLabels[triage.Severity]
 	}
 	for _, step := range source.Content.Steps {
 		if len(fields.Steps) == notifyMaxSteps {
@@ -784,6 +798,9 @@ func renderNotifyMarkdown(fields notifyFields, limit int) string {
 	label := "【新确认漏洞】"
 	if fields.Regression {
 		label = "【漏洞复现】"
+	}
+	if fields.Severity != "" {
+		label += "【" + fields.Severity + "】"
 	}
 	asset := fields.Asset
 	if asset == "" {

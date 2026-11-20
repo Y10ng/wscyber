@@ -290,6 +290,8 @@ type Capability struct {
 	launchLocks sync.Map
 	// vulnLocks 按资产串行漏洞库同步与人工归并操作。
 	vulnLocks sync.Map
+	// triageMu 串行漏洞处置与 SLA 的读改写（资产条目另持 vulnLocks，先资产锁后本锁）。
+	triageMu sync.Mutex
 	// 周期计划调度器（Routes 拿到原生管理 API 时启动，Close 停止）；测试可注入时钟与时区。
 	sched       scheduler
 	scheduleNow func() time.Time
@@ -362,6 +364,9 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/usage", Handler: http.HandlerFunc(c.handleUsage)},
 		{Pattern: "GET /api/webapi/task-list", Handler: http.HandlerFunc(c.handleTaskList)},
 		{Pattern: "GET /api/webapi/vulns", Handler: http.HandlerFunc(c.handleGlobalVulns)},
+		{Pattern: "PUT /api/webapi/vulns/{key}/triage", Handler: http.HandlerFunc(c.handleVulnTriagePut)},
+		{Pattern: "GET /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAGet)},
+		{Pattern: "PUT /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAPut)},
 		{Pattern: "GET /api/webapi/report-list", Handler: http.HandlerFunc(c.handleGlobalReportList)},
 		{Pattern: "GET /api/webapi/overview", Handler: http.HandlerFunc(c.handleOverview)},
 		{Pattern: "GET /api/webapi/assets", Handler: http.HandlerFunc(c.handleAssetList)},

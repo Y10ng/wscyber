@@ -27,6 +27,7 @@
 - `q` 匹配标题 / 端点键 / 资产名。`asset_id` 只返回该资产条目（不含无资产候选；归档资产为空）。`status` 其他值 400。
 - 响应 `{items, has_more, next_cursor, counts:{new,present,pending,unconfirmed,fixed}}`；counts 受 q/asset_id 影响、不受 status 影响。分页为内存排序后按偏移切片（游标编码偏移）；翻页期间数据变化可能重复/漏项。
 - 副作用：与资产漏洞接口相同，会把未归档资产尚未入库的候选同步进 `webapi_asset_vulns`/`_members`（幂等）。
+- V1 起每项另有 `triage`，并支持 `severity=`/`disposition=`/`overdue=1` 过滤、`counts.overdue`/`counts.by_severity`；`/overview` 的 `vulns` 另有 `open_by_severity`、`overdue`。见 `TRIAGE.md`。
 
 ## `GET /report-list?q=&asset_id=&limit=&cursor=`
 

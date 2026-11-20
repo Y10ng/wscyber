@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,8 +35,12 @@ type GlobalVuln struct {
 	LastEvent       *AssetVulnEvent `json:"last_event"`
 	MemberCount     int             `json:"member_count"`
 	TaskCount       int             `json:"task_count"`
+	Triage          *TriageView     `json:"triage"`
 
 	sortAt time.Time
+	// assetID/firstConfirmed 供处置视图计算（firstConfirmed 为条目第一条“存在”事件时间）。
+	assetID        string
+	firstConfirmed time.Time
 	// events 是条目全部成员的验证/复测结果事件（总览按日统计用）；findingTasks 为成员候选所属任务。
 	events       []vulnEvent
 	findingTasks map[string]string
@@ -44,7 +49,11 @@ type GlobalVuln struct {
 func globalVulnFrom(view *AssetVuln, kind string, asset *TaskAssetRef, events map[string][]vulnEvent) *GlobalVuln {
 	item := &GlobalVuln{ID: view.ID, Kind: kind, Title: view.Title, Status: view.Status, EndpointKey: view.EndpointKey, Asset: asset,
 		FirstSeenAt: view.FirstSeenAt, LastConfirmedAt: view.LastConfirmedAt, FixedAt: view.FixedAt, LastEvent: view.LastEvent,
-		MemberCount: view.MemberCount, TaskCount: view.TaskCount, sortAt: view.sortAt, findingTasks: map[string]string{}}
+		MemberCount: view.MemberCount, TaskCount: view.TaskCount, sortAt: view.sortAt, findingTasks: map[string]string{},
+		firstConfirmed: view.firstConfirmed}
+	if asset != nil {
+		item.assetID = asset.ID
+	}
 	if len(view.Members) > 0 {
 		item.TaskID = view.Members[0].TaskID // 成员按候选创建时间倒序：最新成员任务
 	}
@@ -235,16 +244,52 @@ func encodeOffsetCursor(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte("o:" + strconv.Itoa(offset)))
 }
 
-// handleGlobalVulns: GET /api/webapi/vulns?status=&asset_id=&q=&limit=&cursor=
+// parseTriageFilter 解析逗号分隔的多值筛选（severity/disposition）；空串返回 nil。
+func parseTriageFilter(raw, name string, known map[string]bool, allowed string) (map[string]bool, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	values := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if !known[value] {
+			return nil, fmt.Errorf("%s 只能是 %s", name, allowed)
+		}
+		values[value] = true
+	}
+	return values, nil
+}
+
+// handleGlobalVulns: GET /api/webapi/vulns?status=&severity=&disposition=&overdue=&asset_id=&q=&limit=&cursor=
 func (c *Capability) handleGlobalVulns(w http.ResponseWriter, r *http.Request) {
 	limit, needle, assetID, err := listParams(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	status := r.URL.Query().Get("status")
+	query := r.URL.Query()
+	status := query.Get("status")
 	if _, known := vulnStatusOrder[status]; status != "" && !known {
 		writeError(w, http.StatusBadRequest, "status 只能是 new、present、pending、unconfirmed、fixed")
+		return
+	}
+	severities, err := parseTriageFilter(query.Get("severity"), "severity", severityFilterKeys, `critical、high、medium、low、info、none（逗号分隔）`)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	dispositions, err := parseTriageFilter(query.Get("disposition"), "disposition", triageDisposition, `open、fixing、risk_accepted、false_positive（逗号分隔）`)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	overdueOnly := false
+	switch query.Get("overdue") {
+	case "", "0":
+	case "1":
+		overdueOnly = true
+	default:
+		writeError(w, http.StatusBadRequest, "overdue 只能是 1")
 		return
 	}
 	offset, err := decodeOffsetCursor(r.URL.Query().Get("cursor"))
@@ -257,17 +302,44 @@ func (c *Capability) handleGlobalVulns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取漏洞列表失败")
 		return
 	}
+	triage, err := c.loadTriageContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取漏洞处置失败")
+		return
+	}
+	for _, item := range all {
+		item.Triage = triage.view(item.ID, item.assetID, item.Status, item.firstConfirmed)
+	}
 	sortGlobalVulns(all)
 	counts := newVulnCounts()
+	bySeverity := newSeverityCounts()
+	overdueCount := 0
 	filtered := make([]*GlobalVuln, 0, len(all))
 	for _, item := range all {
 		if needle != "" && !containsFold(item.Title, needle) && !containsFold(item.EndpointKey, needle) && (item.Asset == nil || !containsFold(item.Asset.Name, needle)) {
 			continue
 		}
 		counts[item.Status]++
-		if status == "" || item.Status == status {
-			filtered = append(filtered, item)
+		// by_severity 与 overdue 只计“待修复”（new/present 且处置 open/fixing）条目。
+		if triageOpen(item.Status, item.Triage.Disposition) {
+			bySeverity[severityBucket(item.Triage.Severity)]++
+			if item.Triage.Overdue {
+				overdueCount++
+			}
 		}
+		if status != "" && item.Status != status {
+			continue
+		}
+		if severities != nil && !severities[severityBucket(item.Triage.Severity)] {
+			continue
+		}
+		if dispositions != nil && !dispositions[item.Triage.Disposition] {
+			continue
+		}
+		if overdueOnly && !item.Triage.Overdue {
+			continue
+		}
+		filtered = append(filtered, item)
 	}
 	page := []*GlobalVuln{}
 	if offset < len(filtered) {
@@ -281,7 +353,11 @@ func (c *Capability) handleGlobalVulns(w http.ResponseWriter, r *http.Request) {
 	if hasMore {
 		next = encodeOffsetCursor(offset + limit)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": page, "has_more": hasMore, "next_cursor": next, "counts": counts})
+	out := map[string]any{"overdue": overdueCount, "by_severity": bySeverity}
+	for key, value := range counts {
+		out[key] = value
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": page, "has_more": hasMore, "next_cursor": next, "counts": out})
 }
 
 // ---- 全局报告列表 ----

@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -85,6 +85,8 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_notify_settings":        {"id", "webhook_cipher", "enabled", "require_confirm", "base_url", "updated_at"},
 			"webapi_notifications":          {"id", "dedupe_key", "kind", "task_id", "finding_id", "verification_id", "vuln_id", "status", "attempts", "next_attempt_at", "last_error", "created_at", "sent_at"},
 			"webapi_audit_events":           {"id", "at", "actor", "action", "target_kind", "target_id", "task_id", "asset_id", "summary", "detail_json"},
+			"webapi_vuln_triage":            {"vuln_key", "asset_id", "severity", "disposition", "owner", "due_date", "note", "created_at", "updated_at"},
+			"webapi_vuln_sla":               {"id", "critical_days", "high_days", "medium_days", "low_days", "updated_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},

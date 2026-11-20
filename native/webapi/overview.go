@@ -68,6 +68,8 @@ type Overview struct {
 	} `json:"tasks"`
 	Vulns struct {
 		Counts         map[string]int    `json:"counts"`
+		OpenBySeverity map[string]int    `json:"open_by_severity"`
+		Overdue        int               `json:"overdue"`
 		ConfirmedByDay []OverviewVulnDay `json:"confirmed_by_day"`
 	} `json:"vulns"`
 	Tokens struct {
@@ -140,7 +142,12 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 	if err != nil {
 		return nil, err
 	}
+	triage, err := c.loadTriageContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	view.Vulns.Counts = newVulnCounts()
+	view.Vulns.OpenBySeverity = newSeverityCounts()
 	type vulnDay struct{ new, present, fixed map[string]bool }
 	perDay := map[string]*vulnDay{}
 	mark := func(date, kind, vulnID string) {
@@ -159,6 +166,13 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 	supported := []OverviewSupported{}
 	for _, vuln := range vulns {
 		view.Vulns.Counts[vuln.Status]++
+		// 待修复（new/present 且处置 open/fixing）的严重度分布与逾期数（V1）。
+		if item := triage.view(vuln.ID, vuln.assetID, vuln.Status, vuln.firstConfirmed); triageOpen(vuln.Status, item.Disposition) {
+			view.Vulns.OpenBySeverity[severityBucket(item.Severity)]++
+			if item.Overdue {
+				view.Vulns.Overdue++
+			}
+		}
 		events := append([]vulnEvent(nil), vuln.events...)
 		sort.Slice(events, func(i, j int) bool { return eventLater(events[j], events[i]) })
 		firstSupported := -1

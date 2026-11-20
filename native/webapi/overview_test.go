@@ -381,10 +381,28 @@ func TestTaskListArchivedPaging(t *testing.T) {
 }
 
 type globalVulnResponse struct {
-	Items      []GlobalVuln   `json:"items"`
-	HasMore    bool           `json:"has_more"`
-	NextCursor *string        `json:"next_cursor"`
-	Counts     map[string]int `json:"counts"`
+	Items      []GlobalVuln     `json:"items"`
+	HasMore    bool             `json:"has_more"`
+	NextCursor *string          `json:"next_cursor"`
+	Counts     globalVulnCounts `json:"counts"`
+}
+
+// globalVulnCounts 只取 counts 中的整数项（V1 起另有对象 by_severity，见 triage_test.go）。
+type globalVulnCounts map[string]int
+
+func (c *globalVulnCounts) UnmarshalJSON(raw []byte) error {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return err
+	}
+	*c = globalVulnCounts{}
+	for key, value := range all {
+		var n int
+		if json.Unmarshal(value, &n) == nil {
+			(*c)[key] = n
+		}
+	}
+	return nil
 }
 
 func vulnSummary(items []GlobalVuln) string {
@@ -406,7 +424,7 @@ func TestGlobalListVulns(t *testing.T) {
 	if got := vulnSummary(all.Items); got != want {
 		t.Fatalf("items = %s", got)
 	}
-	if fmt.Sprint(all.Counts) != fmt.Sprint(map[string]int{"new": 2, "present": 0, "pending": 1, "unconfirmed": 1, "fixed": 1}) {
+	if fmt.Sprint(map[string]int(all.Counts)) != fmt.Sprint(map[string]int{"new": 2, "present": 0, "pending": 1, "unconfirmed": 1, "fixed": 1, "overdue": 0}) {
 		t.Fatalf("counts = %v", all.Counts)
 	}
 	f3, order := all.Items[0], all.Items[1]

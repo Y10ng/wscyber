@@ -268,10 +268,13 @@ type AssetVuln struct {
 	MemberCount     int               `json:"member_count"`
 	TaskCount       int               `json:"task_count"`
 	Members         []AssetVulnMember `json:"members"`
+	// Triage 是人工处置视图（V1，见 native/TRIAGE.md）；由 HTTP 层填入。
+	Triage *TriageView `json:"triage"`
 
-	// 内部：排序时间与复测代表（最新决定性“存在”事件所属候选）。
+	// 内部：排序时间、复测代表（最新决定性“存在”事件所属候选）与第一条“存在”事件时间（SLA 起算）。
 	sortAt         time.Time
 	representative *vulnMemberRow
+	firstConfirmed time.Time
 }
 
 type vulnMemberRow struct {
@@ -440,7 +443,7 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 	view := &AssetVuln{ID: vuln.ID, EndpointKey: vuln.EndpointKey, MemberCount: len(members), Members: make([]AssetVulnMember, 0, len(members))}
 	memberByFinding := map[string]*vulnMemberRow{}
 	tasks := map[string]bool{}
-	var last, lastDecisive, lastPresent *vulnEvent
+	var last, lastDecisive, lastPresent, firstPresent *vulnEvent
 	anyVerify := false
 	for index := range members {
 		member := &members[index]
@@ -468,6 +471,9 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 			if present && (lastPresent == nil || eventLater(*event, *lastPresent)) {
 				lastPresent = event
 			}
+			if present && (firstPresent == nil || eventLater(*firstPresent, *event)) {
+				firstPresent = event
+			}
 		}
 		if latestVerify != nil {
 			item.LatestVerdict = &latestVerify.Value
@@ -492,6 +498,9 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 	if lastPresent != nil {
 		at := lastPresent.At
 		view.LastConfirmedAt = &at
+	}
+	if firstPresent != nil {
+		view.firstConfirmed = firstPresent.at
 	}
 	switch {
 	case lastDecisive != nil:
@@ -549,10 +558,17 @@ func (s *taskStore) setVulnTitle(ctx context.Context, assetID, vulnID, title str
 	return err
 }
 
-// deleteEmptyManualVuln：成员被移空的人工条目（endpoint_key 为空）删除；auto 条目保留行。
+// deleteEmptyManualVuln：成员被移空的人工条目（endpoint_key 为空）删除（连同其处置记录）；auto 条目保留行与处置。
 func deleteEmptyManualVuln(ctx context.Context, tx bun.Tx, vulnID string) error {
-	_, err := tx.NewDelete().Model((*assetVulnModel)(nil)).
+	res, err := tx.NewDelete().Model((*assetVulnModel)(nil)).
 		Where("id = ? AND endpoint_key = '' AND NOT EXISTS (SELECT 1 FROM webapi_asset_vuln_members m WHERE m.vuln_id = ?)", vulnID, vulnID).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if deleted, err := res.RowsAffected(); err != nil || deleted == 0 {
+		return err
+	}
+	_, err = tx.NewDelete().Model((*vulnTriageModel)(nil)).Where("vuln_key = ?", vulnID).Exec(ctx)
 	return err
 }
 
@@ -624,13 +640,16 @@ func (s *taskStore) mergeVulns(ctx context.Context, assetID, into, from string) 
 		if _, err := tx.NewUpdate().Model((*assetVulnModel)(nil)).Set("updated_at = ?", now).Where("id IN (?)", bun.In([]string{into, from})).Exec(ctx); err != nil {
 			return err
 		}
+		if err := mergeTriage(ctx, tx, into, from); err != nil {
+			return err
+		}
 		return deleteEmptyManualVuln(ctx, tx, from)
 	})
 }
 
 // ---- 复测按条目去重（C2b 规划用） ----
 
-// vulnRetestCandidates：同步资产漏洞库后，对状态 new/present 且本次任务没有成员的条目，
+// vulnRetestCandidates：同步资产漏洞库后，对状态 new/present、处置不是误报（V1）且本次任务没有成员的条目，
 // 取代表成员（最新决定性“存在”事件所属候选，须属于本次任务之前关联的任务）按其当前修订复测（按编号）。
 func (c *Capability) vulnRetestCandidates(ctx context.Context, assetID, taskID string) ([]followupCandidate, error) {
 	unlock := c.lockAssetVulns(assetID)
@@ -650,13 +669,17 @@ func (c *Capability) vulnRetestCandidates(ctx context.Context, assetID, taskID s
 	if err != nil {
 		return nil, err
 	}
+	triage, err := c.store.triageRecords(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
 	type numbered struct {
 		number int64
 		item   followupCandidate
 	}
 	picked := []numbered{}
 	for _, vuln := range vulns {
-		if (vuln.Status != VulnNew && vuln.Status != VulnPresent) || vuln.representative == nil {
+		if (vuln.Status != VulnNew && vuln.Status != VulnPresent) || vuln.representative == nil || triage[vuln.ID].Disposition == DispositionFalsePositive {
 			continue
 		}
 		inCurrent := false

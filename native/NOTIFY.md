@@ -16,6 +16,7 @@
 - 触发：验证结果工具 `webapi_verification_result` 保存（含同 Invocation 回放）`verdict=supported` 成功后，同一流程里登记；不改判读保存语义，登记失败只记 Hub 日志。未配置 webhook 或 `enabled=false` → 不登记（之后再启用也不补登记以前的判读）。
 - 去重键：候选所属任务关联资产时 = C3 漏洞条目 id（登记前先按资产锁同步漏洞库）；否则 = `finding:<finding_id>`。
 - 同一去重键已有任何通知（任何状态，含 dismissed/failed）→ 不再登记 `new`。例外：该键全部成员的决定性事件（验证 supported、复测 reproducible = 存在；复测 fixed_in_scope = 已修复；按结果保存时间）中，本次结果之前最新的一条为“已修复” → 登记 `kind=regression`。
+- 处置（V1，`TRIAGE.md`）：去重键对应条目处置为误报时不登记；接受风险照常登记（含 regression）；有严重度时标题行在类别后加“【高危】”等等级。
 - 表 `webapi_notifications(id, dedupe_key, kind new|regression, task_id, finding_id, verification_id, vuln_id, status, attempts, next_attempt_at, last_error, created_at, sent_at)`，`(dedupe_key, kind, verification_id)` 唯一；时间为定宽 UTC `2006-01-02T15:04:05.000Z`。`require_confirm=true` 时初始 `pending_confirm`（`next_attempt_at` 空），否则 `queued`（立即到期）。
 
 ## 投递
