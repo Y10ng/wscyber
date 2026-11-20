@@ -37,13 +37,17 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续）：V1 前端（548c57e）、M2 黑板后端（d741d40，`native/BOARD.md`）、M1 场景后端（46023e3，`native/SCENARIO.md`）、M4 黑板界面（c901021）；设计需求说明 `docs/design-brief.md`（用户找设计师出总览/漏洞卡高保真稿）；路线新增 K 漏洞卡、D3 改为 SDL 申请单入站 + 工单出站。
 
-进行中：**M3 持续探索后端**（o-latest，`var/m3-explore-backend/task.md`）、**M1 场景前端**（ds-flash，`var/m1-scenario-frontend/task.md`，用演示环境）。
+已提交（续 2）：M3 持续探索（3a3a260：研究会话走 Goal 评估循环，评估看黑板摘要；默认 8/12 轮；本机演示模型节点不开）、M1 场景前端（6ef1da8）；设计稿 `docs/设计稿.html` 与实现依据 `docs/ui-design.md`（含未覆盖页面统一规则，产品名 WScyber）。
+
+**真实对比时机：** M3 后研究会话为“场景方法 + 黑板 + 持续探索”完整形态，用户可自建任务对比（M0）。已知：评估调用 token 不计入平台用量（上游行为）；评估器遵守提示词约束未经真实模型验证。
+
+进行中：**UI-A 设计基础**（ds-flash，`var/ui-a-foundation/task.md`）、**OV2 总览后端**（o-latest，`var/ov2-overview-backend/task.md`）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. M3 验收 → K1 漏洞卡/最小复现（后端：验证结果加关键请求/对照/一句话影响，确定性 curl；前端待设计稿）→ M5（子 Agent 并行、多账号越权、爬虫/浏览器）→ D3（需 SDL 接口文档）。M3 完成后用户可自建任务做真实对比。
+1. UI-A、OV2 验收 → UI-B 总览前端 + K1 漏洞卡后端 → K1 前端 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
 4. D3 SDL（需接口文档）。
@@ -56,4 +60,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-M3 持续探索后端（o-latest）与 M1 场景前端（ds-flash）运行中。
+UI-A 设计基础（ds-flash）与 OV2 总览后端（o-latest）运行中。
