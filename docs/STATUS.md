@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-19 08:10 从 a9eb363 构建，含 U2a/D2/归档过滤后端与 U2c 前端；升级前备份 `var/preview/state.bak-20261119b`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-20 12:10 从 ffea214 构建，含 K1 前后端、UI-B；升级前备份 `var/preview/state.bak-20261120`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -45,13 +45,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 4）：K1 漏洞卡后端（9aa24b8，`native/VULN_CARD.md`）、UI-B 总览前端 + 总览 `recent_supported.suggested_severity`（b2703a4）、演示脚本分页用例带正常对照（30985e4）。UI-B 验收记下：总览“待定级 2”跳到漏洞页后列表含已修复/未支持共 4 条（筛选只按等级，未限未修复）；390 宽下 A 区四卡单列偏长。
 
-进行中：**K1 漏洞卡前端**（ds-flash，`var/k1-card-frontend/task.md`；含列表/总览 AI 建议徽标与 code）。
+已提交（续 5）：K1 漏洞卡前端（ffea214，经一轮 7 项纠正后验收：JSON 美化与折叠、紧凑 AI 徽标、窄屏对齐等）。验收记下：同资产其他漏洞不带 AI 建议等级（后端 related 无该字段）；总览资产覆盖“0 天未测”应显示“今天”。
+
+进行中：**UI-C ①**（ds-flash，`var/ui-c1/task.md`：统一时间格式去 AM/PM、任务列表按页面骨架、流量详情与证据引用改用 HttpPairBlock）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. K1 漏洞卡前端验收 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
+1. UI-C ① 验收 → UI-C ②③（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。
 4. D3 SDL（需接口文档）。
@@ -64,4 +66,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-K1 漏洞卡前端（ds-flash）运行中。
+UI-C ①（ds-flash）运行中。本次用户限时运行至 11-20 13:58，到点停止全部会话。
