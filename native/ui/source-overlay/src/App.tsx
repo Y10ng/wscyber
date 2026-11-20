@@ -5,6 +5,7 @@ import AppSidebar from './components/AppSidebar'
 import OverviewPage from './components/OverviewPage'
 import TasksPage from './components/TasksPage'
 import VulnsPage from './components/VulnsPage'
+import VulnCardPage from './components/VulnCardPage'
 import ReportsPage from './components/ReportsPage'
 import { Page, PageHeader } from './components/PageFrame'
 import ConfigPanel from './components/ConfigPanel'
@@ -78,6 +79,13 @@ function getInitialPage(): AppPage {
   return IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'overview'
 }
 
+function getInitialVulnKey(): string | null {
+  if (typeof window === 'undefined') return null
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('page') !== 'vulns') return null
+  return params.get('vuln')
+}
+
 function getInitialSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') return false
   return window.localStorage.getItem(sidebarCollapsedStorageKey) === 'true'
@@ -127,6 +135,8 @@ export default function App({ services }: { services: HubServices }) {
   // 进入任务工作区前的展开状态：离开工作区时恢复（手动折叠的保持折叠）。
   const collapsedBeforeWorkspaceRef = useRef(false)
   const [page, setPage] = useState<AppPage>(getInitialPage)
+  // K1 漏洞卡：?page=vulns&vuln=<key>；null 时显示漏洞列表。
+  const [vulnCardKey, setVulnCardKey] = useState<string | null>(getInitialVulnKey)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
   const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
@@ -349,6 +359,17 @@ export default function App({ services }: { services: HubServices }) {
     chat.leaveSession()
     window.history.pushState({}, '', '/?page=' + next)
     setPage(next)
+    setVulnCardKey(null)
+    if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false)
+  }, [chat])
+
+  // 打开漏洞卡：pushState 带键，浏览器后退回到漏洞列表。
+  const openVulnCard = useCallback((key: string) => {
+    if (!key) return
+    chat.leaveSession()
+    window.history.pushState({}, '', '/?page=vulns&vuln=' + encodeURIComponent(key))
+    setPage('vulns')
+    setVulnCardKey(key)
     if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false)
   }, [chat])
 
@@ -356,8 +377,11 @@ export default function App({ services }: { services: HubServices }) {
   useEffect(() => {
     const applyPage = () => {
       if (window.location.pathname !== '/') return
-      const value = new URLSearchParams(window.location.search).get('page')
-      setPage(IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'overview')
+      const params = new URLSearchParams(window.location.search)
+      const value = params.get('page')
+      const nextPage = IMPLEMENTED_PAGES.includes(value as AppPage) ? value as AppPage : 'overview'
+      setPage(nextPage)
+      setVulnCardKey(nextPage === 'vulns' ? params.get('vuln') : null)
     }
     window.addEventListener('popstate', applyPage)
     return () => window.removeEventListener('popstate', applyPage)
@@ -916,6 +940,7 @@ export default function App({ services }: { services: HubServices }) {
                   onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
                   onOpenAssetVuln={handleOpenAssetVuln}
                   onOpenTaskFinding={handleOpenTaskFinding}
+                  onOpenVuln={openVulnCard}
                   onOpenUsage={() => setUsageDialogOpen(true)}
                   onOpenVulnsOverdue={() => { setVulnsOverdueRequested(true); navigate('vulns') }}
                   onOpenVulnsUnrated={() => { setVulnsUnratedRequested(true); navigate('vulns') }}
@@ -938,16 +963,27 @@ export default function App({ services }: { services: HubServices }) {
               )}
               {page === 'vulns' && (
                 webapiEnabled ? (
-                  <VulnsPage
-                    webapiEnabled={webapiEnabled}
-                    onOpenAssetVuln={handleOpenAssetVuln}
-                    onOpenTaskFinding={handleOpenTaskFinding}
-                    onOpenMenu={() => setSidebarOpen(true)}
-                    overdueRequested={vulnsOverdueRequested}
-                    onOverdueRequestedConsumed={() => setVulnsOverdueRequested(false)}
-                    unratedRequested={vulnsUnratedRequested}
-                    onUnratedRequestedConsumed={() => setVulnsUnratedRequested(false)}
-                  />
+                  vulnCardKey ? (
+                    <VulnCardPage
+                      key={vulnCardKey}
+                      vulnKey={vulnCardKey}
+                      onBack={() => navigate('vulns')}
+                      onSwitch={openVulnCard}
+                      onOpenAssetVuln={handleOpenAssetVuln}
+                      onOpenTaskFinding={handleOpenTaskFinding}
+                      onOpenMenu={() => setSidebarOpen(true)}
+                    />
+                  ) : (
+                    <VulnsPage
+                      webapiEnabled={webapiEnabled}
+                      onOpenVuln={openVulnCard}
+                      onOpenMenu={() => setSidebarOpen(true)}
+                      overdueRequested={vulnsOverdueRequested}
+                      onOverdueRequestedConsumed={() => setVulnsOverdueRequested(false)}
+                      unratedRequested={vulnsUnratedRequested}
+                      onUnratedRequestedConsumed={() => setVulnsUnratedRequested(false)}
+                    />
+                  )
                 ) : (
                   <Page>
                     <PageHeader title={tc('shell.navVulns')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />

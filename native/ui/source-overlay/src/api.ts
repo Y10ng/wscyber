@@ -814,6 +814,8 @@ export interface WebApiVulnSLA {
 
 export interface WebApiGlobalVuln {
   id: string
+  /** K1：稳定编号 V-XXXXXXXX。 */
+  code: string
   kind: 'asset_vuln' | 'task_finding'
   title: string
   status: WebApiVulnStatus
@@ -827,6 +829,8 @@ export interface WebApiGlobalVuln {
   member_count: number
   task_count: number
   triage: WebApiVulnTriage
+  /** K1：成员最新带建议等级的 supported 验证；空串 = 无建议。 */
+  suggested_severity: WebApiVulnSeverity
 }
 
 // 严重度计数（by_severity）：none = 未定级。
@@ -891,6 +895,201 @@ export async function saveWebApiVulnTriage(key: string, body: WebApiVulnTriageIn
       body: JSON.stringify(body),
     },
   )
+}
+
+// --- K1 漏洞卡（只读聚合，字段见 native/VULN_CARD.md）-------------------
+export interface WebApiVulnCardAsset {
+  id: string
+  name: string
+  env: string
+  owner: string
+  origins: string[]
+}
+
+export interface WebApiVulnCardHeader {
+  key: string
+  code: string
+  title_template: string
+  title: string
+  status: WebApiVulnStatus
+  severity: WebApiVulnSeverity
+  suggested_severity: WebApiVulnSeverity
+  severity_reason: string
+  disposition: WebApiVulnDisposition
+  due_effective: string | null
+  overdue: boolean
+  first_seen_at: string
+  asset: WebApiVulnCardAsset | null
+  endpoint_key: string
+}
+
+export interface WebApiVulnCardStep {
+  title: string
+  evidence_id: string
+  method: string
+  url: string
+  status_code: number | null
+  request_marks_found: string[]
+  response_marks_found: string[]
+  mark_missing: boolean
+}
+
+export interface WebApiVulnCardEvidenceRef {
+  evidence_id: string
+  method: string
+  url: string
+  status_code: number | null
+}
+
+export interface WebApiVulnCardContrast {
+  normal_evidence_id: string
+  abnormal_evidence_id: string
+  note: string
+  normal: WebApiVulnCardEvidenceRef | null
+  abnormal: WebApiVulnCardEvidenceRef | null
+}
+
+export interface WebApiVulnCardRepro {
+  verification_id: string
+  task_id: string
+  finding_id: string
+  session_id: string
+  impact: string
+  preconditions: string
+  steps: WebApiVulnCardStep[]
+  contrast: WebApiVulnCardContrast | null
+  remediation: string[]
+  retest_method: string
+  saved_at: string
+}
+
+export interface WebApiVulnCardRetest {
+  retest_id: string
+  task_id: string
+  finding_id: string
+  session_id: string
+  conclusion: string
+  summary: string
+  at: string
+}
+
+export type WebApiVulnCardLifecycleKind = 'candidate' | 'verification' | 'triage' | 'notify' | 'retest' | 'fixed'
+export type WebApiVulnCardActor = 'ai' | 'user' | 'system'
+
+export interface WebApiVulnCardEvent {
+  at: string
+  kind: WebApiVulnCardLifecycleKind
+  title: string
+  detail: string
+  actor: WebApiVulnCardActor
+}
+
+export interface WebApiVulnCardVerification {
+  verification_id: string
+  task_id: string
+  finding_id: string
+  finding_number: string
+  session_id: string
+  created_at: string
+  verdict: string | null
+  method: string
+  preconditions: string
+  summary: string
+  limitations: string
+  suggested_severity: WebApiVulnSeverity
+  severity_reason: string
+  has_repro: boolean
+  evidence_count: number
+  saved_at: string | null
+}
+
+export interface WebApiVulnCardMember {
+  task_id: string
+  finding_id: string
+  number: string
+  title: string
+  link: string
+  latest_verdict: string | null
+  latest_retest: string | null
+  created_at: string
+  initial_session_id: string
+}
+
+export interface WebApiVulnCardEvidence {
+  evidence_id: string
+  task_id: string
+  source: 'candidate' | 'verification' | 'retest'
+  relation: string
+  method: string
+  url: string
+  status_code: number | null
+  created_at: string
+}
+
+export interface WebApiVulnCardChange {
+  id: string
+  at: string
+  actor: string
+  action: string
+  target_kind: string
+  target_id: string
+  task_id: string
+  asset_id: string
+  summary: string
+  detail: unknown
+}
+
+export interface WebApiVulnCardAppendix {
+  verifications: WebApiVulnCardVerification[]
+  members: WebApiVulnCardMember[]
+  evidence_count: number
+  evidence: WebApiVulnCardEvidence[]
+  changes: WebApiVulnCardChange[]
+}
+
+export interface WebApiVulnCardRelated {
+  key: string
+  code: string
+  title: string
+  severity: WebApiVulnSeverity
+  status: WebApiVulnStatus
+}
+
+export interface WebApiVulnCardNav {
+  prev_key: string | null
+  next_key: string | null
+}
+
+export type WebApiVulnCardMissingReason = 'no_verification' | 'no_supported' | 'no_key_steps'
+
+export interface WebApiVulnCard {
+  header: WebApiVulnCardHeader
+  triage: WebApiVulnTriage | null
+  repro: WebApiVulnCardRepro | null
+  repro_missing_reason: WebApiVulnCardMissingReason | null
+  retest: WebApiVulnCardRetest | null
+  lifecycle: WebApiVulnCardEvent[]
+  appendix: WebApiVulnCardAppendix
+  related: WebApiVulnCardRelated[]
+  nav: WebApiVulnCardNav
+}
+
+export async function getWebApiVulnCard(key: string): Promise<WebApiVulnCard> {
+  return apiJSON<WebApiVulnCard>(
+    `/api/webapi/vulns/${encodeURIComponent(key)}/card`,
+    'Failed to load vulnerability card',
+    { cache: 'no-store' },
+  )
+}
+
+/** 卡片的 curl 命令（默认遮盖敏感值；本片只有 mask=1）。 */
+export async function getWebApiVulnCardCurl(key: string, step: number): Promise<string> {
+  const res = await authenticatedFetch(
+    `/api/webapi/vulns/${encodeURIComponent(key)}/card/curl?step=${step}&mask=1`,
+    { cache: 'no-store' },
+  )
+  if (!res.ok) throw new APIError(await errorMessage(res, 'Failed to generate curl'), res.status)
+  return res.text()
 }
 
 export async function getWebApiVulnSLA(): Promise<WebApiVulnSLA> {
@@ -986,6 +1185,8 @@ export interface WebApiOverviewRecentSupported {
   at: string
   /** OV2：triage 严重度，空串 = 未定级。 */
   severity: WebApiVulnSeverity
+  /** K1：AI 建议等级，空串 = 无建议。 */
+  suggested_severity: WebApiVulnSeverity
 }
 
 // --- OV2 总览字段（见 native/OVERVIEW.md 的 overview 节）---
@@ -2154,9 +2355,13 @@ export async function getWebApiEgress(taskId: string, flowId: string): Promise<W
 
 // 证据图片：后端按已保存的 Flow 原件确定性渲染 PNG。返回同源相对路径，
 // 浏览器以 Cookie 鉴权，可直接用于 <img src> 与下载链接。mask 默认开启。
-export function webApiEvidenceImageURL(taskId: string, evidenceId: string, opts?: { mask?: boolean }): string {
+export function webApiEvidenceImageURL(taskId: string, evidenceId: string, opts?: { mask?: boolean; marks?: string[] }): string {
   const mask = opts?.mask === false ? '0' : '1'
-  return `/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/image.png?mask=${mask}`
+  const params = new URLSearchParams({ mask })
+  for (const mark of opts?.marks || []) {
+    if (mark) params.append('mark', mark)
+  }
+  return `/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}/image.png?${params.toString()}`
 }
 
 export function webApiEgressImageURL(taskId: string, flowId: string, opts?: { mask?: boolean }): string {

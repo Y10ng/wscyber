@@ -26,6 +26,8 @@ interface OverviewPageProps {
   onOpenAsset: (assetId: string) => void
   onOpenAssetVuln: (assetId: string, vulnId: string) => void
   onOpenTaskFinding: (taskId: string, findingId: string) => void
+  /** K1：打开漏洞卡（最近确认、逾期 Top5）。 */
+  onOpenVuln: (key: string) => void
   onOpenUsage: () => void
   /** 漏洞页：一次性筛出逾期条目。 */
   onOpenVulnsOverdue: () => void
@@ -390,7 +392,7 @@ function DailyBars({ data, height, tooltip }: {
 }
 
 export default function OverviewPage({
-  onNavigate, onOpenTask, onOpenAsset, onOpenAssetVuln, onOpenTaskFinding, onOpenUsage,
+  onNavigate, onOpenTask, onOpenAsset, onOpenAssetVuln, onOpenTaskFinding, onOpenVuln, onOpenUsage,
   onOpenVulnsOverdue, onOpenVulnsUnrated, onOpenIntegrationsPending, onOpenApprovals,
   pendingApprovalCount, onNewTask, onOpenMenu,
 }: OverviewPageProps) {
@@ -462,15 +464,7 @@ export default function OverviewPage({
   }
 
   const openRecent = (item: WebApiOverviewRecentSupported) => {
-    if (item.vuln_id.startsWith('finding:')) {
-      onOpenTaskFinding(item.task_id, item.vuln_id.slice('finding:'.length))
-      return
-    }
-    if (item.asset) {
-      onOpenAssetVuln(item.asset.id, item.vuln_id)
-      return
-    }
-    void openTaskByID(item.task_id)
+    onOpenVuln(item.vuln_id)
   }
 
   const relativeDay = (iso: string) => {
@@ -767,7 +761,7 @@ export default function OverviewPage({
                   <button
                     key={item.vuln_key}
                     type="button"
-                    onClick={onOpenVulnsOverdue}
+                    onClick={() => onOpenVuln(item.vuln_key)}
                     className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <span className="min-w-0 flex-1 truncate text-xs text-foreground" title={item.title}>{item.title}</span>
@@ -918,7 +912,11 @@ export default function OverviewPage({
                       className="flex w-full items-center justify-between gap-2 rounded px-1 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <SeverityBadge severity={item.severity} className="shrink-0 text-[10.5px]" />
+                        {item.severity
+                          ? <SeverityBadge severity={item.severity} className="shrink-0 text-[10.5px]" />
+                          : item.suggested_severity
+                            ? <SeverityBadge severity={item.suggested_severity} suggested compact className="shrink-0 text-[10.5px]" />
+                            : <SeverityBadge severity="" className="shrink-0 text-[10.5px]" />}
                         <span className="min-w-0">
                           <span className="block truncate text-xs font-medium text-foreground" title={item.title}>{item.title}</span>
                           <span className="block truncate text-[11px] text-muted-foreground">{item.asset?.name || '—'}</span>

@@ -26,8 +26,8 @@ import {
 
 interface VulnsPageProps {
   webapiEnabled: boolean
-  onOpenAssetVuln: (assetId: string, vulnId: string) => void
-  onOpenTaskFinding: (taskId: string, findingId: string) => void
+  /** K1：行点击/“打开”进入漏洞卡；跳到任务/资产改由卡片顶部按钮完成。 */
+  onOpenVuln: (key: string) => void
   onOpenMenu: () => void
   /** 总览“逾期 N”跳转：置为 true 时筛出逾期条目，消费后由上层清空。 */
   overdueRequested?: boolean
@@ -87,13 +87,8 @@ function endpointDisplay(key: string | undefined): string {
   }
 }
 
-/** 列表编号使用条目 id 前 8 位（K1 将换正式编号）。 */
-function shortId(id: string): string {
-  return (id.startsWith('finding:') ? id.slice('finding:'.length) : id).slice(0, 8)
-}
-
 export default function VulnsPage({
-  webapiEnabled, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
+  webapiEnabled, onOpenVuln, onOpenMenu,
   overdueRequested, onOverdueRequestedConsumed,
   unratedRequested, onUnratedRequestedConsumed,
 }: VulnsPageProps) {
@@ -219,12 +214,7 @@ export default function VulnsPage({
   const filtered = filter !== 'all' || query !== '' || assetId !== '' || severity !== '' || disposition !== '' || overdueOnly
 
   const openVuln = (item: WebApiGlobalVuln) => {
-    if (item.kind === 'asset_vuln') {
-      if (item.asset) onOpenAssetVuln(item.asset.id, item.id)
-      return
-    }
-    const findingId = item.id.startsWith('finding:') ? item.id.slice('finding:'.length) : item.id
-    onOpenTaskFinding(item.task_id, findingId)
+    onOpenVuln(item.id)
   }
 
   const refreshAfterSave = () => {
@@ -414,7 +404,11 @@ export default function VulnsPage({
                           <StatusBadge status={item.status} />
                         </td>
                         <td className="px-3 py-2.5">
-                          <SeverityBadge severity={triage?.severity} />
+                          {triage?.severity
+                            ? <SeverityBadge severity={triage.severity} />
+                            : item.suggested_severity
+                              ? <SeverityBadge severity={item.suggested_severity} suggested compact />
+                              : <SeverityBadge severity="" />}
                         </td>
                         <td className="min-w-0 px-3 py-2.5">
                           <span className="block truncate font-medium text-foreground" title={item.title}>
@@ -422,7 +416,7 @@ export default function VulnsPage({
                           </span>
                           <span className="mt-1 flex min-w-0 items-center gap-1.5">
                             <DispositionBadge disposition={disp} />
-                            <span className="font-mono text-[11px] text-muted-foreground">{shortId(item.id)}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">{item.code}</span>
                           </span>
                         </td>
                         <td className="px-3 py-2.5">

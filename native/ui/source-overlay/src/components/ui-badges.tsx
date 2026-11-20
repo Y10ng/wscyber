@@ -47,10 +47,12 @@ export function severityKey(severity: WebApiVulnSeverity | string | null | undef
   return (severity || 'none') as SeverityKey
 }
 
-export function SeverityBadge({ severity, suggested, className }: {
+export function SeverityBadge({ severity, suggested, compact, className }: {
   severity: WebApiVulnSeverity | string | null | undefined
   /** AI 建议：虚线框 + Sparkles，文案“AI 建议：高危”。 */
   suggested?: boolean
+  /** 窄列（列表等级列、总览 F、同资产漏洞）：只显示星标 + 等级名，完整文案放 title。 */
+  compact?: boolean
   className?: string
 }) {
   const { t } = useTranslation('chat')
@@ -58,10 +60,11 @@ export function SeverityBadge({ severity, suggested, className }: {
   const meta = SEVERITY_CLASS[key] || SEVERITY_CLASS.none
   const label = t(meta.labelKey)
   if (suggested) {
+    const full = t('shell.triageAiSuggest', { level: label })
     return (
-      <span className={cn('ws-sev-badge ws-sev-suggest', className)}>
+      <span className={cn('ws-sev-badge ws-sev-suggest', className)} title={compact ? full : undefined}>
         <Sparkles className="h-3 w-3" aria-hidden />
-        {t('shell.triageAiSuggest', { level: label })}
+        {compact ? label : full}
       </span>
     )
   }

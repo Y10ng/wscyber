@@ -1,0 +1,1040 @@
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, ExternalLink,
+  HelpCircle, Loader2, Menu, RotateCw, Sparkles, Wrench, XCircle,
+} from 'lucide-react'
+import { Button, Switch, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
+import { cn } from '@cyber/theme'
+import {
+  getWebApiVulnCard, getWebApiVulnCardCurl,
+  webApiEvidenceImageURL,
+  type WebApiVulnCard, type WebApiVulnCardContrast, type WebApiVulnCardEvent,
+  type WebApiVulnCardEvidence, type WebApiVulnCardRepro, type WebApiVulnCardStep,
+  type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
+} from '../api'
+import {
+  DeadlineText, DispositionBadge, SeverityBadge, StatusBadge, VerdictBadge,
+} from './ui-badges'
+import HttpPairBlock, {
+  displayPath, rawRequestText, responseBodyLines, useEvidenceHttpView,
+} from './HttpPairBlock'
+import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
+import VulnTriageForm from './VulnTriageForm'
+
+interface VulnCardPageProps {
+  vulnKey: string
+  onBack: () => void
+  onSwitch: (key: string) => void
+  onOpenAssetVuln: (assetId: string, vulnId: string) => void
+  onOpenTaskFinding: (taskId: string, findingId: string) => void
+  onOpenMenu: () => void
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/** YYYY-MM-DD HH:mm（本地时区，24 小时制）。 */
+function formatFull(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** MM-DD HH:mm（本地时区，24 小时制）。 */
+function formatShort(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+function isPathSegment(segment: string): boolean {
+  return /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|CONNECT)\s+\//.test(segment) && segment.includes('/')
+}
+
+function severityColor(severity: WebApiVulnSeverity): string {
+  return severity ? `var(--sev-${severity}-text)` : 'var(--border-strong)'
+}
+
+const LIFECYCLE_DOT: Record<string, string> = {
+  candidate: '#2563EB',
+  verification: '#7C3AED',
+  triage: '#64748B',
+  notify: '#0891B2',
+  retest: '#D97706',
+  fixed: '#059669',
+}
+
+const ACTOR_KEYS: Record<string, string> = {
+  ai: 'vulnCard.actorAi',
+  system: 'vulnCard.actorSystem',
+}
+
+const RETEST_KEYS: Record<string, string> = {
+  reproducible: 'webapi.retestReproducible',
+  fixed_in_scope: 'webapi.retestFixedInScope',
+  inconclusive: 'webapi.retestInconclusive',
+}
+
+function retestText(t: (key: string) => string, conclusion: string | null | undefined): string {
+  return conclusion ? t(RETEST_KEYS[conclusion] || 'webapi.retestInconclusive') : t('vulnCard.noRetest')
+}
+
+function sourceLabelKey(item: WebApiVulnCardEvidence): string {
+  if (item.source === 'retest') return 'vulnCard.sourceRetest'
+  if (item.relation === 'key_step') return 'vulnCard.relationKeyStep'
+  if (item.relation === 'contrast') return 'vulnCard.relationContrast'
+  if (item.source === 'candidate') return 'vulnCard.sourceCandidate'
+  return 'vulnCard.sourceVerification'
+}
+
+function Card({ children, className, style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
+  return <section className={cn('rounded-lg border border-border bg-card p-4', className)} style={style}>{children}</section>
+}
+
+function SectionTitle({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="text-[12px] font-semibold text-foreground">{children}</h2>
+      {actions}
+    </div>
+  )
+}
+
+function Skeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="h-4 w-56 animate-pulse rounded bg-muted" />
+      <div className="h-[104px] animate-pulse rounded-lg border border-border bg-card" />
+      <div className="flex flex-col items-start gap-5 min-[1024px]:flex-row">
+        <div className="flex-1 space-y-4">
+          {[150, 260, 150, 90].map((height, index) => (
+            <div key={index} className="animate-pulse rounded-lg border border-border bg-card" style={{ height }} />
+          ))}
+        </div>
+        <div className="w-full space-y-3 min-[1024px]:w-[340px] min-[1440px]:w-[376px]">
+          {[220, 130, 220].map((height, index) => (
+            <div key={index} className="animate-pulse rounded-lg border border-border bg-card" style={{ height }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StepBlock({
+  repro, step, index, masked, onScreenshot, onNotify,
+}: {
+  repro: WebApiVulnCardRepro
+  step: WebApiVulnCardStep
+  index: number
+  masked: boolean
+  onScreenshot: (url: string, filename: string) => void
+  onNotify: (message: string) => void
+}) {
+  const { t } = useTranslation('chat')
+  const { view, loading, error, reload } = useEvidenceHttpView(repro.task_id, step.evidence_id)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(rawRequestText(view, masked))
+      onNotify(t('vulnCard.requestCopied'))
+    } catch {
+      onNotify(t('vulnCard.copyFailed'))
+    }
+  }
+
+  const screenshotURL = webApiEvidenceImageURL(repro.task_id, step.evidence_id, {
+    mask: true,
+    marks: [...step.request_marks_found, ...step.response_marks_found],
+  })
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+            {index + 1}
+          </span>
+          <span className="min-w-0 break-words text-[12px] font-semibold text-foreground" title={step.title}>{step.title}</span>
+          <span className="w-full shrink-0 break-all pl-7 font-mono text-[11px] text-muted-foreground sm:w-auto sm:pl-0">
+            {step.method} {displayPath(step.url)}
+            {step.status_code != null ? ` → ${step.status_code}` : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button type="button" variant="ghost" size="xs" className="gap-1" onClick={() => void copy()} disabled={!view}>
+            <ClipboardCopy className="h-3 w-3" />
+            {t('vulnCard.copy')}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="gap-1"
+            onClick={() => onScreenshot(screenshotURL, `evidence-${step.evidence_id}.png`)}
+          >
+            <Camera className="h-3 w-3" />
+            {t('vulnCard.screenshot')}
+          </Button>
+        </div>
+      </div>
+      <HttpPairBlock
+        view={view}
+        loading={loading}
+        error={error}
+        retry={reload}
+        requestMarks={step.request_marks_found}
+        responseMarks={step.response_marks_found}
+        masked={masked}
+      />
+      {step.mark_missing && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">{t('vulnCard.markMissing')}</p>
+      )}
+    </div>
+  )
+}
+
+function ContrastSide({ title, tone, method, url, status, body }: {
+  title: string
+  tone: 'ok' | 'danger'
+  method: string
+  url: string
+  status: number | null
+  body: string[]
+}) {
+  const summary = `${method} ${displayPath(url)}${status != null ? ` → ${status}` : ''}`
+  // 对照区只展示前 8 行、单行最多 200 字符；绝不渲染全文，并交给自身横向滚动保持高度。
+  const clip = (text: string) => {
+    const chars = Array.from(text)
+    return chars.length > 200 ? chars.slice(0, 200).join('') + '…' : text
+  }
+  return (
+    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-[var(--bg-code-light)]">
+      <div
+        className="border-b border-border px-3 py-1 text-[11px] font-medium"
+        style={{
+          background: tone === 'ok' ? 'var(--st-fixed-bg)' : 'var(--st-new-bg)',
+          color: tone === 'ok' ? 'var(--st-fixed-text)' : 'var(--st-new-text)',
+        }}
+      >
+        {title}
+      </div>
+      <div className="overflow-x-auto py-2 font-mono text-[11.5px] leading-[1.65]">
+        <div
+          className="flex items-baseline whitespace-pre px-[7.5px] font-medium"
+          style={{
+            background: tone === 'ok' ? 'var(--code-hl-ok-bg)' : 'var(--code-hl-bg)',
+            borderLeft: `2.5px solid ${tone === 'ok' ? 'var(--code-hl-ok-border)' : 'var(--code-hl-border)'}`,
+          }}
+        >
+          <span className="w-6 shrink-0 select-none text-[10.5px] opacity-65">1</span>
+          <span className="min-w-0">{clip(summary)}</span>
+        </div>
+        {body.slice(0, 8).map((line, index) => (
+          <div
+            key={index}
+            className={cn(
+              'flex items-baseline whitespace-pre px-[7.5px]',
+              tone === 'ok' && 'bg-[var(--code-hl-ok-bg)]',
+            )}
+            style={tone === 'danger' ? { background: 'var(--code-hl-bg)', borderLeft: '2.5px solid var(--code-hl-border)' } : undefined}
+          >
+            <span className="w-6 shrink-0 select-none text-[10.5px] opacity-65">{index + 2}</span>
+            <span className="min-w-0">{clip(line)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ContrastSection({ repro }: { repro: WebApiVulnCardRepro }) {
+  const { t } = useTranslation('chat')
+  const contrast = repro.contrast as WebApiVulnCardContrast
+  const [mode, setMode] = useState<'side' | 'summary'>('side')
+  const normal = useEvidenceHttpView(repro.task_id, contrast.normal_evidence_id)
+  const abnormal = useEvidenceHttpView(repro.task_id, contrast.abnormal_evidence_id)
+  const normalRef = contrast.normal
+  const abnormalRef = contrast.abnormal
+  const bodyBytes = (view: typeof normal.view) => {
+    const body = view?.response?.body
+    return body ? new TextEncoder().encode(body).length : 0
+  }
+
+  return (
+    <Card className="space-y-3">
+      <SectionTitle actions={(
+        <div className="inline-flex rounded-md border border-border bg-[var(--bg-subtle)] p-0.5 text-[11px]">
+          {(['side', 'summary'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={cn(
+                'rounded px-2 py-0.5 font-medium transition-colors',
+                mode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t(value === 'side' ? 'vulnCard.contrastSide' : 'vulnCard.contrastSummary')}
+            </button>
+          ))}
+        </div>
+      )}>
+        {t('vulnCard.contrastTitle')}
+      </SectionTitle>
+
+      {mode === 'side' ? (
+        <div className="grid grid-cols-1 gap-3 min-[769px]:grid-cols-2">
+          <ContrastSide
+            title={`${t('vulnCard.contrastNormal')} · ${normalRef?.method || ''} ${displayPath(normalRef?.url || '')}`}
+            tone="ok"
+            method={normalRef?.method || ''}
+            url={normalRef?.url || ''}
+            status={normalRef?.status_code ?? null}
+            body={responseBodyLines(normal.view)}
+          />
+          <ContrastSide
+            title={`${t('vulnCard.contrastAbnormal')} · ${abnormalRef?.method || ''} ${displayPath(abnormalRef?.url || '')}`}
+            tone="danger"
+            method={abnormalRef?.method || ''}
+            url={abnormalRef?.url || ''}
+            status={abnormalRef?.status_code ?? null}
+            body={responseBodyLines(abnormal.view)}
+          />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12px]">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="py-1.5 font-medium">{t('vulnCard.contrastItem')}</th>
+                <th className="py-1.5 font-medium">{t('vulnCard.contrastNormal')}</th>
+                <th className="py-1.5 font-medium">{t('vulnCard.contrastAbnormal')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border font-mono">
+              <tr>
+                <td className="py-1.5 font-sans text-secondary-foreground">{t('vulnCard.contrastRequest')}</td>
+                <td className="py-1.5 text-emerald-600 dark:text-emerald-400">{normalRef ? `${normalRef.method} ${displayPath(normalRef.url)}` : '—'}</td>
+                <td className="py-1.5 text-rose-600 dark:text-rose-400">{abnormalRef ? `${abnormalRef.method} ${displayPath(abnormalRef.url)}` : '—'}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-sans text-secondary-foreground">{t('vulnCard.contrastStatus')}</td>
+                <td className="py-1.5">{normalRef?.status_code ?? '—'}</td>
+                <td className="py-1.5 text-rose-600 dark:text-rose-400">{abnormalRef?.status_code ?? '—'}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-sans text-secondary-foreground">{t('vulnCard.contrastBodyLength')}</td>
+                <td className="py-1.5">{normal.loading ? '…' : bodyBytes(normal.view)}</td>
+                <td className="py-1.5 text-rose-600 dark:text-rose-400">{abnormal.loading ? '…' : bodyBytes(abnormal.view)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-sans text-secondary-foreground">{t('vulnCard.contrastNote')}</td>
+                <td colSpan={2} className="py-1.5 font-sans text-secondary-foreground">{contrast.note || '—'}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function Appendix({ card, onOpenTaskFinding }: {
+  card: WebApiVulnCard
+  onOpenTaskFinding: (taskId: string, findingId: string) => void
+}) {
+  const { t } = useTranslation('chat')
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle = (key: string) => {
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const { verifications, members, evidence_count: evidenceCount, evidence, changes } = card.appendix
+  const latestVerification = verifications[0]?.saved_at || verifications[0]?.created_at || null
+  const latestEvidence = evidence[0]?.created_at || null
+  const latestChange = changes[0]?.at || null
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border bg-[var(--bg-subtle)] px-4 py-2.5">
+        <span className="text-[12px] font-semibold text-foreground">{t('vulnCard.appendix')}</span>
+      </div>
+      <div className="divide-y divide-border">
+        <AppendixItem
+          title={t('vulnCard.verifications')}
+          meta={`${t('vulnCard.countItems', { count: verifications.length })}${latestVerification ? ` · ${formatShort(latestVerification)}` : ''}`}
+          open={open.has('verifications')}
+          onToggle={() => toggle('verifications')}
+        >
+          {verifications.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">{t('vulnCard.noVerifications')}</p>
+          ) : verifications.map((item) => (
+            <VerificationRow key={item.verification_id} item={item} />
+          ))}
+        </AppendixItem>
+
+        <AppendixItem
+          title={t('vulnCard.allEvidence')}
+          meta={`${t('vulnCard.countItems', { count: evidenceCount })}${latestEvidence ? ` · ${formatShort(latestEvidence)}` : ''}`}
+          open={open.has('evidence')}
+          onToggle={() => toggle('evidence')}
+        >
+          <div className="space-y-0.5">
+            {evidence.map((item) => (
+              <div key={`${item.task_id}:${item.evidence_id}`} className="flex flex-wrap items-center gap-2 border-b border-border/60 py-1 font-mono text-[11.5px] last:border-0">
+                <span className="min-w-0 break-all">{item.method} {displayPath(item.url)}{item.status_code != null ? ` → ${item.status_code}` : ''}</span>
+                <span className="rounded bg-muted px-1.5 py-px font-sans text-[10.5px] text-muted-foreground">{t(sourceLabelKey(item))}</span>
+                <span className="ml-auto shrink-0 text-muted-foreground">{formatShort(item.created_at)}</span>
+              </div>
+            ))}
+            {evidenceCount > 200 && (
+              <p className="pt-1 text-[11px] text-muted-foreground">{t('vulnCard.onlyFirst200')}</p>
+            )}
+          </div>
+        </AppendixItem>
+
+        <AppendixItem
+          title={t('vulnCard.relatedMembers')}
+          meta={t('vulnCard.countItems', { count: members.length })}
+          open={open.has('members')}
+          onToggle={() => toggle('members')}
+        >
+          {members.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">—</p>
+          ) : members.map((item) => (
+            <button
+              key={`${item.task_id}:${item.finding_id}`}
+              type="button"
+              onClick={() => onOpenTaskFinding(item.task_id, item.finding_id)}
+              className="flex w-full min-w-0 items-center gap-2 rounded px-1 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <span className="shrink-0 font-mono text-[11.5px] text-foreground">{item.number}</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-secondary-foreground" title={item.title}>{item.title}</span>
+              <VerdictBadge verdict={item.latest_verdict} showModelLabel={false} className="shrink-0" />
+            </button>
+          ))}
+        </AppendixItem>
+
+        <AppendixItem
+          title={t('vulnCard.changes')}
+          meta={`${t('vulnCard.countItems', { count: changes.length })}${latestChange ? ` · ${formatShort(latestChange)}` : ''}`}
+          open={open.has('changes')}
+          onToggle={() => toggle('changes')}
+        >
+          {changes.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">{t('vulnCard.noChanges')}</p>
+          ) : changes.map((change) => (
+            <div key={change.id} className="flex gap-2 border-b border-border/60 py-1 text-[11.5px] last:border-0">
+              <span className="shrink-0 text-muted-foreground">{formatShort(change.at)}</span>
+              <span className="shrink-0 text-muted-foreground">{change.actor}</span>
+              <span className="min-w-0 break-words text-secondary-foreground">{change.summary}</span>
+            </div>
+          ))}
+        </AppendixItem>
+      </div>
+    </section>
+  )
+}
+
+function AppendixItem({ title, meta, open, onToggle, children }: {
+  title: string
+  meta: string
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        <span className="flex items-center gap-2 text-[12px] font-medium text-foreground">
+          <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', !open && '-rotate-90')} />
+          {title}
+        </span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">{meta}</span>
+      </button>
+      {open && <div className="space-y-2 px-4 pb-3.5 pt-0.5 text-[12px] text-secondary-foreground">{children}</div>}
+    </div>
+  )
+}
+
+function VerificationRow({ item }: { item: WebApiVulnCardVerification }) {
+  const { t } = useTranslation('chat')
+  return (
+    <div className="space-y-1 border-b border-border/60 py-2 text-[11.5px] last:border-0">
+      <div className="flex flex-wrap items-center gap-2">
+        {item.verdict
+          ? <VerdictBadge verdict={item.verdict} />
+          : (
+            <span className="inline-flex items-center gap-1">
+              <span className="ws-st-badge ws-st-pending"><span aria-hidden className="ws-st-dot" />{t('vulnCard.verdictInProgress')}</span>
+              <span className="ws-model-label">{t('webapi.verdictModelLabel')}</span>
+            </span>
+          )}
+        {item.finding_number ? <span className="font-mono text-[10.5px] text-muted-foreground">{item.finding_number}</span> : null}
+        <span className="ml-auto text-muted-foreground">{formatShort(item.saved_at || item.created_at)}</span>
+      </div>
+      <dl className="space-y-0.5">
+        {item.method ? <div><dt className="inline font-semibold text-foreground">{t('vulnCard.verificationMethod')}：</dt><dd className="inline">{item.method}</dd></div> : null}
+        {item.preconditions ? <div><dt className="inline font-semibold text-foreground">{t('vulnCard.verificationPreconditions')}：</dt><dd className="inline">{item.preconditions}</dd></div> : null}
+        {item.summary ? <div><dt className="inline font-semibold text-foreground">{t('vulnCard.verificationSummary')}：</dt><dd className="inline">{item.summary}</dd></div> : null}
+        {item.limitations ? <div><dt className="inline font-semibold text-foreground">{t('vulnCard.verificationLimitations')}：</dt><dd className="inline">{item.limitations}</dd></div> : null}
+        {item.suggested_severity ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <dt className="inline font-semibold text-foreground">{t('vulnCard.aiSuggestedSeverity')}：</dt>
+            <dd className="inline-flex items-center gap-1.5">
+              <SeverityBadge severity={item.suggested_severity} suggested />
+              {item.severity_reason ? <span>{item.severity_reason}</span> : null}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  )
+}
+
+function LifecycleTimeline({ events }: { events: WebApiVulnCardEvent[] }) {
+  const { t } = useTranslation('chat')
+  return (
+    <Card className="space-y-3">
+      <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.lifecycleTitle')}</h3>
+      {events.length === 0 ? (
+        <p className="text-[12px] text-muted-foreground">—</p>
+      ) : (
+        <ol className="relative ml-2 space-y-3 border-l border-border">
+          {events.map((event, index) => (
+            <li key={`${event.at}-${event.kind}-${index}`} className="relative pl-4">
+              <span
+                aria-hidden
+                className="absolute -left-[4.5px] top-1.5 h-2 w-2 rounded-full"
+                style={{ background: LIFECYCLE_DOT[event.kind] || 'var(--text-muted)' }}
+              />
+              <div className="flex justify-between gap-2">
+                <span className="text-[12px] font-medium text-foreground">{event.title}</span>
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatShort(event.at)}</span>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="shrink-0 rounded bg-muted px-1 py-px text-[10px] text-muted-foreground">
+                  {event.actor === 'user' ? t('vulnCard.actorUser') : t(ACTOR_KEYS[event.actor] || 'vulnCard.actorSystem')}
+                </span>
+                {event.detail ? (
+                  <span className="line-clamp-2 min-w-0 text-[11px] text-muted-foreground" title={event.detail}>{event.detail}</span>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  )
+}
+
+export default function VulnCardPage({
+  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
+}: VulnCardPageProps) {
+  const { t } = useTranslation('chat')
+  const [card, setCard] = useState<WebApiVulnCard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
+  const [error, setError] = useState('')
+  const [masked, setMasked] = useState(true)
+  const [toast, setToast] = useState('')
+  const [shot, setShot] = useState<{ url: string; filename: string } | null>(null)
+  const [curlBusy, setCurlBusy] = useState(false)
+  const seq = useRef(0)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const toastTimer = useRef<number | null>(null)
+
+  const notify = useCallback((message: string) => {
+    setToast(message)
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(''), 2800)
+  }, [])
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+  }, [])
+
+  const loadCard = useCallback(async (silent = false) => {
+    const current = ++seq.current
+    if (!silent) {
+      setLoading(true)
+      setNotFound(false)
+      setError('')
+    }
+    try {
+      const next = await getWebApiVulnCard(vulnKey)
+      if (current !== seq.current) return
+      setCard(next)
+      setNotFound(false)
+      setError('')
+    } catch (err) {
+      if (current !== seq.current) return
+      if ((err as { status?: number }).status === 404) {
+        setCard(null)
+        setNotFound(true)
+      } else {
+        setError(errorText(err))
+      }
+    } finally {
+      if (current === seq.current) setLoading(false)
+    }
+  }, [vulnKey])
+
+  useEffect(() => {
+    setCard(null)
+    setMasked(true)
+    void loadCard()
+  }, [loadCard])
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [vulnKey])
+
+  const openInTask = () => {
+    if (!card) return
+    const key = card.header.key
+    if (card.header.asset && !key.startsWith('finding:')) {
+      onOpenAssetVuln(card.header.asset.id, key)
+      return
+    }
+    const findingId = key.startsWith('finding:') ? key.slice('finding:'.length) : (card.repro?.finding_id || '')
+    const member = card.appendix.members.find((item) => item.finding_id === findingId) || card.appendix.members[0]
+    const taskId = card.repro?.task_id || card.retest?.task_id || member?.task_id || card.appendix.verifications[0]?.task_id || ''
+    if (findingId && taskId) onOpenTaskFinding(taskId, findingId)
+  }
+
+  const copyCurl = async () => {
+    if (!card?.repro || card.repro.steps.length === 0) return
+    setCurlBusy(true)
+    try {
+      const text = await getWebApiVulnCardCurl(card.header.key, 1)
+      await navigator.clipboard.writeText(text)
+      notify(t('vulnCard.curlCopied'))
+    } catch {
+      notify(t('vulnCard.copyFailed'))
+    } finally {
+      setCurlBusy(false)
+    }
+  }
+
+  const canOpenInTask = Boolean(card && (
+    (card.header.asset && !card.header.key.startsWith('finding:'))
+    || card.appendix.members.length > 0
+    || card.repro?.task_id
+    || card.retest?.task_id
+  ))
+
+  const repro = card?.repro || null
+  const missingReason = card?.repro_missing_reason || 'no_verification'
+  const fixedAt = card?.lifecycle.find((event) => event.kind === 'fixed')?.at || null
+  // 无期限且未修复时不渲染期限与分隔点；已修复（已闭环）、逾期、有期限时照常显示。
+  const showDeadline = Boolean(card && (card.header.status === 'fixed' || card.header.due_effective || card.header.overdue))
+
+  return (
+    <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-5 sm:px-6">
+      <div className="mx-auto w-full max-w-[1600px] space-y-4">
+        {loading ? (
+          <>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-1.5 text-muted-foreground" onClick={onBack}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {t('vulnCard.back')}
+              </Button>
+            </div>
+            <Skeleton />
+          </>
+        ) : notFound ? (
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-3">
+            <HelpCircle className="h-8 w-8 text-muted-foreground" />
+            <p className="text-[14px] font-medium text-foreground">{t('vulnCard.notFound')}</p>
+            <Button type="button" variant="outline" onClick={onBack}>{t('vulnCard.backToVulnList')}</Button>
+          </div>
+        ) : error || !card ? (
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-3">
+            <p className="text-[14px] font-medium text-foreground">{t('vulnCard.loadFailed')}</p>
+            <p className="max-w-lg text-center text-[12px] text-muted-foreground">{error}</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onBack}>{t('vulnCard.backToVulnList')}</Button>
+              <Button type="button" onClick={() => void loadCard()}>{t('vulnCard.retry')}</Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 顶部导航条 */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+              <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onOpenMenu}
+                  aria-label={t('vulnCard.openMenu')}
+                  className="-ml-1 shrink-0 md:hidden"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="inline-flex shrink-0 items-center gap-1 font-medium text-secondary-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  {t('vulnCard.back')}
+                </button>
+                {card.header.asset ? (
+                  <>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="min-w-0 truncate">{card.header.asset.name}</span>
+                  </>
+                ) : null}
+                <span className="text-muted-foreground">/</span>
+                <span className="shrink-0 font-mono font-medium text-foreground">{card.header.code}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1"
+                  disabled={!card.nav.prev_key}
+                  onClick={() => { if (card.nav.prev_key) onSwitch(card.nav.prev_key) }}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  {t('vulnCard.prev')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1"
+                  disabled={!card.nav.next_key}
+                  onClick={() => { if (card.nav.next_key) onSwitch(card.nav.next_key) }}
+                >
+                  {t('vulnCard.next')}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* 横幅 */}
+            {card.header.status === 'fixed' && (
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-[12px]"
+                style={{ background: 'var(--st-fixed-bg)', borderColor: 'var(--st-fixed-text)', color: 'var(--st-fixed-text)' }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="font-medium">
+                  {card.retest
+                    ? `${t('vulnCard.fixedBanner')} · ${formatFull(card.retest.at)}`
+                    : `${t('vulnCard.fixedBannerFallback')}${fixedAt ? ` · ${formatFull(fixedAt)}` : ''}`}
+                </span>
+                {card.retest?.summary ? <span className="min-w-0 opacity-90">{card.retest.summary}</span> : null}
+              </div>
+            )}
+            {card.header.disposition === 'false_positive' && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/60 px-3 py-2 text-[12px] text-secondary-foreground">
+                <XCircle className="h-3.5 w-3.5" />
+                <span className="font-medium">{t('vulnCard.falsePositiveBanner')}</span>
+                {card.triage?.note ? <span className="min-w-0">· {t('vulnCard.falsePositiveNote', { note: card.triage.note })}</span> : null}
+              </div>
+            )}
+
+            {/* 标题卡 */}
+            <Card className="space-y-3">
+              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:flex-wrap">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {card.header.severity ? (
+                      <SeverityBadge severity={card.header.severity} />
+                    ) : card.header.suggested_severity ? (
+                      <SeverityBadge severity={card.header.suggested_severity} suggested />
+                    ) : (
+                      <SeverityBadge severity="" />
+                    )}
+                    <h1 className="min-w-0 break-words text-[16px] font-semibold leading-snug tracking-tight text-foreground sm:text-[17px]">
+                      {card.header.title_template.split(' · ').map((segment, index) => (
+                        <span key={`${segment}-${index}`}>
+                          {index > 0 ? <span className="mx-1 text-muted-foreground">·</span> : null}
+                          <span className={isPathSegment(segment) ? 'font-mono text-[15px]' : undefined}>{segment}</span>
+                        </span>
+                      ))}
+                    </h1>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
+                    <StatusBadge status={card.header.status} />
+                    <DispositionBadge disposition={card.header.disposition} />
+                    {showDeadline ? (
+                      <>
+                        <DeadlineText
+                          due={card.header.due_effective}
+                          overdue={card.header.overdue}
+                          fixed={card.header.status === 'fixed'}
+                          className="text-[12px]"
+                        />
+                        <span>·</span>
+                      </>
+                    ) : null}
+                    <span className="font-mono">{card.header.code}</span>
+                    <span>·</span>
+                    <span>{t('vulnCard.firstSeen', { time: formatFull(card.header.first_seen_at) })}</span>
+                  </div>
+                </div>
+                <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={!repro || repro.steps.length === 0 || curlBusy}
+                    onClick={() => void copyCurl()}
+                  >
+                    {curlBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
+                    {t('vulnCard.copyCurl')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={!canOpenInTask}
+                    onClick={openInTask}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {t('vulnCard.viewInTask')}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* 主栏 + 右栏 */}
+            <div className="flex w-full flex-col items-stretch gap-5 min-[1024px]:flex-row min-[1024px]:items-start">
+              <div className={cn('w-full min-w-0 flex-1 space-y-4', card.header.disposition === 'false_positive' && 'opacity-[.68]')}>
+                {repro ? (
+                  <>
+                    {repro.impact ? (
+                      <Card
+                        className="space-y-3"
+                        style={{
+                          borderLeftWidth: 3,
+                          borderLeftStyle: 'solid',
+                          borderLeftColor: severityColor(card.header.severity || card.header.suggested_severity),
+                        }}
+                      >
+                        <div className="mb-1 flex items-center gap-1.5">
+                          <span className="text-[12px] font-semibold text-foreground">{t('vulnCard.impactTitle')}</span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" aria-label={t('vulnCard.impactHelp')} className="text-muted-foreground/70 hover:text-foreground">
+                                <HelpCircle className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-[260px] whitespace-normal text-left leading-relaxed">
+                              {t('vulnCard.impactHelp')}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <p className="text-[15px] font-medium leading-relaxed text-foreground">{repro.impact}</p>
+                        {repro.preconditions ? (
+                          <div className="flex items-start gap-2 border-t border-border pt-2.5 text-[12px]">
+                            <span className="shrink-0 font-semibold text-secondary-foreground">{t('vulnCard.preconditions')}</span>
+                            <span className="min-w-0 text-foreground">{repro.preconditions}</span>
+                          </div>
+                        ) : null}
+                      </Card>
+                    ) : null}
+
+                    <Card className="space-y-3.5">
+                      <SectionTitle actions={(
+                        <label className="flex select-none items-center gap-1.5 text-[12px] text-secondary-foreground">
+                          <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
+                          <span>{t('vulnCard.maskSensitive')}</span>
+                        </label>
+                      )}>
+                        {t('vulnCard.keyRequests', { count: repro.steps.length })}
+                      </SectionTitle>
+                      {repro.steps.map((step, index) => (
+                        <StepBlock
+                          key={step.evidence_id}
+                          repro={repro}
+                          step={step}
+                          index={index}
+                          masked={masked}
+                          onScreenshot={(url, filename) => setShot({ url, filename })}
+                          onNotify={notify}
+                        />
+                      ))}
+                    </Card>
+
+                    {repro.contrast ? <ContrastSection repro={repro} /> : null}
+
+                    <div className="grid grid-cols-1 gap-4 min-[1024px]:grid-cols-2">
+                      <Card className="space-y-2.5">
+                        <SectionTitle>
+                          <span className="inline-flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5 text-blue-600" />{t('vulnCard.remediation')}</span>
+                        </SectionTitle>
+                        {repro.remediation.length === 0 ? (
+                          <p className="text-[12px] text-muted-foreground">—</p>
+                        ) : (
+                          <ul className="list-disc space-y-2 pl-4 text-[12px] text-secondary-foreground">
+                            {repro.remediation.map((item, index) => <li key={index}>{item}</li>)}
+                          </ul>
+                        )}
+                      </Card>
+                      <Card className="flex flex-col justify-between gap-3">
+                        <div className="space-y-2">
+                          <SectionTitle>
+                            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />{t('vulnCard.retestMethod')}</span>
+                          </SectionTitle>
+                          <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-secondary-foreground">{repro.retest_method || '—'}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5 text-[11.5px]">
+                          <span>
+                            <span className="text-muted-foreground">{t('vulnCard.lastRetest')}</span>
+                            <span className={cn('font-medium', card.retest ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                              {card.retest
+                                ? `${retestText(t, card.retest.conclusion)} (${formatShort(card.retest.at)})`
+                                : t('vulnCard.noRetest')}
+                            </span>
+                          </span>
+                          <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={openInTask}>
+                            <RotateCw className="h-3 w-3" />
+                            {t('vulnCard.startRetest')}
+                          </Button>
+                        </div>
+                      </Card>
+                    </div>
+                  </>
+                ) : (
+                  <Card className="space-y-3">
+                    <SectionTitle>{t('vulnCard.keyRequestsTitle')}</SectionTitle>
+                    <div className="space-y-2.5 rounded-md bg-muted/40 p-6 text-center">
+                      <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-card text-muted-foreground">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <div className="text-[12px] font-semibold text-foreground">{t('vulnCard.noReproTitle')}</div>
+                      <p className="mx-auto max-w-md text-[11.5px] text-muted-foreground">
+                        {missingReason === 'no_supported'
+                          ? t('vulnCard.noReproNoSupported')
+                          : missingReason === 'no_key_steps'
+                            ? t('vulnCard.noReproNoKeySteps')
+                            : t('vulnCard.noReproNoVerification')}
+                      </p>
+                      <Button type="button" size="sm" className="gap-1" onClick={openInTask} disabled={!canOpenInTask}>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        {t('vulnCard.startVerification')}
+                      </Button>
+                    </div>
+                    <div className="space-y-1 text-[11.5px]">
+                      <div className="text-[11px] font-medium text-muted-foreground">{t('vulnCard.rawEvidence')}</div>
+                      {card.appendix.evidence.slice(0, 10).map((item) => (
+                        <div key={`${item.task_id}:${item.evidence_id}`} className="flex items-center justify-between gap-2 rounded bg-muted/40 px-2 py-1 font-mono">
+                          <span className="min-w-0 break-all">{item.method} {displayPath(item.url)}{item.status_code != null ? ` → ${item.status_code}` : ''}</span>
+                          <span className="shrink-0 text-muted-foreground">{formatShort(item.created_at)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                <Appendix card={card} onOpenTaskFinding={onOpenTaskFinding} />
+              </div>
+
+              <aside className="w-full shrink-0 space-y-3.5 min-[1024px]:sticky min-[1024px]:top-4 min-[1024px]:w-[340px] min-[1440px]:w-[376px]">
+                <Card className="space-y-3">
+                  <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.triageTitle')}</h3>
+                  <VulnTriageForm
+                    vulnKey={card.header.key}
+                    triage={card.triage}
+                    status={card.header.status}
+                    suggestedSeverity={card.header.suggested_severity}
+                    onSaved={() => { void loadCard(true) }}
+                  />
+                </Card>
+
+                <Card className="space-y-2.5">
+                  <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.assetTitle')}</h3>
+                  {card.header.asset ? (
+                    <div className="grid grid-cols-[76px_1fr] gap-y-1.5 text-[12px]">
+                      <span className="text-muted-foreground">{t('vulnCard.assetNameLabel')}</span>
+                      <span className="min-w-0 break-words font-medium text-foreground">{card.header.asset.name}</span>
+                      <span className="text-muted-foreground">{t('vulnCard.assetEnv')}</span>
+                      <span className="text-foreground">{card.header.asset.env || '—'}</span>
+                      <span className="text-muted-foreground">{t('vulnCard.assetOwner')}</span>
+                      <span className="text-foreground">{card.header.asset.owner || '—'}</span>
+                      <span className="text-muted-foreground">{t('vulnCard.assetOrigins')}</span>
+                      <span className="min-w-0 space-y-0.5 font-mono text-[11px] text-secondary-foreground">
+                        {card.header.asset.origins.length === 0
+                          ? '—'
+                          : card.header.asset.origins.map((origin) => <span key={origin} className="block break-all">{origin}</span>)}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-[12px] text-muted-foreground">{t('vulnCard.noAsset')}</p>
+                  )}
+                </Card>
+
+                <LifecycleTimeline events={card.lifecycle} />
+
+                {card.related.length > 0 && (
+                  <Card className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.relatedTitle')}</h3>
+                      <span className="text-[11px] text-muted-foreground">{t('vulnCard.countItems', { count: card.related.length })}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {card.related.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => onSwitch(item.key)}
+                          className="flex w-full min-w-0 items-center gap-2 rounded border border-transparent p-2 text-left transition-colors hover:border-border hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          {item.severity
+                            ? <SeverityBadge severity={item.severity} compact className="shrink-0 text-[10.5px]" />
+                            : <SeverityBadge severity="" compact className="shrink-0 text-[10.5px]" />}
+                          <span className="min-w-0 flex-1 truncate text-[12px] text-foreground" title={item.title}>{item.title}</span>
+                          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">{item.code}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </aside>
+            </div>
+          </>
+        )}
+      </div>
+
+      {toast && (
+        <div role="status" className="fixed bottom-5 right-5 z-50 rounded-md border border-border bg-card px-3 py-2 text-[12px] text-foreground shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      <WebApiEvidenceImageDialog
+        open={shot !== null}
+        onClose={() => setShot(null)}
+        url={shot?.url || ''}
+        filename={shot?.filename || 'evidence.png'}
+      />
+    </div>
+  )
+}
