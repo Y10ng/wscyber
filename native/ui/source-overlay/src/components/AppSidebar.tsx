@@ -70,6 +70,9 @@ interface AppSidebarProps {
   version: string | undefined
   connectionProfiles: Array<{ id: string; title?: string }> | undefined
   pendingApprovalItems: PendingItem[]
+  /** 总览“待审批操作”一次性请求：打开侧栏待审批 Popover。 */
+  approvalsRequested: boolean
+  onApprovalsRequestedConsumed: () => void
   onResolvePending: (item: PendingItem, approve: boolean) => Promise<void>
   onViewSession: (sessionID: string) => void
   onNavigate: (page: AppPage) => void
@@ -86,7 +89,7 @@ export default function AppSidebar({
   open, collapsed, page, webapiEnabled, agents, services,
   llmProfiles, activeLLMProfile, fallbackModel, switchingLLM, onSwitchLLM,
   serverURL, version, connectionProfiles,
-  pendingApprovalItems, onResolvePending, onViewSession,
+  pendingApprovalItems, approvalsRequested, onApprovalsRequestedConsumed, onResolvePending, onViewSession,
   onNavigate, onToggleCollapsed, onCloseDrawer, onOpenUsage,
 }: AppSidebarProps) {
   const { t } = useTranslation('chat')
@@ -223,7 +226,8 @@ export default function AppSidebar({
           </div>
           <div className={cn('px-2 pb-2', rail && 'flex flex-col items-center')}>
             <div className={cn(rail && '[&_button]:w-9 [&_button]:justify-center [&_button]:px-0 [&_button>span]:hidden')}>
-              <PendingApprovalsButton items={pendingApprovalItems} onResolve={onResolvePending} onViewSession={onViewSession} />
+              <PendingApprovalsButton items={pendingApprovalItems} onResolve={onResolvePending} onViewSession={onViewSession}
+                openRequested={approvalsRequested} onOpenRequestedConsumed={onApprovalsRequestedConsumed} />
             </div>
           </div>
           <div className={cn(

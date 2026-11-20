@@ -127,14 +127,23 @@ interface Props {
   items: PendingItem[]
   onResolve: (item: PendingItem, approve: boolean) => Promise<void>
   onViewSession: (sessionId: string) => void
+  /** 外部（总览待审批卡）一次性请求打开 Popover；消费后由上层清空。 */
+  openRequested?: boolean
+  onOpenRequestedConsumed?: () => void
 }
 
 // 顶栏按钮：琥珀色「盾牌 + 待审批 N」。N=0 不渲染。Popover 列出全部待审批，
 // 每条可批准/拒绝或跳到该会话；不可用时（连接断开）显示提示、按钮禁用。
-export function PendingApprovalsButton({ items, onResolve, onViewSession }: Props) {
+export function PendingApprovalsButton({ items, onResolve, onViewSession, openRequested, onOpenRequestedConsumed }: Props) {
   const { t } = useTranslation('chat')
   const [open, setOpen] = useState(false)
   const [resolving, setResolving] = useState<{ key: string; action: 'approve' | 'reject' } | null>(null)
+  // 外部一次性请求：有可审批项时展开 Popover；无项也消费请求，避免后续误开。
+  useEffect(() => {
+    if (!openRequested) return
+    if (items.length > 0) setOpen(true)
+    onOpenRequestedConsumed?.()
+  }, [openRequested, items.length, onOpenRequestedConsumed])
   const count = items.length
   if (count === 0) return null
 

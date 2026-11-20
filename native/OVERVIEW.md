@@ -44,7 +44,7 @@
   vulns: {counts:{new,present,pending,unconfirmed,fixed}, confirmed_by_day:[{date,new,present,fixed}]},
   tokens: {total, by_day:[{date,total_tokens}]},
   schedules: {next:[{asset_id,asset_name,next_run_at}]≤5, recent_runs:[{asset_id,asset_name,scheduled_for,status,task_id,followups_state}]≤5},
-  recent_supported:[{vuln_id,title,asset:{id,name}|null,task_id,at,severity}]≤5,
+  recent_supported:[{vuln_id,title,asset:{id,name}|null,task_id,at,severity,suggested_severity}]≤5,
   todo: {unrated, pending_push, overdue},
   sla: {rate|null, closed_on_time, closed_total, avg_fix_days:{critical,high,medium,low}(数值|null),
         overdue_top:[{vuln_key,title,asset:{id,name}|null,owner_effective,overdue_days}]≤5},
@@ -59,6 +59,7 @@
 - `tokens` = `Usage` 全局汇总在该本地日期区间的结果（同 `/usage?from=&to=`）。
 - `schedules.next` = 启用、未归档、有 next_run_at 的计划，最早在前；`recent_runs` = 全部资产计划运行按 `scheduled_for` 倒序前 5，`followups_state` 同 C2b 摘要 `state`（非 launched 为 null）。
 - `recent_supported` = 有 `supported` 判读的全局条目，按其最新 `supported` 时间倒序前 5；`task_id` 为该判读所属候选的任务。
+- `recent_supported[].suggested_severity`（K1）：成员中最新一条带建议等级的 `supported` 验证的 AI 建议等级，与全局漏洞列表同源，无则空串；不写入人工 `severity`，人工定级后仍保留，不参与 SLA/逾期/计数。
 
 OV2 新增（只加字段，旧字段不变；处置/期限派生见 `TRIAGE.md`，“本地日”= Hub 本地时区）：
 

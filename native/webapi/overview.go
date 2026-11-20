@@ -48,12 +48,13 @@ type OverviewRecentRun struct {
 }
 
 type OverviewSupported struct {
-	VulnID   string        `json:"vuln_id"`
-	Title    string        `json:"title"`
-	Asset    *TaskAssetRef `json:"asset"`
-	TaskID   string        `json:"task_id"`
-	At       string        `json:"at"`
-	Severity string        `json:"severity"` // OV2：triage 严重度，空串 = 未定级
+	VulnID            string        `json:"vuln_id"`
+	Title             string        `json:"title"`
+	Asset             *TaskAssetRef `json:"asset"`
+	TaskID            string        `json:"task_id"`
+	At                string        `json:"at"`
+	Severity          string        `json:"severity"` // OV2：triage 严重度，空串 = 未定级
+	SuggestedSeverity string        `json:"suggested_severity"`
 }
 
 // ---- OV2 ----
@@ -287,7 +288,7 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 			}
 		}
 		if latestSupported != nil {
-			supported = append(supported, OverviewSupported{VulnID: vuln.ID, Title: vuln.Title, Asset: vuln.Asset, TaskID: vuln.findingTasks[latestSupported.FindingID], At: latestSupported.At, Severity: item.Severity})
+			supported = append(supported, OverviewSupported{VulnID: vuln.ID, Title: vuln.Title, Asset: vuln.Asset, TaskID: vuln.findingTasks[latestSupported.FindingID], At: latestSupported.At, Severity: item.Severity, SuggestedSeverity: vuln.SuggestedSeverity})
 		}
 	}
 	view.SLA = sla.finish()

@@ -32,6 +32,9 @@ interface VulnsPageProps {
   /** 总览“逾期 N”跳转：置为 true 时筛出逾期条目，消费后由上层清空。 */
   overdueRequested?: boolean
   onOverdueRequestedConsumed?: () => void
+  /** 总览“待定级”跳转：置为 true 时筛出未定级条目，消费后由上层清空。 */
+  unratedRequested?: boolean
+  onUnratedRequestedConsumed?: () => void
 }
 
 type VulnFilter = 'all' | WebApiVulnStatus
@@ -92,6 +95,7 @@ function shortId(id: string): string {
 export default function VulnsPage({
   webapiEnabled, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
   overdueRequested, onOverdueRequestedConsumed,
+  unratedRequested, onUnratedRequestedConsumed,
 }: VulnsPageProps) {
   const { t } = useTranslation('chat')
   const [searchInput, setSearchInput] = useState('')
@@ -126,6 +130,16 @@ export default function VulnsPage({
     setOverdueOnly(true)
     onOverdueRequestedConsumed?.()
   }, [overdueRequested, onOverdueRequestedConsumed])
+
+  // 总览“待定级”跳转：清空其他筛选，只保留严重度=未定级。
+  useEffect(() => {
+    if (!unratedRequested) return
+    setFilter('all')
+    setDisposition('')
+    setOverdueOnly(false)
+    setSeverity('none')
+    onUnratedRequestedConsumed?.()
+  }, [unratedRequested, onUnratedRequestedConsumed])
 
   const loadAssets = useCallback(async () => {
     if (!webapiEnabled) return

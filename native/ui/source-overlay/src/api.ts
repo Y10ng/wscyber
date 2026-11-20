@@ -984,6 +984,63 @@ export interface WebApiOverviewRecentSupported {
   asset: { id: string; name: string } | null
   task_id: string
   at: string
+  /** OV2：triage 严重度，空串 = 未定级。 */
+  severity: WebApiVulnSeverity
+}
+
+// --- OV2 总览字段（见 native/OVERVIEW.md 的 overview 节）---
+export interface WebApiOverviewTodo {
+  unrated: number
+  pending_push: number
+  overdue: number
+}
+
+export interface WebApiOverviewOverdueVuln {
+  vuln_key: string
+  title: string
+  asset: { id: string; name: string } | null
+  owner_effective: string
+  overdue_days: number
+}
+
+export interface WebApiOverviewSLA {
+  /** 0..1；区间内无已修复样本时为 null。 */
+  rate: number | null
+  closed_on_time: number
+  closed_total: number
+  avg_fix_days: Record<string, number | null>
+  overdue_top: WebApiOverviewOverdueVuln[]
+}
+
+export interface WebApiOverviewStaleAsset {
+  asset_id: string
+  name: string
+  last_tested_at: string | null
+  days_since: number | null
+}
+
+export interface WebApiOverviewCoverage {
+  window_days: number
+  tested: number
+  total: number
+  stale_top: WebApiOverviewStaleAsset[]
+}
+
+export interface WebApiOverviewRunningTask {
+  task_id: string
+  title: string
+  asset: { id: string; name: string } | null
+  started_at: string
+  elapsed_seconds: number
+  board: { endpoints: number; covered_endpoints: number }
+}
+
+export interface WebApiOverviewFailedRun {
+  asset_id: string
+  asset_name: string
+  scheduled_for: string
+  status: string
+  error: string
 }
 
 export interface WebApiOverview {
@@ -1001,6 +1058,11 @@ export interface WebApiOverview {
   tokens: { total: number; by_day: WebApiOverviewTokenDay[] }
   schedules: { next: WebApiOverviewNextSchedule[]; recent_runs: WebApiOverviewRecentRun[] }
   recent_supported: WebApiOverviewRecentSupported[]
+  todo: WebApiOverviewTodo
+  sla: WebApiOverviewSLA
+  coverage: WebApiOverviewCoverage
+  running: WebApiOverviewRunningTask[]
+  recent_failed_runs: WebApiOverviewFailedRun[]
 }
 
 export async function getWebApiOverview(days: 7 | 30 | 90): Promise<WebApiOverview> {

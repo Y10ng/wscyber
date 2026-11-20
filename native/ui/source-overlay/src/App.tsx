@@ -133,6 +133,12 @@ export default function App({ services }: { services: HubServices }) {
   const [focusVulnId, setFocusVulnId] = useState<string | null>(null)
   // 总览“逾期 N” → 漏洞页：一次性请求，漏洞页消费后清空。
   const [vulnsOverdueRequested, setVulnsOverdueRequested] = useState(false)
+  // 总览“待定级” → 漏洞页筛“未定级”：一次性请求。
+  const [vulnsUnratedRequested, setVulnsUnratedRequested] = useState(false)
+  // 总览“待确认推送” → 集成页筛“待确认”：一次性请求。
+  const [integrationsPendingRequested, setIntegrationsPendingRequested] = useState(false)
+  // 总览“待审批操作” → 侧栏现有待审批 Popover：一次性请求。
+  const [approvalsRequested, setApprovalsRequested] = useState(false)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
   // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
@@ -660,6 +666,8 @@ export default function App({ services }: { services: HubServices }) {
           version={serverStatus?.version}
           connectionProfiles={effectiveManifest?.profiles}
           pendingApprovalItems={pendingApprovalItems}
+          approvalsRequested={approvalsRequested}
+          onApprovalsRequestedConsumed={() => setApprovalsRequested(false)}
           onResolvePending={resolvePendingApproval}
           onViewSession={handleSelectSession}
           onNavigate={navigate}
@@ -906,8 +914,15 @@ export default function App({ services }: { services: HubServices }) {
                   onNavigate={navigate}
                   onOpenTask={openTaskSession}
                   onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
+                  onOpenAssetVuln={handleOpenAssetVuln}
+                  onOpenTaskFinding={handleOpenTaskFinding}
                   onOpenUsage={() => setUsageDialogOpen(true)}
                   onOpenVulnsOverdue={() => { setVulnsOverdueRequested(true); navigate('vulns') }}
+                  onOpenVulnsUnrated={() => { setVulnsUnratedRequested(true); navigate('vulns') }}
+                  onOpenIntegrationsPending={() => { setIntegrationsPendingRequested(true); navigate('integrations') }}
+                  onOpenApprovals={() => { setApprovalsRequested(true); setSidebarOpen(true) }}
+                  pendingApprovalCount={pendingApprovalItems.length}
+                  onNewTask={() => setTaskDialogOpen(true)}
                   onOpenMenu={() => setSidebarOpen(true)}
                 />
               )}
@@ -930,6 +945,8 @@ export default function App({ services }: { services: HubServices }) {
                     onOpenMenu={() => setSidebarOpen(true)}
                     overdueRequested={vulnsOverdueRequested}
                     onOverdueRequestedConsumed={() => setVulnsOverdueRequested(false)}
+                    unratedRequested={vulnsUnratedRequested}
+                    onUnratedRequestedConsumed={() => setVulnsUnratedRequested(false)}
                   />
                 ) : (
                   <Page>
@@ -992,6 +1009,8 @@ export default function App({ services }: { services: HubServices }) {
                   <IntegrationsPage
                     onOpenSession={openTaskSession}
                     onOpenMenu={() => setSidebarOpen(true)}
+                    presetFilter={integrationsPendingRequested ? 'pending_confirm' : null}
+                    onPresetConsumed={() => setIntegrationsPendingRequested(false)}
                   />
                 ) : (
                   <Page>

@@ -532,6 +532,50 @@ func TestGlobalListReports(t *testing.T) {
 	}
 }
 
+func TestOverviewSupportedSuggestedSeverity(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createAsset("a1")
+	f.launchManual("a1", "t1")
+	fid, revision := f.addFinding("t1", "演示订单访问检查", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	verification := f.newVerification("t1", fid, revision)
+	evidence := f.addEvidence("t1", verification.SessionID, cardFlow("https://api.example.test/orders/1002", "sid=demo", `{"owner":"user-42"}`))
+	payload := reproPayload(evidence.ID)
+	payload["suggested_severity"] = "high"
+	payload["severity_reason"] = "演示用户可读取其他用户订单"
+	if result, message := f.callVerification(verification, payload); result == nil || result["verdict"] != "supported" {
+		t.Fatalf("verification result rejected: %v %s", result, message)
+	}
+
+	readRecent := func(wantSeverity string) OverviewSupported {
+		t.Helper()
+		status, _, raw := f.do("GET", "/api/webapi/overview?days=7", "")
+		if status != http.StatusOK {
+			t.Fatalf("overview = %d %s", status, raw)
+		}
+		var view Overview
+		if err := json.Unmarshal([]byte(raw), &view); err != nil {
+			t.Fatal(err)
+		}
+		if len(view.RecentSupported) != 1 {
+			t.Fatalf("recent_supported = %+v", view.RecentSupported)
+		}
+		item := view.RecentSupported[0]
+		if item.TaskID != "t1" || item.Severity != wantSeverity || item.SuggestedSeverity != "high" {
+			t.Fatalf("recent_supported = %+v; want severity=%q, suggested_severity=high", item, wantSeverity)
+		}
+		return item
+	}
+
+	// AI 建议不替代人工定级；人工定级也不覆盖 AI 建议。
+	unrated := readRecent("")
+	if status, _, raw := f.do("PUT", "/api/webapi/vulns/"+unrated.VulnID+"/triage", `{"severity":"medium"}`); status != http.StatusOK {
+		t.Fatalf("triage = %d %s", status, raw)
+	}
+	if rated := readRecent("medium"); rated.VulnID != unrated.VulnID {
+		t.Fatalf("vuln changed after triage: %s -> %s", unrated.VulnID, rated.VulnID)
+	}
+}
+
 func TestOverviewAggregates(t *testing.T) {
 	f := newGlobalFixture(t)
 	f.seed()

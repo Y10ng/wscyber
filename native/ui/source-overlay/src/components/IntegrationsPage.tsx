@@ -22,9 +22,12 @@ type NotificationFilter = 'all' | WebApiNotificationStatus
 interface IntegrationsPageProps {
   onOpenSession: (sessionID: string) => void
   onOpenMenu: () => void
+  /** 总览“待确认推送”跳转：进入页面时预置推送记录筛选。 */
+  presetFilter?: NotificationFilter | null
+  onPresetConsumed?: () => void
 }
 
-export default function IntegrationsPage({ onOpenSession, onOpenMenu }: IntegrationsPageProps) {
+export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilter, onPresetConsumed }: IntegrationsPageProps) {
   const { t, i18n } = useTranslation('chat')
   const [settings, setSettings] = useState<WebApiWecomSettings | null>(null)
   const [loadingSettings, setLoadingSettings] = useState(true)
@@ -44,7 +47,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu }: Integrat
   const [testResult, setTestResult] = useState<{ tone: 'success' | 'warning'; text: string } | null>(null)
 
   const [items, setItems] = useState<WebApiNotification[]>([])
-  const [filter, setFilter] = useState<NotificationFilter>('all')
+  const [filter, setFilter] = useState<NotificationFilter>(presetFilter || 'all')
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -57,6 +60,11 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu }: Integrat
   useEffect(() => () => {
     if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)
   }, [])
+
+  // 总览跳转的预置筛选只消费一次（进入页面时由 useState 初始化）。
+  useEffect(() => {
+    if (presetFilter) onPresetConsumed?.()
+  }, [presetFilter, onPresetConsumed])
 
   const applySettings = useCallback((next: WebApiWecomSettings) => {
     setSettings(next)

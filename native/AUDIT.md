@@ -37,6 +37,9 @@
 | `schedule.save` / `schedule.delete` | 计划保存（有变化）/删除成功 | user | `to`（及非首次的 `from`）`{cron, enabled, auto_verify, auto_retest}`、`created`；删除为删除前值 |
 | `schedule.run` | 到点处理写入运行记录（`schedule.go` 经 `recordRun`）：launched / failed / skipped 均登记 | system | `scheduled_for`、`status`、`error`、`task_id`、`cron`、`enabled`（到期时读到的计划） |
 | `vuln.rename` / `vuln.move` / `vuln.merge` | 漏洞库人工改动成功且有变化 | user | rename：`from_title`/`to_title`；move：`finding_id`、`finding_number`、`from_vuln_id`、`to_vuln_id`、`created`；merge：`from_vuln_id`、`from_title`、`into_vuln_id`、`into_title` |
+| `vuln.triage` | `PUT /vulns/{key}/triage` 保存成功且有变化（`triage.go`） | user | `vuln_key`、`title`、`changes`（变化字段 severity/owner/due_date/disposition 的 `{from,to}`）、`note_changed`（不含备注正文）；target_kind = `vuln`，target_id = key，关联 asset_id |
+| `vuln.sla` | `PUT /vuln-sla` 配置保存成功且有变化（`triage.go`） | user | `from`/`to` `{critical_days,high_days,medium_days,low_days}`；target_kind = `vuln_sla`，target_id = `default` |
+| `vuln.curl_unmasked` | `GET /vulns/{key}/card/curl?mask=0` 成功生成未遮盖 curl（`vuln_card.go`） | user | `vuln_key`、`step`、`evidence_id`、`verification_id`（不含请求内容）；target_kind = `vuln`，target_id = key，关联验证 task_id 与条目 asset_id |
 | `notify.settings` | 企业微信配置保存且有变化 | user | `from`/`to` `{enabled, require_confirm, base_url}`、`webhook_changed`（提交了与原值不同的 webhook）、`webhook_cleared`（`"-"` 清除了已有 webhook） |
 | `notify.test` | 测试推送实际发出（未配置 409、限频 429 不登记） | user | `ok`、`errcode`（网络错误为 -1） |
 | `notification.confirm` / `.dismiss` / `.retry` | 人工处理成功（409/404 不登记） | user | `notification_id`、`title` |
