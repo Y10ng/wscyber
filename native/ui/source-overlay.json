@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "a49a06161d3e801dbaf887074ae1acfd05956c32cc0d1f0785d2a74594da957d"
+      "sha256": "c5ef332878c4d79061d2ce71aec19c7df1b7630df0050febac84c9d89257f498"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "578b74c69a5fdb74476fe3e831894d53df372b6538381273f57f01a364dd22a4"
+      "sha256": "5b99c1703bbcef8ec5ef887097fc81f432cf559b62d04959112285074e475ba2"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -32,7 +32,7 @@
     },
     "src/components/AppSidebar.tsx": {
       "source_sha256": null,
-      "sha256": "90020d97270da5dd3479c93b91d96ce40dc5adb873c2ef1173bf68a0e948e617"
+      "sha256": "0ac87bc92f7457008b53e8f154e3e66abd39f0fdb387b25c729fbc82d16a1697"
     },
     "src/components/ChatPanel.tsx": {
       "source_sha256": "386b1f68b80a1df3cbdb2f9b6c3b92c42079abf069898ed6708c0df37cc828bc",
@@ -180,7 +180,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "19a06ca7ff40b415ad21fe66a07a44fe16827be748939dd7b0834bae699dd530"
+      "sha256": "197fa05407855f61145588d25c1bfc3b81678c9cfc394599b13f2c87d8ac7413"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -192,7 +192,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "613b6d20d1ab2eae57a1efe57b06e56dac46f6c9173ff985b5a6a755c78db086"
+      "sha256": "5e3e123730e540f54e6e97147de7b6cfb5dbbb48d07c8f5d440fded0e5aa5ecb"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -237,6 +237,10 @@
     "src/lib/format-tokens.ts": {
       "source_sha256": null,
       "sha256": "303d363a1d8a73884d6280f541a9f3725c099c027241e5d636fff01b1e0f0475"
+    },
+    "src/components/IntegrationsPage.tsx": {
+      "source_sha256": null,
+      "sha256": "a53b22b7fb04008dad4bed70befa8300a59505bd41a92a5ec4b5500cb475ba8d"
     }
   }
 }

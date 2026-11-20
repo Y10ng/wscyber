@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Boxes, Cpu, FileText, Gauge, LayoutDashboard, ListChecks, LogOut,
-  PanelLeftClose, PanelLeftOpen, Server, ShieldAlert,
+  PanelLeftClose, PanelLeftOpen, Server, ShieldAlert, Webhook,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -51,6 +51,7 @@ const OPERATIONS_NAV: NavDef[] = [
 const CONFIG_NAV: NavDef[] = [
   { key: 'models', icon: Cpu, labelKey: 'shell.navModels', enabled: true },
   { key: 'nodes', icon: Server, labelKey: 'shell.navNodes', enabled: true, count: 'agents' },
+  { key: 'integrations', icon: Webhook, labelKey: 'shell.navIntegrations', enabled: true },
 ]
 
 interface AppSidebarProps {
@@ -131,6 +132,8 @@ export default function AppSidebar({
     if (source === 'agents') return agents.length > 0 ? agents.length : null
     return null
   }
+  // 集成（企业微信推送）依赖 webapi capability；未启用时不显示入口。
+  const configNav = webapiEnabled ? CONFIG_NAV : CONFIG_NAV.filter(item => item.key !== 'integrations')
 
   return (
     <>
@@ -189,7 +192,7 @@ export default function AppSidebar({
         <nav aria-label={t('shell.navLabel')} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           <NavGroup title={t('shell.groupOperations')} items={OPERATIONS_NAV} collapsed={rail}
             activePage={page} countOf={countOf} onNavigate={onNavigate} />
-          <NavGroup title={t('shell.groupConfig')} items={CONFIG_NAV} collapsed={rail}
+          <NavGroup title={t('shell.groupConfig')} items={configNav} collapsed={rail}
             activePage={page} countOf={countOf} onNavigate={onNavigate} />
         </nav>
 

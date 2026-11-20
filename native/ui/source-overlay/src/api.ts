@@ -1698,3 +1698,92 @@ export function webApiEgressImageURL(taskId: string, flowId: string, opts?: { ma
   const mask = opts?.mask === false ? '0' : '1'
   return `/api/webapi/tasks/${encodeURIComponent(taskId)}/egress/${encodeURIComponent(flowId)}/image.png?mask=${mask}`
 }
+
+// --- 企业微信推送（D2）：配置、测试与通知记录（契约 native/NOTIFY.md） ---
+export interface WebApiWecomSettings {
+  enabled: boolean
+  has_webhook: boolean
+  webhook_hint: string
+  require_confirm: boolean
+  base_url: string
+  updated_at: string | null
+}
+
+/** webhook 省略或 "" 保留原值，"-" 清除。 */
+export interface WebApiWecomSaveInput {
+  webhook?: string
+  enabled: boolean
+  require_confirm: boolean
+  base_url: string
+}
+
+export interface WebApiWecomTestResult {
+  ok: boolean
+  errcode: number
+  errmsg: string
+}
+
+export async function getWebApiWecomSettings(): Promise<WebApiWecomSettings> {
+  return apiJSON<WebApiWecomSettings>('/api/webapi/notify/wecom', 'Failed to load WeCom settings', { cache: 'no-store' })
+}
+
+export async function saveWebApiWecomSettings(body: WebApiWecomSaveInput): Promise<WebApiWecomSettings> {
+  return apiJSON<WebApiWecomSettings>('/api/webapi/notify/wecom', 'Failed to save WeCom settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function testWebApiWecom(): Promise<WebApiWecomTestResult> {
+  return apiJSON<WebApiWecomTestResult>('/api/webapi/notify/wecom/test', 'Failed to send test message', { method: 'POST' })
+}
+
+export type WebApiNotificationStatus = 'pending_confirm' | 'queued' | 'sending' | 'sent' | 'failed' | 'dismissed'
+
+export interface WebApiNotification {
+  id: string
+  kind: 'new' | 'regression'
+  status: WebApiNotificationStatus
+  dedupe_key: string
+  task_id: string
+  finding_id: string
+  finding_number: string
+  verification_id: string
+  verification_session_id: string
+  vuln_id: string | null
+  title: string
+  asset: { id: string; name: string } | null
+  attempts: number
+  last_error: string
+  next_attempt_at: string | null
+  created_at: string
+  sent_at: string | null
+}
+
+export interface WebApiNotificationList {
+  items: WebApiNotification[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export async function listWebApiNotifications(params: {
+  status?: WebApiNotificationStatus
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiNotificationList> {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiNotificationList>(`/api/webapi/notifications${suffix ? `?${suffix}` : ''}`, 'Failed to load push records')
+}
+
+export async function actWebApiNotification(id: string, action: 'confirm' | 'dismiss' | 'retry'): Promise<WebApiNotification> {
+  return apiJSON<WebApiNotification>(
+    `/api/webapi/notifications/${encodeURIComponent(id)}/${action}`,
+    'Failed to update push record',
+    { method: 'POST' },
+  )
+}

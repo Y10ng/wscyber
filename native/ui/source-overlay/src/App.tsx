@@ -22,6 +22,7 @@ import WebApiReportBar from './components/WebApiReportBar'
 import WebApiAssetsPanel from './components/WebApiAssetsPanel'
 import WebApiUsagePanel from './components/WebApiUsagePanel'
 import WebApiUsageDialog from './components/WebApiUsageDialog'
+import IntegrationsPage from './components/IntegrationsPage'
 import { assetMentionables } from './components/AssetPanel'
 import MentionPicker from './components/MentionPicker'
 import { useObservations } from '@/viewer'
@@ -44,11 +45,11 @@ import { useObservable, WorkbenchSlots } from './runtime/react'
 import type { HubServices } from './runtime/services'
 import type { CapabilityManifest } from './runtime/capabilities'
 
-export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes'
+export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations'
 
-// 已实现页面：总览/任务/资产/模型/节点；漏洞、报告后续片实现，URL 里出现时归一到总览页，
+// 已实现页面：总览/任务/资产/集成/模型/节点；漏洞、报告后续片实现，URL 里出现时归一到总览页，
 // 不暴露未实现的占位入口。
-const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'models', 'nodes']
+const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'models', 'nodes', 'integrations']
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
@@ -908,6 +909,18 @@ export default function App({ services }: { services: HubServices }) {
                   {/* Agent 控制台以页面模式内嵌：同一份内容 JSX，不渲染 ToolDrawer。 */}
                   <AgentPanel variant="page" open agents={chat.agents} onClose={() => {}} />
                 </Page>
+              )}
+              {page === 'integrations' && (
+                webapiEnabled ? (
+                  <IntegrationsPage
+                    onOpenSession={openTaskSession}
+                    onOpenMenu={() => setSidebarOpen(true)}
+                  />
+                ) : (
+                  <Page>
+                    <PageHeader title={tc('shell.integrationsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                )
               )}
             </>
           )}
