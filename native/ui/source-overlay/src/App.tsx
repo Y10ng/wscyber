@@ -12,6 +12,7 @@ import AgentPanel from './components/AgentPanel'
 import ChatPanel from './components/ChatPanel'
 import WebApiTaskDialog from './components/WebApiTaskDialog'
 import WebApiEvidencePanel from './components/WebApiEvidencePanel'
+import WebApiBoardPanel from './components/WebApiBoardPanel'
 import WebApiFindingsPanel from './components/WebApiFindingsPanel'
 import WebApiTaskBar, { type WebApiView } from './components/WebApiTaskBar'
 import WebApiExecutionTimeline, { ExecutionViewHeader, type ExecutionViewMode } from './components/WebApiExecutionTimeline'
@@ -711,6 +712,14 @@ export default function App({ services }: { services: HubServices }) {
                 task={activeWebApiTask}
                 focusEvidenceId={focusEvidenceId}
                 onFocusConsumed={() => setFocusEvidenceId(null)}
+              />
+            ) : webApiTaskActive && activeWebApiTask && workspaceView === 'board' ? (
+              <WebApiBoardPanel
+                task={activeWebApiTask}
+                onViewFinding={handleViewFinding}
+                onViewEvidence={(evidenceId) => handleViewEvidence(activeWebApiTask.id, evidenceId)}
+                onOpenSession={(sessionID) => { void chat.selectSession(sessionID) }}
+                onCountsChanged={bumpWebApiCountsRevision}
               />
             ) : webApiTaskActive && activeWebApiTask && workspaceView === 'findings' ? (
               <WebApiFindingsPanel

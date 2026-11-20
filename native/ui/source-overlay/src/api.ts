@@ -952,6 +952,174 @@ export async function getWebApiOverview(days: 7 | 30 | 90): Promise<WebApiOvervi
   return apiJSON<WebApiOverview>(`/api/webapi/overview?days=${days}`, 'Failed to load overview')
 }
 
+// --- 任务黑板（M2 后端，字段见 native/BOARD.md）--------------------------------
+// 地图 = 流量/模型补充的接口清单；事实 = 有效或已撤回的客观信息；
+// Oracle = 具体可证伪的待证明问题。成立 ≠ 漏洞确认，仍走独立验证。
+export type WebApiBoardOracleStatus = 'open' | 'in_progress' | 'holds' | 'refuted' | 'blocked' | 'dropped'
+export type WebApiBoardCategory = 'authz' | 'authn' | 'injection' | 'ssrf' | 'file' | 'logic' | 'info_disclosure' | 'config' | 'other'
+export type WebApiBoardPriority = 'high' | 'medium' | 'low'
+export type WebApiBoardFactKind = 'endpoint' | 'auth' | 'role' | 'tech' | 'config' | 'data' | 'other'
+export type WebApiBoardSource = 'traffic' | 'model'
+
+export interface WebApiBoardCounts {
+  endpoints: number
+  traffic_endpoints: number
+  model_endpoints: number
+  untested_endpoints: number
+  /** 有效（active）事实数。 */
+  facts: number
+  confirmed_facts: number
+  oracles: Record<WebApiBoardOracleStatus, number>
+}
+
+export interface WebApiBoardDigest {
+  task_id: string
+  digest: string
+  counts: WebApiBoardCounts
+}
+
+export interface WebApiBoardEndpoint {
+  id: string
+  endpoint_key: string
+  method: string
+  origin: string
+  path: string
+  params: string[]
+  status_codes: number[]
+  /** none / with / both；模型补充且从未请求为空串。 */
+  auth_seen: string
+  request_count: number
+  first_seen_at: string
+  last_seen_at: string
+  source: WebApiBoardSource
+  note: string
+  /** 引用该端点的 Oracle 编号（任意状态）。 */
+  oracles: string[]
+}
+
+export interface WebApiBoardFact {
+  id: string
+  kind: WebApiBoardFactKind
+  subject: string
+  statement: string
+  confidence: 'confirmed' | 'inferred'
+  evidence_ids: string[]
+  status: 'active' | 'retracted'
+  session_id: string
+  turn_id: string
+  call_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface WebApiBoardOracleEvent {
+  /** 创建事件为空串。 */
+  from: string
+  to: string
+  actor: string
+  session_id: string
+  at: string
+  summary: string
+}
+
+export interface WebApiBoardOracle {
+  id: string
+  number: string
+  question: string
+  category: WebApiBoardCategory
+  endpoint_keys: string[]
+  priority: WebApiBoardPriority
+  status: WebApiBoardOracleStatus
+  origin: 'model' | 'user' | string
+  claimed_session_id: string
+  result_summary: string
+  evidence_ids: string[]
+  finding_id: string
+  /** WSC-000001；无关联为空串。 */
+  finding_number: string
+  created_at: string
+  updated_at: string
+  events?: WebApiBoardOracleEvent[]
+}
+
+export interface WebApiBoardList<T> {
+  items: T[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export interface WebApiBoardOracleInput {
+  question: string
+  category: WebApiBoardCategory
+  endpoint_keys: string[]
+  priority: WebApiBoardPriority
+}
+
+export async function getWebApiBoard(taskId: string): Promise<WebApiBoardDigest> {
+  return apiJSON<WebApiBoardDigest>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board`, 'Failed to load board')
+}
+
+export async function listWebApiBoardEndpoints(taskId: string, params: {
+  q?: string
+  untested?: boolean
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiBoardList<WebApiBoardEndpoint>> {
+  const query = new URLSearchParams()
+  if (params.q) query.set('q', params.q)
+  if (params.untested) query.set('untested', '1')
+  query.set('limit', String(params.limit ?? 50))
+  if (params.cursor) query.set('cursor', params.cursor)
+  return apiJSON<WebApiBoardList<WebApiBoardEndpoint>>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/endpoints?${query.toString()}`, 'Failed to load board endpoints')
+}
+
+export async function listWebApiBoardFacts(taskId: string, params: {
+  kind?: WebApiBoardFactKind
+  status?: 'active' | 'retracted'
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiBoardList<WebApiBoardFact>> {
+  const query = new URLSearchParams()
+  if (params.kind) query.set('kind', params.kind)
+  if (params.status) query.set('status', params.status)
+  query.set('limit', String(params.limit ?? 50))
+  if (params.cursor) query.set('cursor', params.cursor)
+  return apiJSON<WebApiBoardList<WebApiBoardFact>>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/facts?${query.toString()}`, 'Failed to load board facts')
+}
+
+export async function listWebApiBoardOracles(taskId: string, params: {
+  status?: WebApiBoardOracleStatus
+  category?: WebApiBoardCategory
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiBoardList<WebApiBoardOracle>> {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.category) query.set('category', params.category)
+  query.set('limit', String(params.limit ?? 50))
+  if (params.cursor) query.set('cursor', params.cursor)
+  return apiJSON<WebApiBoardList<WebApiBoardOracle>>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/oracles?${query.toString()}`, 'Failed to load board oracles')
+}
+
+export async function createWebApiBoardOracle(taskId: string, body: WebApiBoardOracleInput): Promise<{ oracle: WebApiBoardOracle; created: boolean }> {
+  return apiJSON<{ oracle: WebApiBoardOracle; created: boolean }>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/oracles`, 'Failed to propose oracle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateWebApiBoardOracle(taskId: string, number: string, body: {
+  priority?: WebApiBoardPriority
+  status?: 'open' | 'dropped'
+}): Promise<{ oracle: WebApiBoardOracle; changed: boolean }> {
+  return apiJSON<{ oracle: WebApiBoardOracle; changed: boolean }>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/oracles/${encodeURIComponent(number)}`, 'Failed to update oracle', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: string): Promise<WebApiEvidenceList> {
   const query = new URLSearchParams()
   query.set('limit', String(limit))

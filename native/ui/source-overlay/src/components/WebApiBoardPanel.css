@@ -1,0 +1,63 @@
+.board-container {
+  container-type: inline-size;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+
+.board-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-workspace .board-detail {
+  display: none;
+}
+
+.board-workspace.board-show-detail .board-list {
+  display: none;
+}
+
+.board-workspace.board-show-detail .board-detail {
+  display: flex;
+}
+
+.board-question-clamp {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.board-back {
+  display: inline-flex;
+}
+
+/* ≥900px：列表 | 详情两栏，栏间 1px 实线（docs/ui-shell.md §2）。 */
+@container (min-width: 900px) {
+  .board-workspace {
+    grid-template-columns: minmax(420px, 1fr) minmax(380px, 1fr);
+  }
+
+  .board-workspace .board-list,
+  .board-workspace .board-detail,
+  .board-workspace.board-show-detail .board-list,
+  .board-workspace.board-show-detail .board-detail {
+    display: flex;
+  }
+
+  .board-detail {
+    border-left: 1px solid hsl(var(--border));
+  }
+
+  .board-back {
+    display: none;
+  }
+}

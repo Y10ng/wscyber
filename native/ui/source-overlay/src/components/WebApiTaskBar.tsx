@@ -7,7 +7,7 @@ import { getWebApiTask, type WebApiTask, type WebApiTaskPolicy } from '../api'
 import { useWebApiTaskViewCounts } from '../hooks/useWebApiTaskViewCounts'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
 
-export type WebApiView = 'execution' | 'traffic' | 'findings' | 'reports' | 'usage'
+export type WebApiView = 'execution' | 'traffic' | 'board' | 'findings' | 'reports' | 'usage'
 
 interface Props {
   task: WebApiTask
@@ -23,9 +23,10 @@ interface Props {
   countsRevision?: number
 }
 
-const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'findings' | 'reports' | null }[] = [
+const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'board' | 'findings' | 'reports' | null }[] = [
   { view: 'execution', labelKey: 'webapi.execution', countKey: null },
   { view: 'traffic', labelKey: 'webapi.traffic', countKey: 'traffic' },
+  { view: 'board', labelKey: 'board.tab', countKey: 'board' },
   { view: 'findings', labelKey: 'webapi.findings', countKey: 'findings' },
   { view: 'reports', labelKey: 'webapi.reports', countKey: 'reports' },
   { view: 'usage', labelKey: 'webapi.usageView', countKey: null },

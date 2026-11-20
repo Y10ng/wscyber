@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "1b66a529c6a1bbb7aa8a54fd5eb9d5a2e501c5c518ee101bc433f262fc028fc7"
+      "sha256": "d97ab980d932138c8c24b5fbe4fa423248f2e4a80b3fe90fc70f96398db75d03"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "829a23e1372fe1425e399e5ac78bb9f44f3beabb087faa2cd835274421c6afe5"
+      "sha256": "8e79c775be638af33853cdf70e576fbb71185aa9d6a5f18a4b8d6420a58f2d95"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -94,6 +94,14 @@
       "source_sha256": null,
       "sha256": "735dd31b44d18e6a34296c257fbf39c087f4258d676f75b635104001a57bb6e1"
     },
+    "src/components/WebApiBoardPanel.css": {
+      "source_sha256": null,
+      "sha256": "78cf02b0f4de02fff1afb098763f2ab56562c7b3d600d1d6426c01a00b2bc351"
+    },
+    "src/components/WebApiBoardPanel.tsx": {
+      "source_sha256": null,
+      "sha256": "38ab82f9f746ce2e26a1a8eb0bcbc8c8c67c5ccd2425be519f14e0eb1b2635b1"
+    },
     "src/components/WebApiEvidenceImageDialog.tsx": {
       "source_sha256": null,
       "sha256": "f467a596bfe25fec1523ccfd7933ec23df6b716e26e7bbd825e7ccc24811d1e5"
@@ -152,7 +160,7 @@
     },
     "src/components/WebApiTaskBar.tsx": {
       "source_sha256": null,
-      "sha256": "fe4f5f95220df37810839eeced57c299936cce35a22df577833ac49ac5974a0c"
+      "sha256": "4b57ed0be875b6730c6518357c9aabc5142fea4ee752c36f66fcc968399cff05"
     },
     "src/components/WebApiTaskDialog.tsx": {
       "source_sha256": null,
@@ -196,7 +204,7 @@
     },
     "src/hooks/useWebApiTaskViewCounts.ts": {
       "source_sha256": null,
-      "sha256": "226d8769144414eb8f1ba11dfeb8c2b9f395f027347758e8567edc6fd8dc73ac"
+      "sha256": "776a53c3d9fe51c0186b5f7b050d03c627a128a93dc9797d7877780fd0810a6e"
     },
     "src/i18n/locales/en/agent.ts": {
       "source_sha256": "126c37880c826552a8259f846b4fab8a61dc535b766cd3a208cf6ed9b1c492bb",
@@ -204,7 +212,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "718061890b7d80b6bc4e1d7d8d7473711c16699b881103d0f3540fed0d647734"
+      "sha256": "d3445616cd668aaec5c6b88b4a7b0ff58f91b4543a8e3b7fcf07477c71bac035"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -216,7 +224,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "64f2ff963316cec04fca9065c6edcb27df5eb11253f59685a324e05f7154d760"
+      "sha256": "3d04ab23ce19f9734c62deebad66e2ef431df62a0f6fe0525b3582edaad02054"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
