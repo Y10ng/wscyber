@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -87,6 +87,11 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_audit_events":           {"id", "at", "actor", "action", "target_kind", "target_id", "task_id", "asset_id", "summary", "detail_json"},
 			"webapi_vuln_triage":            {"vuln_key", "asset_id", "severity", "disposition", "owner", "due_date", "note", "created_at", "updated_at"},
 			"webapi_vuln_sla":               {"id", "critical_days", "high_days", "medium_days", "low_days", "updated_at"},
+			"webapi_board_endpoints":        {"id", "task_id", "endpoint_key", "method", "origin", "path", "params_json", "status_codes_json", "auth_seen", "request_count", "first_seen_at", "last_seen_at", "source", "note"},
+			"webapi_board_ingest":           {"task_id", "last_created_at", "last_id"},
+			"webapi_board_facts":            {"id", "task_id", "kind", "subject", "statement", "confidence", "evidence_ids_json", "status", "session_id", "turn_id", "call_id", "created_at", "updated_at"},
+			"webapi_board_oracles":          {"id", "task_id", "number", "question", "category", "endpoint_keys_json", "priority", "status", "origin", "claimed_session_id", "result_summary", "evidence_ids_json", "finding_id", "dedupe_key", "created_at", "updated_at"},
+			"webapi_board_oracle_events":    {"id", "oracle_id", "task_id", "from_status", "to_status", "actor", "session_id", "at", "summary"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -118,6 +123,11 @@ func SchemaModule() webservice.SchemaModule {
 			{Model: (*auditEventModel)(nil), Name: "webapi_audit_events_action", Columns: []string{"action"}},
 			{Model: (*auditEventModel)(nil), Name: "webapi_audit_events_task", Columns: []string{"task_id"}},
 			{Model: (*auditEventModel)(nil), Name: "webapi_audit_events_asset", Columns: []string{"asset_id"}},
+			{Model: (*boardEndpointModel)(nil), Name: "webapi_board_endpoints_task_key", Columns: []string{"task_id", "endpoint_key"}, Unique: true},
+			{Model: (*boardFactModel)(nil), Name: "webapi_board_facts_task_created", Expr: "task_id, created_at DESC, id DESC"},
+			{Model: (*boardOracleModel)(nil), Name: "webapi_board_oracles_number", Columns: []string{"task_id", "number"}, Unique: true},
+			{Model: (*boardOracleModel)(nil), Name: "webapi_board_oracles_dedupe", Columns: []string{"task_id", "dedupe_key"}, Unique: true},
+			{Model: (*boardOracleEventModel)(nil), Name: "webapi_board_oracle_events_oracle", Columns: []string{"oracle_id", "at"}},
 		},
 	}
 }

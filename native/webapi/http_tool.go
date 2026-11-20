@@ -67,6 +67,11 @@ func (c *Capability) ToolExtension() extension.Extension {
 			if err := extension.Add[coretool.Tool](scope, &retestTool{store: c.store}); err != nil {
 				return err
 			}
+			for _, tool := range []coretool.Tool{&boardReadTool{store: c.store}, &boardMapTool{store: c.store}, &boardFactTool{store: c.store}, &boardOracleTool{store: c.store}} {
+				if err := extension.Add[coretool.Tool](scope, tool); err != nil {
+					return err
+				}
+			}
 			registry, err := extension.Use[*corehooks.Registry](scope)
 			if err != nil {
 				return err

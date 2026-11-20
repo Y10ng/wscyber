@@ -22,7 +22,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 |---|---|
 | `native/cmd/wscyber-hub/` | 入口与装配：Hub、正式模型节点（`model_product.go`）、模型配置、UI 静态挂载。`--fixture-node`/`--model-endpoint` 为本机测试分支 |
 | `native/cmd/wscyber-native/` | 早期 CLI fixture（原生会话/工具最小链），仅测试参考 |
-| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录；`notify*.go` 企业微信推送（配置、登记、后台投递）；`audit.go` 审计记录（只追加表、写操作生效后登记、查询）；`triage.go` 漏洞处置（严重度/处置/负责人/修复期限 SLA，逾期读时派生） |
+| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录；`notify*.go` 企业微信推送（配置、登记、后台投递）；`audit.go` 审计记录（只追加表、写操作生效后登记、查询）；`triage.go` 漏洞处置（严重度/处置/负责人/修复期限 SLA，逾期读时派生）；`board*.go` 任务黑板（地图/事实/Oracle，流量增量摄取，`boardDigest` 摘要） |
 | `native/modeltransport/` | 本机测试用的模型连接目的地约束 |
 | `native/patches/` | 上游 SQLite 事务锁一行补丁（`_txlock=immediate`），经 `scripts/cyber-go-overlay.py` 构建时应用 |
 | `native/ui/source-overlay/` | 对原生前端的覆盖文件（App、任务/候选/证据/验证面板、配置、i18n）；清单 `source-overlay.json` |
@@ -62,9 +62,10 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET/PUT/POST | `/notify/wecom`、`/notify/wecom/test` | 企业微信群机器人配置（webhook 加密存储、只回 host+末 4 位、`""` 保留 `"-"` 清除；enabled、require_confirm、base_url）与测试推送 |
 | GET/POST | `/notifications?status=&limit=&cursor=`、`/notifications/{id}/confirm\|dismiss\|retry` | 推送记录：验证 supported 后按 C3 条目（无资产按候选）去重登记（已修复后再确认为 regression），Hub 内 goroutine 每 10s 发 markdown+证据图片，重试 1/5 分钟、3 次失败、45009 推迟、全局 18 条/分钟；见 `native/NOTIFY.md` |
 | GET/PUT | `/vulns/{key}/triage`（PUT）、`/vuln-sla` | 漏洞处置：按全局漏洞 id（`vid` / `finding:<id>`）部分更新严重度、处置（open/fixing/risk_accepted/false_positive）、负责人、修复期限、备注；SLA 天数（默认 3/7/30/90）；`/vulns`、资产漏洞库、总览随之带 `triage` 与逾期计数；见 `native/TRIAGE.md` |
+| GET/POST/PUT | `/tasks/{id}/board`、`/tasks/{id}/board/endpoints\|facts\|oracles`（GET 列表，键游标）、`/tasks/{id}/board/oracles`（POST 用户提出）、`/tasks/{id}/board/oracles/{number}`（PUT 优先级/重开/放弃） | 任务黑板：地图（已发送且有响应的流量按端点键增量摄取 + 模型补充）、事实、Oracle（O-001 编号、去重、状态与事件）；总览含 `boardDigest` 摘要与计数；用户操作入审计；见 `native/BOARD.md` |
 | GET | `/audit?action=&actor=&task_id=&asset_id=&q=&from=&to=&limit=&cursor=` | 审计记录（只读）：任务/策略/会话发起、审批决定、资产/测试账号/计划/漏洞库/推送配置改动、计划运行与推送终态，actor user/system，`at` 倒序键游标；见 `native/AUDIT.md` |
 
-工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
+工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）、`webapi_board_read|map|fact|oracle`（任务黑板：任务内会话可读，仅研究会话可写；Oracle 成立须关联候选，不等于确认）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 
 ## 4. 关键约束与已知缺口
 
