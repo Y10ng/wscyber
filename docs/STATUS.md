@@ -41,13 +41,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **真实对比时机：** M3 后研究会话为“场景方法 + 黑板 + 持续探索”完整形态，用户可自建任务对比（M0）。已知：评估调用 token 不计入平台用量（上游行为）；评估器遵守提示词约束未经真实模型验证。
 
-进行中：**UI-A 设计基础**（ds-flash，`var/ui-a-foundation/task.md`）、**OV2 总览后端**（o-latest，`var/ov2-overview-backend/task.md`）。
+已提交（续 3）：OV2 总览后端（b85b1bf）、UI-A 设计基础（8d4fa64：Token、共享徽标、侧栏与漏洞列表按稿、品牌 WScyber）。
+
+进行中：**K1 漏洞卡后端**（o-latest，`var/k1-card-backend/task.md`）、**UI-B 总览前端**（ds-flash，`var/ui-b-overview/task.md`）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. UI-A、OV2 验收 → UI-B 总览前端 + K1 漏洞卡后端 → K1 前端 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
+1. K1 后端、UI-B 验收 → K1 漏洞卡前端 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
 4. D3 SDL（需接口文档）。
@@ -60,4 +62,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-UI-A 设计基础（ds-flash）与 OV2 总览后端（o-latest）运行中。
+K1 漏洞卡后端（o-latest）与 UI-B 总览前端（ds-flash）运行中。
