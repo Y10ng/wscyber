@@ -308,7 +308,7 @@ func (c *Capability) launchFollowup(ctx context.Context, item scheduleFollowupMo
 		return fail("create", "候选修订不存在")
 	}
 	result := &AssetLaunchResult{SessionID: sessionID}
-	_, err = c.startSession(ctx, sessionID, subject, func() (string, error) { return pinnedFirstMessage(variant, task.Origins, source), nil }, result)
+	_, err = c.startSession(ctx, sessionID, subject, func() (string, error) { return pinnedFirstMessage(variant, task.Origins, source), nil }, result, nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", "", ctx.Err()

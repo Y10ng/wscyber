@@ -62,12 +62,14 @@ type scenarioDef struct {
 	Name         string
 	Method       string
 	DoneCriteria string
+	// MaxRounds 是持续探索（M3 Goal 评估循环）默认最大轮数，见 explore.go。
+	MaxRounds int
 }
 
 // scenarioDefs 按展示顺序列出全部场景；第一个为默认。
 var scenarioDefs = []scenarioDef{
-	{Key: ScenarioWebAPIPentest, Name: "Web/API 渗透测试", Method: scenarioPentestMethod, DoneCriteria: scenarioPentestDoneCriteria},
-	{Key: ScenarioAutonomous, Name: "自主研究", Method: scenarioAutonomousMethod, DoneCriteria: scenarioAutonomousDoneCriteria},
+	{Key: ScenarioWebAPIPentest, Name: "Web/API 渗透测试", Method: scenarioPentestMethod, DoneCriteria: scenarioPentestDoneCriteria, MaxRounds: 8},
+	{Key: ScenarioAutonomous, Name: "自主研究", Method: scenarioAutonomousMethod, DoneCriteria: scenarioAutonomousDoneCriteria, MaxRounds: 12},
 }
 
 func scenarioDefOf(key string) (scenarioDef, bool) {

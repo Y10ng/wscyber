@@ -80,6 +80,8 @@ type saveAsset struct {
 	// 默认研究场景（M1）：未提供＝保留当前值（新资产为默认）；提供则校验后保存，空串＝默认。
 	Scenario     *string `json:"scenario"`
 	DoneCriteria *string `json:"done_criteria"`
+	// 持续探索最大轮数（M3）：未提供＝保留当前值；提供须为 1..20。
+	MaxRounds *int `json:"max_rounds"`
 }
 
 func validateSaveAsset(id string, body *saveAsset) (*assetModel, error) {
@@ -195,21 +197,31 @@ func (c *Capability) handleAssetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	currentScenario := beforeScenario.view()
 	if before != nil {
-		before.ScenarioKey, before.DoneCriteria = currentScenario.Key, currentScenario.DoneCriteria
+		before.ScenarioKey, before.DoneCriteria, before.MaxRounds = currentScenario.Key, currentScenario.DoneCriteria, currentScenario.MaxRounds
 	}
-	input := scenarioInput{Scenario: body.Scenario, DoneCriteria: body.DoneCriteria}
+	input := scenarioInput{Scenario: body.Scenario, DoneCriteria: body.DoneCriteria, MaxRounds: body.MaxRounds}
 	model.ScenarioKey, model.DoneCriteria, err = input.resolve(currentScenario.Key, currentScenario.DoneCriteria)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	rounds, err := input.rounds()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	savedRounds := rounds
+	if savedRounds == 0 && beforeScenario != nil {
+		savedRounds = beforeScenario.MaxRounds
+	}
+	model.MaxRounds = newTaskScenario(model.ScenarioKey, model.DoneCriteria, false).withMaxRounds(savedRounds).MaxRounds
 	created, err := c.store.putAsset(r.Context(), *model)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存资产失败")
 		return
 	}
 	if input.provided() {
-		if err := c.store.putAssetScenario(r.Context(), id, model.ScenarioKey, model.DoneCriteria); err != nil {
+		if err := c.store.putAssetScenario(r.Context(), id, model.ScenarioKey, model.DoneCriteria, rounds); err != nil {
 			writeError(w, http.StatusInternalServerError, "保存资产研究场景失败")
 			return
 		}

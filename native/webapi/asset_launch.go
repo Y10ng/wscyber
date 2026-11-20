@@ -14,6 +14,7 @@ import (
 	aop "github.com/chainreactors/cyber/aop"
 	types "github.com/chainreactors/cyber/core/types"
 	managementapi "github.com/chainreactors/cyber/pkg/web/api"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // 与前端 lib/session-agent.ts 相同的节点能力标志：只选明确提供 webapi_http 的节点；
@@ -113,24 +114,43 @@ func (l apiLauncher) SessionRunning(ctx context.Context, sessionID string) (bool
 	if node == nil || !node.GetBusy() {
 		return false, nil
 	}
-	open := map[string]bool{}
+	turns := newTurnEvents()
 	err = l.scanEvents(ctx, sessionID, func(event *aop.Event) bool {
-		turnID := event.GetTurnId()
-		if turnID == "" {
-			return true
-		}
-		switch {
-		case event.GetTurnEnded() != nil:
-			delete(open, turnID)
-		case event.GetTurnStarted() != nil:
-			open[turnID] = true
-		case event.GetMessage() != nil && event.GetMessage().GetRole() == "user":
-			open[turnID] = true
-		}
+		turns.observe(event)
 		return true
 	})
-	return len(open) > 0, err
+	return turns.openTurns() > 0, err
 }
+
+// turnEvents 按持久化事件汇总轮次：已开始（用户消息或 TurnStarted）未结束（TurnEnded）的轮次与是否出现过
+// TurnEnded。Goal 评估循环（M3）的多轮共用一个 turn_id，中间轮次不发 TurnStarted/TurnEnded，
+// 只在整个循环结束时发一次 TurnEnded（agent/session executeRun 包住 RunWithEval），故判定不变。
+type turnEvents struct {
+	open  map[string]bool
+	ended bool
+}
+
+func newTurnEvents() *turnEvents { return &turnEvents{open: map[string]bool{}} }
+
+func (t *turnEvents) observe(event *aop.Event) {
+	if event.GetTurnEnded() != nil {
+		t.ended = true
+	}
+	turnID := event.GetTurnId()
+	if turnID == "" {
+		return
+	}
+	switch {
+	case event.GetTurnEnded() != nil:
+		delete(t.open, turnID)
+	case event.GetTurnStarted() != nil:
+		t.open[turnID] = true
+	case event.GetMessage() != nil && event.GetMessage().GetRole() == "user":
+		t.open[turnID] = true
+	}
+}
+
+func (t *turnEvents) openTurns() int { return len(t.open) }
 
 // TurnEnded 判断会话持久化事件里是否至少有一个 TurnEnded（计划后续“研究已结束”判定用）。
 func (l apiLauncher) TurnEnded(ctx context.Context, sessionID string) (bool, error) {
@@ -138,12 +158,12 @@ func (l apiLauncher) TurnEnded(ctx context.Context, sessionID string) (bool, err
 	if err != nil || session == nil {
 		return false, err
 	}
-	ended := false
+	turns := newTurnEvents()
 	err = l.scanEvents(ctx, sessionID, func(event *aop.Event) bool {
-		ended = event.GetTurnEnded() != nil
-		return !ended
+		turns.observe(event)
+		return !turns.ended
 	})
-	return ended, err
+	return turns.ended, err
 }
 
 // scanEvents 按页顺序读取会话持久化事件，visit 返回 false 时提前结束。
@@ -290,7 +310,7 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 			return nil, launchFail(http.StatusInternalServerError, "task", "读取资产研究场景失败", nil)
 		}
 		if assetScenario != nil {
-			scenario = &taskScenarioModel{Scenario: assetScenario.Scenario, DoneCriteria: assetScenario.DoneCriteria}
+			scenario = &taskScenarioModel{Scenario: assetScenario.Scenario, DoneCriteria: assetScenario.DoneCriteria, MaxRounds: assetScenario.MaxRounds}
 		}
 	}
 	task, created, err := c.store.createAssetTask(ctx, assetID, taskID, knownInfo, objective, origins, scope, approval, scenario)
@@ -313,7 +333,9 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 	}
 
 	// 2–4. 会话：已存在沿用原绑定节点；首条消息（解密测试账号）在 Open 前组装，密钥问题不留下空会话。
-	started, err := c.startSession(ctx, task.InitialSessionID, "任务", func() (string, error) { return c.assetFirstMessage(ctx, asset, task) }, result)
+	// 研究会话走 Goal 评估循环（M3 持续探索）：完成标准与最大轮数在 Run 前读库。
+	started, err := c.startSession(ctx, task.InitialSessionID, "任务", func() (string, error) { return c.assetFirstMessage(ctx, asset, task) }, result,
+		func() (*types.AgentRunOptions, error) { return c.store.researchRunOptions(ctx, task.ID) })
 	if err != nil {
 		return result, err
 	}
@@ -325,7 +347,9 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 // 会话已存在则沿用原绑定节点、不再 Open；会话里已有用户消息即视为已启动，不再 Run（返回 started=true）。
 // 否则组装首条消息 → 选节点（在线且提供 webapi_http，按 node_id 取第一个；本机模型须已配置）→ Open → Run。
 // subject 是失败文案里“已保存”的对象（任务/验证/复测）；失败返回 *AssetLaunchError（阶段与进度写入 result）。
-func (c *Capability) startSession(ctx context.Context, sessionID, subject string, buildMessage func() (string, error), result *AssetLaunchResult) (bool, error) {
+// runOptions 非空（仅任务研究会话）时 RunTurn 带 AgentRunOptions 走 Goal 评估循环；本机受控模型节点不带
+// （脚本模型不能充当评估器），验证/复测会话传 nil。
+func (c *Capability) startSession(ctx context.Context, sessionID, subject string, buildMessage func() (string, error), result *AssetLaunchResult, runOptions func() (*types.AgentRunOptions, error)) (bool, error) {
 	if c.launcher == nil {
 		return false, launchFail(http.StatusServiceUnavailable, "open_session", "会话服务不可用，"+subject+"已保存但未启动；可重试", result)
 	}
@@ -381,12 +405,23 @@ func (c *Capability) startSession(ctx context.Context, sessionID, subject string
 	}
 
 	maxTurns := uint32(0)
-	if hasCapability(node, localModelCapability) {
+	localModel := hasCapability(node, localModelCapability)
+	if localModel {
 		maxTurns = localModelMaxTurns
+	}
+	var extensions []*anypb.Any
+	if runOptions != nil && !localModel {
+		options, err := runOptions()
+		if err != nil {
+			return false, launchFail(http.StatusInternalServerError, "run_turn", "读取持续探索设置失败，"+subject+"与会话已保存但未启动；可重试", result)
+		}
+		if extensions, err = packRunOptions(options); err != nil {
+			return false, launchFail(http.StatusInternalServerError, "run_turn", "组装持续探索设置失败，"+subject+"与会话已保存但未启动；可重试", result)
+		}
 	}
 	turnID := randomRequestID("")
 	run, err := c.launcher.RunTurn(ctx, randomRequestID("wa-run-"), &aop.RunTurnRequest{
-		SessionId: sessionID, TurnId: turnID, MaxTurns: maxTurns,
+		SessionId: sessionID, TurnId: turnID, MaxTurns: maxTurns, Extensions: extensions,
 		Input: &aop.Message{Id: randomRequestID(""), Role: "user", Content: []*aop.Content{{Value: &aop.Content_Text{Text: &aop.TextContent{Text: message}}}}},
 	})
 	if err != nil {

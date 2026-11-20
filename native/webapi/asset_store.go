@@ -31,6 +31,7 @@ type assetModel struct {
 	// 默认研究场景（M1）存 webapi_asset_scenarios，不是本表列；这里只供审计比较。
 	ScenarioKey  string `bun:"-"`
 	DoneCriteria string `bun:"-"`
+	MaxRounds    int    `bun:"-"` // 持续探索最大轮数生效值（M3，存 webapi_asset_explore）
 }
 
 // assetCredentialModel 的 secret 只以 AES-GCM 密文落库；空串表示未设置。
@@ -361,7 +362,7 @@ func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownI
 			return err
 		}
 		if scenario != nil {
-			if err := putTaskScenarioTx(ctx, tx, taskID, scenario.Scenario, scenario.DoneCriteria); err != nil {
+			if err := putTaskScenarioTx(ctx, tx, taskID, scenario.Scenario, scenario.DoneCriteria, scenario.MaxRounds); err != nil {
 				return err
 			}
 		}

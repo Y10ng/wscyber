@@ -35,6 +35,9 @@ type taskScenarioModel struct {
 	Scenario     string `bun:"scenario,notnull"`
 	DoneCriteria string `bun:"done_criteria,type:text,notnull"`
 	UpdatedAt    string `bun:"updated_at,notnull"`
+
+	// MaxRounds 存 webapi_task_explore（M3），不是本表列；0＝未保存（用场景默认）。
+	MaxRounds int `bun:"-"`
 }
 
 // assetScenarioModel 是资产默认场景（发起任务与计划发起时拷贝到任务）；无记录＝默认。
@@ -46,6 +49,9 @@ type assetScenarioModel struct {
 	Scenario     string `bun:"scenario,notnull"`
 	DoneCriteria string `bun:"done_criteria,type:text,notnull"`
 	UpdatedAt    string `bun:"updated_at,notnull"`
+
+	// MaxRounds 存 webapi_asset_explore（M3），不是本表列；0＝未保存（用场景默认）。
+	MaxRounds int `bun:"-"`
 }
 
 // TaskScenario 是任务/资产响应中的场景视图。DoneCriteria 为保存的自定义文本（空＝场景默认），
@@ -56,6 +62,8 @@ type TaskScenario struct {
 	DoneCriteria          string `json:"done_criteria"`
 	DoneCriteriaEffective string `json:"done_criteria_effective"`
 	IsDefault             bool   `json:"is_default"`
+	// MaxRounds 是持续探索（Goal 评估循环）最大轮数的生效值：保存值或场景默认（M3，见 explore.go）。
+	MaxRounds int `json:"max_rounds"`
 }
 
 func newTaskScenario(key, criteria string, isDefault bool) TaskScenario {
@@ -63,7 +71,15 @@ func newTaskScenario(key, criteria string, isDefault bool) TaskScenario {
 	if strings.TrimSpace(effective) == "" {
 		effective = scenarioDoneCriteria(key)
 	}
-	return TaskScenario{Key: key, Name: scenarioName(key), DoneCriteria: criteria, DoneCriteriaEffective: effective, IsDefault: isDefault}
+	return TaskScenario{Key: key, Name: scenarioName(key), DoneCriteria: criteria, DoneCriteriaEffective: effective, IsDefault: isDefault, MaxRounds: scenarioMaxRounds(key)}
+}
+
+// withMaxRounds 用保存的最大轮数覆盖场景默认；saved 不在 1..20（含 0＝未保存）时保持默认。
+func (s TaskScenario) withMaxRounds(saved int) TaskScenario {
+	if validMaxRounds(saved) {
+		s.MaxRounds = saved
+	}
+	return s
 }
 
 func defaultTaskScenario() TaskScenario { return newTaskScenario(ScenarioWebAPIPentest, "", true) }
@@ -93,9 +109,23 @@ func parseDoneCriteria(raw string) (string, error) {
 type scenarioInput struct {
 	Scenario     *string `json:"scenario"`
 	DoneCriteria *string `json:"done_criteria"`
+	MaxRounds    *int    `json:"max_rounds"`
 }
 
-func (in scenarioInput) provided() bool { return in.Scenario != nil || in.DoneCriteria != nil }
+func (in scenarioInput) provided() bool {
+	return in.Scenario != nil || in.DoneCriteria != nil || in.MaxRounds != nil
+}
+
+// rounds 校验提供的 max_rounds（1..20）；未提供返回 0（沿用当前值）。
+func (in scenarioInput) rounds() (int, error) {
+	if in.MaxRounds == nil {
+		return 0, nil
+	}
+	if !validMaxRounds(*in.MaxRounds) {
+		return 0, errMaxRounds
+	}
+	return *in.MaxRounds, nil
+}
 
 // resolve 在 base 之上应用提供的字段并校验；未提供的字段沿用 base。
 func (in scenarioInput) resolve(baseKey, baseCriteria string) (key, criteria string, err error) {
@@ -130,16 +160,24 @@ func (s *taskStore) scenarioForTask(ctx context.Context, taskID string) (TaskSce
 	if _, ok := scenarioDefOf(model.Scenario); !ok {
 		return TaskScenario{}, fmt.Errorf("已保存研究场景非法")
 	}
-	return newTaskScenario(model.Scenario, model.DoneCriteria, false), nil
+	rounds, err := taskMaxRounds(ctx, s.orm, taskID)
+	if err != nil {
+		return TaskScenario{}, err
+	}
+	return newTaskScenario(model.Scenario, model.DoneCriteria, false).withMaxRounds(rounds), nil
 }
 
-// putTaskScenarioTx 写任务当前场景（upsert）；可在建任务事务内调用。
-func putTaskScenarioTx(ctx context.Context, db bun.IDB, taskID, key, criteria string) error {
+// putTaskScenarioTx 写任务当前场景（upsert）；maxRounds>0 时同时写最大轮数，0＝不动已保存值。
+// 可在建任务事务内调用。
+func putTaskScenarioTx(ctx context.Context, db bun.IDB, taskID, key, criteria string, maxRounds int) error {
 	model := &taskScenarioModel{TaskID: taskID, Scenario: key, DoneCriteria: criteria, UpdatedAt: scenarioNow()}
 	_, err := db.NewInsert().Model(model).
 		On("CONFLICT (task_id) DO UPDATE").Set("scenario = EXCLUDED.scenario").Set("done_criteria = EXCLUDED.done_criteria").Set("updated_at = EXCLUDED.updated_at").
 		Exec(ctx)
-	return err
+	if err != nil || maxRounds <= 0 {
+		return err
+	}
+	return putTaskMaxRounds(ctx, db, taskID, maxRounds)
 }
 
 // assetScenarioModelOf 读资产默认场景记录；无记录返回 nil。
@@ -152,6 +190,11 @@ func assetScenarioModelOf(ctx context.Context, db bun.IDB, assetID string) (*ass
 	if err != nil {
 		return nil, err
 	}
+	rounds, err := assetMaxRounds(ctx, db, assetID)
+	if err != nil {
+		return nil, err
+	}
+	model.MaxRounds = rounds[assetID]
 	return &model, nil
 }
 
@@ -159,7 +202,7 @@ func (m *assetScenarioModel) view() TaskScenario {
 	if m == nil {
 		return defaultTaskScenario()
 	}
-	return newTaskScenario(m.Scenario, m.DoneCriteria, false)
+	return newTaskScenario(m.Scenario, m.DoneCriteria, false).withMaxRounds(m.MaxRounds)
 }
 
 // assetScenarios 批量读资产默认场景（无记录的资产不在结果中）。
@@ -172,23 +215,34 @@ func (s *taskStore) assetScenarios(ctx context.Context, assetIDs ...string) (map
 	if err := s.orm.NewSelect().Model(&models).Where("asset_id IN (?)", bun.In(assetIDs)).Scan(ctx); err != nil {
 		return nil, err
 	}
+	rounds, err := assetMaxRounds(ctx, s.orm, assetIDs...)
+	if err != nil {
+		return nil, err
+	}
 	for index := range models {
+		models[index].MaxRounds = rounds[models[index].AssetID]
 		out[models[index].AssetID] = &models[index]
 	}
 	return out, nil
 }
 
-func (s *taskStore) putAssetScenario(ctx context.Context, assetID, key, criteria string) error {
-	model := &assetScenarioModel{AssetID: assetID, Scenario: key, DoneCriteria: criteria, UpdatedAt: scenarioNow()}
-	_, err := s.orm.NewInsert().Model(model).
-		On("CONFLICT (asset_id) DO UPDATE").Set("scenario = EXCLUDED.scenario").Set("done_criteria = EXCLUDED.done_criteria").Set("updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	return err
+// putAssetScenario 写资产默认场景；maxRounds>0 时同一事务写最大轮数，0＝不动已保存值。
+func (s *taskStore) putAssetScenario(ctx context.Context, assetID, key, criteria string, maxRounds int) error {
+	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		model := &assetScenarioModel{AssetID: assetID, Scenario: key, DoneCriteria: criteria, UpdatedAt: scenarioNow()}
+		_, err := tx.NewInsert().Model(model).
+			On("CONFLICT (asset_id) DO UPDATE").Set("scenario = EXCLUDED.scenario").Set("done_criteria = EXCLUDED.done_criteria").Set("updated_at = EXCLUDED.updated_at").
+			Exec(ctx)
+		if err != nil || maxRounds <= 0 {
+			return err
+		}
+		return putAssetMaxRounds(ctx, tx, assetID, maxRounds)
+	})
 }
 
 // ---- HTTP ----
 
-// handlePutTaskScenario：PUT /tasks/{id}/scenario {scenario?, done_criteria?}；未提供的字段沿用当前值，
+// handlePutTaskScenario：PUT /tasks/{id}/scenario {scenario?, done_criteria?, max_rounds?}；未提供的字段沿用当前值，
 // 至少提供一个；随时可改，下一次 Run 生效。
 func (c *Capability) handlePutTaskScenario(w http.ResponseWriter, r *http.Request) {
 	id, err := taskIDFromPath(r)
@@ -198,11 +252,16 @@ func (c *Capability) handlePutTaskScenario(w http.ResponseWriter, r *http.Reques
 	}
 	var body scenarioInput
 	if err := decodeJSONBody(r, &body, true, false); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体须为只含 scenario、done_criteria 的 JSON 对象")
+		writeError(w, http.StatusBadRequest, "请求体须为只含 scenario、done_criteria、max_rounds 的 JSON 对象（max_rounds 为整数）")
 		return
 	}
 	if !body.provided() {
-		writeError(w, http.StatusBadRequest, "scenario 与 done_criteria 至少提供一个")
+		writeError(w, http.StatusBadRequest, "scenario、done_criteria、max_rounds 至少提供一个")
+		return
+	}
+	rounds, err := body.rounds()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	task, err := c.store.Get(r.Context(), id)
@@ -224,11 +283,18 @@ func (c *Capability) handlePutTaskScenario(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := putTaskScenarioTx(r.Context(), c.store.orm, id, key, criteria); err != nil {
+	err = c.store.orm.RunInTx(r.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		return putTaskScenarioTx(ctx, tx, id, key, criteria, rounds)
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存研究场景失败")
 		return
 	}
-	after := newTaskScenario(key, criteria, false)
+	after, err := c.store.scenarioForTask(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取研究场景失败")
+		return
+	}
 	c.auditTaskScenario(r.Context(), id, before, after)
 	writeJSON(w, http.StatusOK, map[string]any{"task_id": id, "scenario": after})
 }
@@ -238,13 +304,14 @@ type ScenarioOption struct {
 	Key                 string `json:"key"`
 	Name                string `json:"name"`
 	DefaultDoneCriteria string `json:"default_done_criteria"`
+	DefaultMaxRounds    int    `json:"default_max_rounds"`
 	IsDefault           bool   `json:"is_default"`
 }
 
 func (c *Capability) handleScenarioList(w http.ResponseWriter, _ *http.Request) {
 	items := make([]ScenarioOption, 0, len(scenarioDefs))
 	for _, def := range scenarioDefs {
-		items = append(items, ScenarioOption{Key: def.Key, Name: def.Name, DefaultDoneCriteria: def.DoneCriteria, IsDefault: def.Key == ScenarioWebAPIPentest})
+		items = append(items, ScenarioOption{Key: def.Key, Name: def.Name, DefaultDoneCriteria: def.DoneCriteria, DefaultMaxRounds: def.MaxRounds, IsDefault: def.Key == ScenarioWebAPIPentest})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"scenarios": items})
 }
@@ -253,7 +320,8 @@ func (c *Capability) handleScenarioList(w http.ResponseWriter, _ *http.Request) 
 
 func (c *Capability) auditTaskScenario(ctx context.Context, taskID string, from, to TaskScenario) {
 	criteriaChanged := from.DoneCriteria != to.DoneCriteria
-	if from.Key == to.Key && !criteriaChanged {
+	roundsChanged := from.MaxRounds != to.MaxRounds
+	if from.Key == to.Key && !criteriaChanged && !roundsChanged {
 		return
 	}
 	parts := []string{}
@@ -263,10 +331,15 @@ func (c *Capability) auditTaskScenario(ctx context.Context, taskID string, from,
 	if criteriaChanged {
 		parts = append(parts, "完成标准已修改")
 	}
+	detail := map[string]any{"from": from.Key, "to": to.Key, "done_criteria_changed": criteriaChanged}
+	if roundsChanged {
+		parts = append(parts, fmt.Sprintf("最大轮数 %d → %d", from.MaxRounds, to.MaxRounds))
+		detail["max_rounds"] = map[string]any{"from": from.MaxRounds, "to": to.MaxRounds}
+	}
 	assetID, _ := c.store.taskAssetID(ctx, taskID)
 	c.audit(ctx, auditEntry{Actor: auditActorOf(ctx), Action: "task.scenario", TargetKind: "task", TargetID: taskID, TaskID: taskID, AssetID: assetID,
 		Summary: "修改任务" + strings.Join(parts, "；"),
-		Detail:  map[string]any{"from": from.Key, "to": to.Key, "done_criteria_changed": criteriaChanged}})
+		Detail:  detail})
 }
 
 // ---- 研究会话系统提示词注入 ----

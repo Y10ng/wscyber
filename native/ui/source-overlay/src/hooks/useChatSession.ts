@@ -995,7 +995,12 @@ export function useChatSession() {
     await activateSession(session.id, 'push')
 
     // 首条消息用 saved.task 规范化字段，Run 签名稳定（等价 origin 换写法不产生新 Run）。
-    const sent = await handleSendMessage(webApiFirstMessage(task), { sessionID: session.id })
+    // M3 持续探索：研究会话走 Goal 评估循环（完成标准＋最大轮数取自任务场景）；本机受控模型节点不开。
+    const criteria = task.scenario?.done_criteria_effective?.trim() || ''
+    const explore = criteria && !isLocalModelNode(boundNodeID)
+      ? { persist: true, evalCriteria: criteria, evalRounds: task.scenario?.max_rounds ? String(task.scenario.max_rounds) : '' }
+      : {}
+    const sent = await handleSendMessage(webApiFirstMessage(task), { sessionID: session.id, ...explore })
     if (!sent) throw new Error('已保存任务但启动未完成，请重试；不会重复创建会话或盲发新 Run。')
 
     return { task, sessionID: session.id }

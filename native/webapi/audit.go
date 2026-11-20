@@ -410,7 +410,7 @@ func (c *Capability) auditReview(ctx context.Context, sessionID, operationID str
 var assetFieldLabels = []struct{ key, label string }{
 	{"name", "名称"}, {"owner", "负责人"}, {"environment", "环境"}, {"known_info", "已知信息"}, {"objective", "默认目标"},
 	{"origins", "origins"}, {"forbidden", "禁止行为"}, {"scope", "范围"}, {"approval", "审批"}, {"archived", "归档"},
-	{"scenario", "研究场景"}, {"done_criteria", "完成标准"},
+	{"scenario", "研究场景"}, {"done_criteria", "完成标准"}, {"max_rounds", "最大轮数"},
 }
 
 func assetFieldValues(model *assetModel) map[string]any {
@@ -420,7 +420,7 @@ func assetFieldValues(model *assetModel) map[string]any {
 	origins, _ := decodeOrigins(model.OriginsJSON)
 	return map[string]any{"name": model.Name, "owner": model.Owner, "environment": model.Environment, "known_info": model.KnownInfo, "objective": model.Objective,
 		"origins": origins, "forbidden": model.Forbidden, "scope": model.Scope, "approval": model.Approval, "archived": model.Archived,
-		"scenario": model.ScenarioKey, "done_criteria": model.DoneCriteria}
+		"scenario": model.ScenarioKey, "done_criteria": model.DoneCriteria, "max_rounds": model.MaxRounds}
 }
 
 // auditAssetSave：before 为保存前的资产（新建为 nil）；无变化不登记。
@@ -434,7 +434,7 @@ func (c *Capability) auditAssetSave(ctx context.Context, before *assetModel, aft
 			continue
 		}
 		changed, labels = append(changed, field.key), append(labels, field.label)
-		if slices.Contains([]string{"name", "owner", "environment", "origins", "scope", "approval", "archived", "scenario"}, field.key) {
+		if slices.Contains([]string{"name", "owner", "environment", "origins", "scope", "approval", "archived", "scenario", "max_rounds"}, field.key) {
 			values[field.key] = current[field.key]
 		}
 	}

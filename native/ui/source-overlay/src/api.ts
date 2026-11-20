@@ -582,6 +582,8 @@ export interface WebApiScenario {
   done_criteria: string
   done_criteria_effective: string
   is_default: boolean
+  // M3 持续探索：Goal 评估循环最大轮数生效值（1..20；保存值或场景默认）。旧后端缺省。
+  max_rounds?: number
 }
 
 // 新建任务/资产表单用的场景选项（GET /api/webapi/scenarios，按展示顺序，第一项默认）。
@@ -589,6 +591,7 @@ export interface WebApiScenarioOption {
   key: string
   name: string
   default_done_criteria: string
+  default_max_rounds?: number
   is_default: boolean
 }
 
