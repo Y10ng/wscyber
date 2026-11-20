@@ -43,15 +43,17 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 3）：OV2 总览后端（b85b1bf）、UI-A 设计基础（8d4fa64：Token、共享徽标、侧栏与漏洞列表按稿、品牌 WScyber）。
 
-进行中：**K1 漏洞卡后端**（o-latest，`var/k1-card-backend/task.md`）、**UI-B 总览前端**（ds-flash，`var/ui-b-overview/task.md`）。
+已提交（续 4）：K1 漏洞卡后端（9aa24b8，`native/VULN_CARD.md`）、UI-B 总览前端 + 总览 `recent_supported.suggested_severity`（b2703a4）、演示脚本分页用例带正常对照（30985e4）。UI-B 验收记下：总览“待定级 2”跳到漏洞页后列表含已修复/未支持共 4 条（筛选只按等级，未限未修复）；390 宽下 A 区四卡单列偏长。
+
+进行中：**K1 漏洞卡前端**（ds-flash，`var/k1-card-frontend/task.md`；含列表/总览 AI 建议徽标与 code）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. K1 后端、UI-B 验收 → K1 漏洞卡前端 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
+1. K1 漏洞卡前端验收 → UI-C 全站设计语言三批（见 `docs/ui-design.md`）→ K2 一键重放 → M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
-3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
+3. 小打磨：黑板详情时间用 AM/PM、Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。
 4. D3 SDL（需接口文档）。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；B2 出口为代理强制（可被刻意绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝（V4 推送待审批缓解）；审计无保留期、无用户名（单 key）。
@@ -62,4 +64,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-K1 漏洞卡后端（o-latest）与 UI-B 总览前端（ds-flash）运行中。
+K1 漏洞卡前端（ds-flash）运行中。
