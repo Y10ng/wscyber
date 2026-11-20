@@ -31,6 +31,25 @@ PUT回包为`{verification,created,idempotent}`。创建的身份/current revisi
 - 未决/失败/截断不能作为有效支持或反证，仅可作为限制；inconclusive可无证据。工具既有unknown处理不被结果保存解除。
 - 一个验证的结果不可变；同Invocation同规范载荷回读，变载荷/另一Invocation覆盖拒绝。保存错误与确定的覆盖冲突区分，不能用重发目标请求恢复数据库回执。
 
+### 最小复现与 AI 建议等级（K1）
+
+均为可选字段，存在结果 payload JSON 内（不加表、不改列）；旧结果无这些字段照常读取。**仅 `verdict=supported` 时允许填写**，且 supported 时 `impact` 与 `key_steps` 必填；counterevidence/inconclusive 填写任一字段（含空数组）返回逐字段错误（列出已填字段名）。
+
+| 字段 | 约束 |
+|---|---|
+| `impact` | 必填，≤200 字：一句话影响（谁、什么条件下、能做什么）；前置条件沿用 `preconditions` |
+| `key_steps[]` | 必填 1–3 项 `{title ≤80 字, evidence_id, request_marks?[], response_marks?[]}`；evidence_id 不得重复；marks 每侧 ≤5 个，非空单行、≤100 字（同证据图片 `mark`） |
+| `contrast?` | `{normal_evidence_id, abnormal_evidence_id, note? ≤200 字}`，两者不得相同；越权类应提供 |
+| `remediation?` | ≤3 条，每条非空、≤160 字 |
+| `retest_method?` | ≤300 字：重放哪一步、期望什么结果 |
+| `suggested_severity?` + `severity_reason` | critical/high/medium/low/info；给等级时理由必填（≤200 字），只给理由拒绝。AI 建议，**不写处置（triage）** |
+
+- key_steps 与 contrast 引用的证据同现有规则：须为本验证 session 在本任务的新 HTTP 证据，且已发送、收到响应、完整捕获（不接受限制类证据）；不满足按字段路径报错，结果不保存。
+- 字数按 rune 计；超限报 `实际 N 字，上限 M 字`。
+- marks 只用于高亮：保存时不要求在原件中找到；漏洞卡读时在原件（请求行/头/正文、状态行/头/正文，未遮盖）中逐行查找，找不到的丢弃并标 `mark_missing`。
+- 工具描述与验证首条消息“要求”段已补充：supported 时须给出最小复现（删去非必要步骤，只留能证明问题的 1–3 个请求，越权类给正常对照）与建议等级。首条消息 Go（`schedule_followup.go`）与前端（`useChatSession.ts`）逐行一致，`TestVerificationFirstMessageMatchesFrontend` 读前端源码比对。
+- 消费方：漏洞卡（`native/VULN_CARD.md`）、列表 `suggested_severity`、企业微信推送（`native/NOTIFY.md`）。
+
 ## 两表与已知旧结构
 
 新增`webapi_verifications`、`webapi_verification_results`。`PrepareVerificationSchema`在宿主能力装配前运行：空库交原生建完整结构；完整新结构沿原生校验；已知旧core＋四业务表经原生校验后，在一个事务内只新增两表和索引。未知或半成结构拒绝，不DROP/ALTER旧表、不补造历史行。随后仍保留原生完整结构校验；没有新增通用迁移框架或上游schema补丁。

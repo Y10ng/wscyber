@@ -542,7 +542,36 @@ def result_payload(conv, verdict_key, mapping):
     }
     if evidence:
         payload['evidence'] = evidence
+    if verdict_key == 'verdict' and verdict == 'supported':
+        payload.update(demo_repro(target, primary['value']['evidence_id']))
     return payload, note
+
+
+# K1：supported 时须给出最小复现（impact + 1–3 个 key_steps）与建议等级；只引用本会话主请求证据。
+DEMO_REPRO = {
+    '配置接口': ('未登录的任何人都能直接读取后台配置接口返回的服务配置 JSON。', '匿名读取后台配置', ['service'],
+               'medium', '无需凭据即可读取内部配置，但演示数据不含密钥',
+               ['后台配置接口要求管理员身份认证', '配置响应去除内部服务信息'], '重放第 1 步（匿名 GET），期望 401/403 且不返回配置 JSON'),
+    '调试信息': ('任何访问者触发错误时都能拿到调用栈与服务器内部路径。', '触发错误并获得调用栈', ['Traceback'],
+               'low', '泄露内部实现细节，需配合其他问题利用',
+               ['生产环境关闭调试输出，错误响应只返回通用信息'], '重放第 1 步，期望 500 响应正文不含 Traceback 与内部路径'),
+    '分页大小': ('任何调用者都能用超大 size 一次取回远超上限的数据。', '以 size=150 请求列表', ['"returned"'],
+               'low', '可放大单次数据读取量，演示数据为公开商品',
+               ['服务端限制 size 上限并校验参数'], '重放第 1 步，期望 400 或返回条数不超过上限'),
+}
+
+
+def demo_repro(target, evidence_id):
+    impact, title, response_marks, severity, reason, remediation, retest = DEMO_REPRO[target[0]]
+    return {
+        'impact': impact,
+        'key_steps': [{'title': title, 'evidence_id': evidence_id,
+                       'request_marks': [target[1].split('?')[0]], 'response_marks': response_marks}],
+        'remediation': remediation,
+        'retest_method': retest,
+        'suggested_severity': severity,
+        'severity_reason': reason,
+    }
 
 
 def script_checked(conv, label, tool, verdict_key, mapping):

@@ -482,6 +482,10 @@ func TestNotifyDeliveryMarkdownAndImage(t *testing.T) {
 	fid, frev := f.addFinding("t1", "订单接口越权读取", content, evidenceAt("GET", "https://api.example.test/orders/1002"))
 	flow := notifyFlow("POST", "https://api.example.test/orders/1002?expand=1", `{"user":"demo-user","password":"Fixture-Pass-9"}`, `{"order":"1002","owner":"user-42"}`)
 	v := f.verify("t1", fid, frev, "supported", flow)
+	// 本用例覆盖旧结果（K1 前无最小复现）的文案；带最小复现的推送见 vuln_card_test.go。
+	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_verification_results SET payload_json = json_remove(payload_json, '$.payload.impact', '$.payload.key_steps') WHERE verification_id = ?`, v.VerificationID); err != nil {
+		t.Fatal(err)
+	}
 	var resultAt string
 	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT created_at FROM webapi_verification_results WHERE verification_id = ?`, v.VerificationID).Scan(&resultAt)
 	local := parseAt(resultAt).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04")

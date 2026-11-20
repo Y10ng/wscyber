@@ -54,8 +54,13 @@ func executeVerification(t *testing.T, tool *verificationTool, inv operation.Inv
 	return decoded, text
 }
 
+// verificationArguments：supported 时附最小复现（K1 起 impact 与 key_steps 必填），关键步骤引用同一条证据。
 func verificationArguments(verdict, evidenceID, relation string) string {
-	return fmt.Sprintf(`{"verdict":%q,"method":"重新发送独立HTTP请求并比较真实响应","summary":"本机fixture模型判读","limitations":"不代表自动确认","evidence":[{"evidence_id":%q,"relation":%q}]}`, verdict, evidenceID, relation)
+	repro := ""
+	if verdict == "supported" {
+		repro = fmt.Sprintf(`,"impact":"普通用户可读取他人数据","key_steps":[{"title":"复现请求","evidence_id":%q}]`, evidenceID)
+	}
+	return fmt.Sprintf(`{"verdict":%q,"method":"重新发送独立HTTP请求并比较真实响应","summary":"本机fixture模型判读","limitations":"不代表自动确认","evidence":[{"evidence_id":%q,"relation":%q}]%s}`, verdict, evidenceID, relation, repro)
 }
 
 type unknownSchemaTable struct {

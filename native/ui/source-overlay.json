@@ -212,7 +212,7 @@
     },
     "src/hooks/useChatSession.ts": {
       "source_sha256": "51e84a673a79c80225be277f0182357638964de5d7dce405e06942f549847d81",
-      "sha256": "50e63cd2a94a50704889a17a14f9098ba4e1c7673793cc66c9e4a0d19a29c2af"
+      "sha256": "b63ee913780a812f80ae8956560186325966c5d89c025464490e48ee2e01bee2"
     },
     "src/hooks/useWebApiTaskViewCounts.ts": {
       "source_sha256": null,

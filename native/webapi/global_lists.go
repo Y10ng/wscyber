@@ -23,6 +23,7 @@ const (
 // task_finding 是未关联资产任务里的单个候选（id = finding:<finding_id>）。
 type GlobalVuln struct {
 	ID              string          `json:"id"`
+	Code            string          `json:"code"`
 	Kind            string          `json:"kind"`
 	Title           string          `json:"title"`
 	Status          string          `json:"status"`
@@ -36,6 +37,8 @@ type GlobalVuln struct {
 	MemberCount     int             `json:"member_count"`
 	TaskCount       int             `json:"task_count"`
 	Triage          *TriageView     `json:"triage"`
+	// SuggestedSeverity：AI 建议等级（K1，同 AssetVuln）；无为 ""。
+	SuggestedSeverity string `json:"suggested_severity"`
 
 	sortAt time.Time
 	// assetID/firstConfirmed 供处置视图计算（firstConfirmed 为条目第一条“存在”事件时间）。
@@ -44,10 +47,12 @@ type GlobalVuln struct {
 	// events 是条目全部成员的验证/复测结果事件（总览按日统计用）；findingTasks 为成员候选所属任务。
 	events       []vulnEvent
 	findingTasks map[string]string
+	// members 是条目成员（候选创建时间倒序），漏洞卡（K1）用。
+	members []AssetVulnMember
 }
 
 func globalVulnFrom(view *AssetVuln, kind string, asset *TaskAssetRef, events map[string][]vulnEvent) *GlobalVuln {
-	item := &GlobalVuln{ID: view.ID, Kind: kind, Title: view.Title, Status: view.Status, EndpointKey: view.EndpointKey, Asset: asset,
+	item := &GlobalVuln{ID: view.ID, Code: view.Code, SuggestedSeverity: view.SuggestedSeverity, members: view.Members, Kind: kind, Title: view.Title, Status: view.Status, EndpointKey: view.EndpointKey, Asset: asset,
 		FirstSeenAt: view.FirstSeenAt, LastConfirmedAt: view.LastConfirmedAt, FixedAt: view.FixedAt, LastEvent: view.LastEvent,
 		MemberCount: view.MemberCount, TaskCount: view.TaskCount, sortAt: view.sortAt, findingTasks: map[string]string{},
 		firstConfirmed: view.firstConfirmed}
@@ -178,10 +183,11 @@ func (s *taskStore) standaloneFindingVulns(ctx context.Context) ([]*GlobalVuln, 
 func (s *taskStore) standaloneEvents(ctx context.Context) (map[string][]vulnEvent, error) {
 	out := map[string][]vulnEvent{}
 	queries := []struct{ kind, sql string }{
-		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at
+		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at,
+			COALESCE(json_extract(r.payload_json, '$.payload.suggested_severity'), '')
 			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
 			WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = v.task_id)`},
-		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at
+		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at, ''
 			FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id
 			WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = t.task_id)`},
 	}
@@ -192,7 +198,7 @@ func (s *taskStore) standaloneEvents(ctx context.Context) (map[string][]vulnEven
 		}
 		for rows.Next() {
 			event := vulnEvent{Kind: query.kind}
-			if err := rows.Scan(&event.FindingID, &event.Value, &event.At); err != nil {
+			if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
 				rows.Close()
 				return nil, err
 			}

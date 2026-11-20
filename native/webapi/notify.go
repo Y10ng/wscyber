@@ -510,7 +510,7 @@ type notifyMessage struct {
 // notifyFields 是 markdown 的全部字段（只来自已保存的候选与验证文字）。
 type notifyFields struct {
 	Regression bool
-	Severity   string // 处置严重度中文等级（严重/高危/…），未定级为空
+	Severity   string // 处置严重度中文等级（严重/高危/…）；未定级时为 AI 建议等级“AI 建议·高危”（K1），都没有为空
 	Title      string
 	Asset      string
 	Location   string
@@ -519,6 +519,8 @@ type notifyFields struct {
 	Steps      []string
 	Link       string
 	Note       string
+	// Repro：危害与步骤来自验证结果的最小复现（K1），行标题为“影响”“关键复现”。
+	Repro bool
 }
 
 func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationModel, baseURL string) (*notifyMessage, error) {
@@ -563,12 +565,27 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	}
 	if triage != nil && triage.Severity != "" {
 		fields.Severity = severityLabels[triage.Severity]
+	} else if suggested := result.Payload.SuggestedSeverity; triageSeveritySet[suggested] {
+		fields.Severity = "AI 建议·" + severityLabels[suggested]
 	}
+	stepTexts := []string{}
 	for _, step := range source.Content.Steps {
+		stepTexts = append(stepTexts, step.Text)
+	}
+	if result.Payload.hasRepro() {
+		// K1：优先用最小复现的一句话影响与关键步骤标题。
+		fields.Repro = true
+		fields.Danger = capRunes(oneLine(result.Payload.Impact), notifyDangerRunes)
+		stepTexts = stepTexts[:0]
+		for _, step := range result.Payload.KeySteps {
+			stepTexts = append(stepTexts, step.Title)
+		}
+	}
+	for _, text := range stepTexts {
 		if len(fields.Steps) == notifyMaxSteps {
 			break
 		}
-		if text := capRunes(oneLine(step.Text), notifyStepRunes); text != "" {
+		if text := capRunes(oneLine(text), notifyStepRunes); text != "" {
 			fields.Steps = append(fields.Steps, text)
 		}
 	}
@@ -576,16 +593,23 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 		fields.Link = baseURL + "/sessions/" + verification.SessionID
 	}
 	message := &notifyMessage{}
-	evidence, model := c.notifyEvidence(ctx, verification.TaskID, result.Evidence, source.Evidence)
-	if evidence != nil {
-		fields.Location = strings.TrimSpace(strings.ToUpper(evidence.Method) + " " + stripURLUserinfo(evidence.URL))
-	}
-	switch {
-	case model != nil:
-		image, note := c.notifyEvidenceImage(*model, secrets)
+	if step, marks := c.notifyReproEvidence(ctx, verification.TaskID, result.Payload); step != nil {
+		// K1：图片与位置优先用最小复现第 1 步证据，并按其 marks 高亮。
+		fields.Location = strings.TrimSpace(strings.ToUpper(step.Method) + " " + stripURLUserinfo(step.URL))
+		image, note := c.notifyEvidenceImage(*step, secrets, marks)
 		message.image, fields.Note = image, note
-	case evidence != nil: // 引用的证据行读不到
-		fields.Note = notifyImageFailed
+	} else {
+		evidence, model := c.notifyEvidence(ctx, verification.TaskID, result.Evidence, source.Evidence)
+		if evidence != nil {
+			fields.Location = strings.TrimSpace(strings.ToUpper(evidence.Method) + " " + stripURLUserinfo(evidence.URL))
+		}
+		switch {
+		case model != nil:
+			image, note := c.notifyEvidenceImage(*model, secrets, nil)
+			message.image, fields.Note = image, note
+		case evidence != nil: // 引用的证据行读不到
+			fields.Note = notifyImageFailed
+		}
 	}
 	fields = scrubNotifyFields(fields, secrets)
 	message.markdown = composeNotifyMarkdown(fields)
@@ -644,8 +668,31 @@ func (c *Capability) notifyEvidence(ctx context.Context, taskID string, groups .
 	return nil, nil
 }
 
-// notifyEvidenceImage 渲染（mask 开、测试账号 secret 替换）；超过上限时降到 30 行重渲，仍超不发图。
-func (c *Capability) notifyEvidenceImage(model requestModel, secrets []string) ([]byte, string) {
+// notifyReproEvidence：结果带最小复现时返回第 1 步证据行与高亮片段（请求在前、去重、最多 5 个）；读不到返回 nil。
+func (c *Capability) notifyReproEvidence(ctx context.Context, taskID string, payload verificationToolPayload) (*requestModel, []string) {
+	if !payload.hasRepro() {
+		return nil, nil
+	}
+	step := payload.KeySteps[0]
+	model, err := c.store.evidenceByID(ctx, taskID, step.EvidenceID)
+	if err != nil || model == nil {
+		return nil, nil
+	}
+	marks, seen := []string{}, map[string]bool{}
+	for _, mark := range append(append([]string{}, step.RequestMarks...), step.ResponseMarks...) {
+		if len(marks) == evidenceMaxMarks {
+			break
+		}
+		if !seen[mark] {
+			seen[mark] = true
+			marks = append(marks, mark)
+		}
+	}
+	return model, marks
+}
+
+// notifyEvidenceImage 渲染（mask 开、测试账号 secret 替换、可选 mark 高亮）；超过上限时降到 30 行重渲，仍超不发图。
+func (c *Capability) notifyEvidenceImage(model requestModel, secrets []string, marks []string) ([]byte, string) {
 	var flow traffic.Flow
 	if err := proto.Unmarshal(model.FlowPB, &flow); err != nil {
 		return nil, notifyImageFailed
@@ -657,7 +704,7 @@ func (c *Capability) notifyEvidenceImage(model requestModel, secrets []string) (
 	}
 	meta := requestEvidenceImageMeta(model)
 	for _, lines := range []int{0, notifyImageRetryLines} {
-		png, err := renderEvidenceImage(&flow, meta, evidenceImageOptions{MaxLines: lines})
+		png, err := renderEvidenceImage(&flow, meta, evidenceImageOptions{MaxLines: lines, Marks: marks})
 		if err != nil {
 			return nil, notifyImageFailed
 		}
@@ -812,11 +859,15 @@ func renderNotifyMarkdown(fields notifyFields, limit int) string {
 		"> 位置：" + capRunes(oneLine(fields.Location), limit),
 		"> 判读：独立验证支持（" + fields.VerifiedAt + "）",
 	}
+	dangerLabel, stepsLabel := "危害：", "复现要点："
+	if fields.Repro {
+		dangerLabel, stepsLabel = "影响：", "关键复现："
+	}
 	if danger := capRunes(fields.Danger, limit); danger != "" {
-		lines = append(lines, "危害："+danger)
+		lines = append(lines, dangerLabel+danger)
 	}
 	if len(fields.Steps) > 0 {
-		lines = append(lines, "复现要点：")
+		lines = append(lines, stepsLabel)
 		for index, step := range fields.Steps {
 			lines = append(lines, fmt.Sprintf("%d. %s", index+1, capRunes(step, limit)))
 		}

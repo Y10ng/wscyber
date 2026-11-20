@@ -258,6 +258,7 @@ type AssetVulnMember struct {
 
 type AssetVuln struct {
 	ID              string            `json:"id"`
+	Code            string            `json:"code"`
 	Title           string            `json:"title"`
 	Status          string            `json:"status"`
 	EndpointKey     string            `json:"endpoint_key"`
@@ -270,6 +271,8 @@ type AssetVuln struct {
 	Members         []AssetVulnMember `json:"members"`
 	// Triage 是人工处置视图（V1，见 native/TRIAGE.md）；由 HTTP 层填入。
 	Triage *TriageView `json:"triage"`
+	// SuggestedSeverity 是成员中最新一条带建议等级的 supported 验证给出的 AI 建议等级（K1）；无为 ""。不写处置。
+	SuggestedSeverity string `json:"suggested_severity"`
 
 	// 内部：排序时间、复测代表（最新决定性“存在”事件所属候选）与第一条“存在”事件时间（SLA 起算）。
 	sortAt         time.Time
@@ -286,7 +289,9 @@ type vulnMemberRow struct {
 
 type vulnEvent struct {
 	Kind, Value, At, FindingID string
-	at                         time.Time
+	// Suggested 是验证结果的 AI 建议等级（K1，仅 supported 可能非空）；复测为空。
+	Suggested string
+	at        time.Time
 }
 
 // parseAt 解析 RFC3339Nano（存储时间去尾零，不能按字符串比较）；失败为零值。
@@ -387,10 +392,11 @@ func (s *taskStore) vulnMemberRows(ctx context.Context, assetID string) ([]vulnM
 func (s *taskStore) vulnEvents(ctx context.Context, assetID string) (map[string][]vulnEvent, error) {
 	out := map[string][]vulnEvent{}
 	queries := []struct{ kind, sql string }{
-		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at
+		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at,
+			COALESCE(json_extract(r.payload_json, '$.payload.suggested_severity'), '')
 			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
 			JOIN webapi_asset_vuln_members m ON m.finding_id = v.finding_id WHERE m.asset_id = ?`},
-		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at
+		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at, ''
 			FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id
 			JOIN webapi_asset_vuln_members m ON m.finding_id = t.finding_id WHERE m.asset_id = ?`},
 	}
@@ -401,7 +407,7 @@ func (s *taskStore) vulnEvents(ctx context.Context, assetID string) (map[string]
 		}
 		for rows.Next() {
 			event := vulnEvent{Kind: query.kind}
-			if err := rows.Scan(&event.FindingID, &event.Value, &event.At); err != nil {
+			if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -440,10 +446,10 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 	sort.Slice(members, func(i, j int) bool {
 		return laterThan(parseAt(members[i].CreatedAt), members[i].CreatedAt+members[i].FindingID, parseAt(members[j].CreatedAt), members[j].CreatedAt+members[j].FindingID)
 	})
-	view := &AssetVuln{ID: vuln.ID, EndpointKey: vuln.EndpointKey, MemberCount: len(members), Members: make([]AssetVulnMember, 0, len(members))}
+	view := &AssetVuln{ID: vuln.ID, Code: vulnCode(vuln.ID), EndpointKey: vuln.EndpointKey, MemberCount: len(members), Members: make([]AssetVulnMember, 0, len(members))}
 	memberByFinding := map[string]*vulnMemberRow{}
 	tasks := map[string]bool{}
-	var last, lastDecisive, lastPresent, firstPresent *vulnEvent
+	var last, lastDecisive, lastPresent, firstPresent, lastSuggested *vulnEvent
 	anyVerify := false
 	for index := range members {
 		member := &members[index]
@@ -474,6 +480,9 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 			if present && (firstPresent == nil || eventLater(*firstPresent, *event)) {
 				firstPresent = event
 			}
+			if event.Kind == FollowupVerify && event.Value == "supported" && event.Suggested != "" && (lastSuggested == nil || eventLater(*event, *lastSuggested)) {
+				lastSuggested = event
+			}
 		}
 		if latestVerify != nil {
 			item.LatestVerdict = &latestVerify.Value
@@ -501,6 +510,9 @@ func buildAssetVuln(vuln assetVulnModel, members []vulnMemberRow, events map[str
 	}
 	if firstPresent != nil {
 		view.firstConfirmed = firstPresent.at
+	}
+	if lastSuggested != nil {
+		view.SuggestedSeverity = lastSuggested.Suggested
 	}
 	switch {
 	case lastDecisive != nil:

@@ -387,6 +387,8 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/task-list", Handler: http.HandlerFunc(c.handleTaskList)},
 		{Pattern: "GET /api/webapi/vulns", Handler: http.HandlerFunc(c.handleGlobalVulns)},
 		{Pattern: "PUT /api/webapi/vulns/{key}/triage", Handler: http.HandlerFunc(c.handleVulnTriagePut)},
+		{Pattern: "GET /api/webapi/vulns/{key}/card", Handler: http.HandlerFunc(c.handleVulnCard)},
+		{Pattern: "GET /api/webapi/vulns/{key}/card/curl", Handler: http.HandlerFunc(c.handleVulnCardCurl)},
 		{Pattern: "GET /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAGet)},
 		{Pattern: "PUT /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAPut)},
 		{Pattern: "GET /api/webapi/report-list", Handler: http.HandlerFunc(c.handleGlobalReportList)},

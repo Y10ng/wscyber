@@ -63,6 +63,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 | GET/PUT/POST | `/notify/wecom`、`/notify/wecom/test` | 企业微信群机器人配置（webhook 加密存储、只回 host+末 4 位、`""` 保留 `"-"` 清除；enabled、require_confirm、base_url）与测试推送 |
 | GET/POST | `/notifications?status=&limit=&cursor=`、`/notifications/{id}/confirm\|dismiss\|retry` | 推送记录：验证 supported 后按 C3 条目（无资产按候选）去重登记（已修复后再确认为 regression），Hub 内 goroutine 每 10s 发 markdown+证据图片，重试 1/5 分钟、3 次失败、45009 推迟、全局 18 条/分钟；见 `native/NOTIFY.md` |
 | GET/PUT | `/vulns/{key}/triage`（PUT）、`/vuln-sla` | 漏洞处置：按全局漏洞 id（`vid` / `finding:<id>`）部分更新严重度、处置（open/fixing/risk_accepted/false_positive）、负责人、修复期限、备注；SLA 天数（默认 3/7/30/90）；`/vulns`、资产漏洞库、总览随之带 `triage` 与逾期计数；见 `native/TRIAGE.md` |
+| GET | `/vulns/{key}/card`、`/vulns/{key}/card/curl?step=&mask=` | 漏洞卡（K1，只读）：标题区（`V-` 短编号、模板化标题、处置与 AI 建议等级）、最小复现（最新 supported 且带 key_steps 的验证；无则 `repro_missing_reason`）、复测、生命周期、附录、同资产未修复、上一条/下一条；curl 由关键步骤证据原件确定性生成，默认遮盖，`mask=0` 审计 `vuln.curl_unmasked`；见 `native/VULN_CARD.md` |
 | GET/POST/PUT | `/tasks/{id}/board`、`/tasks/{id}/board/endpoints\|facts\|oracles`（GET 列表，键游标）、`/tasks/{id}/board/oracles`（POST 用户提出）、`/tasks/{id}/board/oracles/{number}`（PUT 优先级/重开/放弃） | 任务黑板：地图（已发送且有响应的流量按端点键增量摄取 + 模型补充）、事实、Oracle（O-001 编号、去重、状态与事件）；总览含 `boardDigest` 摘要与计数；用户操作入审计；见 `native/BOARD.md` |
 | GET | `/audit?action=&actor=&task_id=&asset_id=&q=&from=&to=&limit=&cursor=` | 审计记录（只读）：任务/策略/会话发起、审批决定、资产/测试账号/计划/漏洞库/推送配置改动、计划运行与推送终态，actor user/system，`at` 倒序键游标；见 `native/AUDIT.md` |
 
