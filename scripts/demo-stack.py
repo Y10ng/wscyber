@@ -543,7 +543,8 @@ def result_payload(conv, verdict_key, mapping):
     if evidence:
         payload['evidence'] = evidence
     if verdict_key == 'verdict' and verdict == 'supported':
-        payload.update(demo_repro(target, primary['value']['evidence_id']))
+        baseline_id = (baseline['value'] or {}).get('evidence_id') if baseline else None
+        payload.update(demo_repro(target, primary['value']['evidence_id'], baseline_id))
     return payload, note
 
 
@@ -561,9 +562,9 @@ DEMO_REPRO = {
 }
 
 
-def demo_repro(target, evidence_id):
+def demo_repro(target, evidence_id, baseline_id=None):
     impact, title, response_marks, severity, reason, remediation, retest = DEMO_REPRO[target[0]]
-    return {
+    repro = {
         'impact': impact,
         'key_steps': [{'title': title, 'evidence_id': evidence_id,
                        'request_marks': [target[1].split('?')[0]], 'response_marks': response_marks}],
@@ -572,6 +573,11 @@ def demo_repro(target, evidence_id):
         'suggested_severity': severity,
         'severity_reason': reason,
     }
+    # 分页用例带正常对照：size=10（正常）与 size=150（异常）两条本会话证据，供漏洞卡对照区演示。
+    if target[0] == '分页大小' and baseline_id:
+        repro['contrast'] = {'normal_evidence_id': baseline_id, 'abnormal_evidence_id': evidence_id,
+                             'note': 'size=10 返回 10 条；size=150 返回 150 条，服务端未限制上限'}
+    return repro
 
 
 def script_checked(conv, label, tool, verdict_key, mapping):
