@@ -7,6 +7,7 @@ import {
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { FilterPills, IconAction, Page, PageHeader } from './PageFrame'
+import { NotificationStatusBadge } from './ui-badges'
 import { usePolling } from '../hooks/usePolling'
 import {
   actWebApiNotification, APIError, getWebApiWecomSettings, listWebApiNotifications,
@@ -21,17 +22,6 @@ type NotificationFilter = 'all' | WebApiNotificationStatus
 interface IntegrationsPageProps {
   onOpenSession: (sessionID: string) => void
   onOpenMenu: () => void
-}
-
-function notificationVariant(status: WebApiNotificationStatus): 'warning' | 'info' | 'success' | 'danger' | 'muted' {
-  switch (status) {
-    case 'pending_confirm': return 'warning'
-    case 'queued': return 'info'
-    case 'sending': return 'info'
-    case 'sent': return 'success'
-    case 'failed': return 'danger'
-    default: return 'muted'
-  }
 }
 
 export default function IntegrationsPage({ onOpenSession, onOpenMenu }: IntegrationsPageProps) {
@@ -224,17 +214,6 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu }: Integrat
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
     return date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false })
-  }
-
-  const statusLabel = (status: WebApiNotificationStatus) => {
-    switch (status) {
-      case 'pending_confirm': return t('shell.integrationsStatusPending')
-      case 'queued': return t('shell.integrationsStatusQueued')
-      case 'sending': return t('shell.integrationsStatusSending')
-      case 'sent': return t('shell.integrationsStatusSent')
-      case 'failed': return t('shell.integrationsStatusFailed')
-      default: return t('shell.integrationsStatusDismissed')
-    }
   }
 
   const filterItems: Array<{ key: NotificationFilter; label: string }> = [
@@ -456,7 +435,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu }: Integrat
                           {item.asset?.name || '—'}
                         </td>
                         <td className="px-3">
-                          <Badge variant={notificationVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge>
+                          <NotificationStatusBadge status={item.status} />
                         </td>
                         <td className="px-3 text-right tabular-nums text-muted-foreground">{item.attempts}</td>
                         <td className="min-w-0 px-3">

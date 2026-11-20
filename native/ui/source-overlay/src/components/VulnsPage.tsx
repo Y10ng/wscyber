@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardEdit, ExternalLink, Loader2, RefreshCw, Timer } from 'lucide-react'
 import {
-  Badge, Button, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
+  ClipboardEdit, ExternalLink, HelpCircle, Loader2, RefreshCw, Timer,
+} from 'lucide-react'
+import {
+  Button, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
+  Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { FilterPills, IconAction, Page, PageHeader, TableCard, type FilterPillItem } from './PageFrame'
 import VulnSlaDialog from './VulnSlaDialog'
 import VulnTriageSheet from './VulnTriageSheet'
+import { DeadlineText, DispositionBadge, SeverityBadge, StatusBadge } from './ui-badges'
 import { usePolling } from '../hooks/usePolling'
 import {
   listWebApiAssets,
@@ -39,43 +43,22 @@ const ALL_ASSETS = '__all__'
 const ALL_OPTION = '__all__'
 const STATUS_ORDER: WebApiVulnStatus[] = ['new', 'present', 'pending', 'unconfirmed', 'fixed']
 
-// 状态色与资产漏洞库/总览一致：new danger、present warning、pending info、
-// unconfirmed muted、fixed success。
-const STATUS_META: Record<WebApiVulnStatus, {
-  key: string
-  variant: 'danger' | 'warning' | 'info' | 'muted' | 'success'
-  dot: string
-}> = {
-  new: { key: 'webapi.vulnStatusNew', variant: 'danger', dot: 'bg-destructive' },
-  present: { key: 'webapi.vulnStatusPresent', variant: 'warning', dot: 'bg-warning' },
-  pending: { key: 'webapi.vulnStatusPending', variant: 'info', dot: 'bg-info' },
-  unconfirmed: { key: 'webapi.vulnStatusUnconfirmed', variant: 'muted', dot: 'bg-muted-foreground' },
-  fixed: { key: 'webapi.vulnStatusFixed', variant: 'success', dot: 'bg-success' },
-}
-
 const SEVERITY_ORDER: Exclude<WebApiVulnSeverity, ''>[] = ['critical', 'high', 'medium', 'low', 'info']
-const SEVERITY_META: Record<Exclude<WebApiVulnSeverity, ''> | 'none', {
-  key: string
-  variant: 'destructive' | 'danger' | 'warning' | 'info' | 'muted'
-  className?: string
-}> = {
-  critical: { key: 'shell.triageSeverityCritical', variant: 'destructive' },
-  high: { key: 'shell.triageSeverityHigh', variant: 'danger' },
-  medium: { key: 'shell.triageSeverityMedium', variant: 'warning' },
-  low: { key: 'shell.triageSeverityLow', variant: 'info' },
-  info: { key: 'shell.triageSeverityInfo', variant: 'muted' },
-  none: { key: 'shell.triageSeverityNone', variant: 'muted', className: 'border border-border' },
+const SEVERITY_KEYS: Record<Exclude<WebApiVulnSeverity, ''> | 'none', string> = {
+  critical: 'shell.triageSeverityCritical',
+  high: 'shell.triageSeverityHigh',
+  medium: 'shell.triageSeverityMedium',
+  low: 'shell.triageSeverityLow',
+  info: 'shell.triageSeverityInfo',
+  none: 'shell.triageSeverityNone',
 }
 
 const DISPOSITION_ORDER: WebApiVulnDisposition[] = ['open', 'fixing', 'risk_accepted', 'false_positive']
-const DISPOSITION_META: Record<WebApiVulnDisposition, {
-  key: string
-  variant: 'info' | 'muted'
-}> = {
-  open: { key: 'shell.triageDispositionOpen', variant: 'muted' },
-  fixing: { key: 'shell.triageDispositionFixing', variant: 'info' },
-  risk_accepted: { key: 'shell.triageDispositionRiskAccepted', variant: 'muted' },
-  false_positive: { key: 'shell.triageDispositionFalsePositive', variant: 'muted' },
+const DISPOSITION_KEYS: Record<WebApiVulnDisposition, string> = {
+  open: 'shell.triageDispositionOpen',
+  fixing: 'shell.triageDispositionFixing',
+  risk_accepted: 'shell.triageDispositionRiskAccepted',
+  false_positive: 'shell.triageDispositionFalsePositive',
 }
 
 const EMPTY_COUNTS: WebApiGlobalVulnCounts = {
@@ -87,25 +70,30 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function severityKey(severity: WebApiVulnSeverity): Exclude<WebApiVulnSeverity, ''> | 'none' {
-  return severity || 'none'
+/** 端点只显示 `METHOD /path`：去掉 origin/查询串，保留非 URL 原样。 */
+function endpointDisplay(key: string | undefined): string {
+  if (!key) return '—'
+  const match = key.match(/^([A-Z]+)\s+(.+)$/)
+  if (!match) return key
+  const [, method, target] = match
+  try {
+    const url = new URL(target)
+    return `${method} ${url.pathname}`
+  } catch {
+    return key
+  }
 }
 
-/** 逾期天数：Hub 本地日与到期日按日期差，至少 1 天（期限当天不算逾期）。 */
-function overdueDays(due: string): number {
-  const parts = due.split('-').map(Number)
-  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return 1
-  const now = new Date()
-  const dueUTC = Date.UTC(parts[0], parts[1] - 1, parts[2])
-  const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-  return Math.max(1, Math.round((todayUTC - dueUTC) / 86400000))
+/** 列表编号使用条目 id 前 8 位（K1 将换正式编号）。 */
+function shortId(id: string): string {
+  return (id.startsWith('finding:') ? id.slice('finding:'.length) : id).slice(0, 8)
 }
 
 export default function VulnsPage({
   webapiEnabled, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
   overdueRequested, onOverdueRequestedConsumed,
 }: VulnsPageProps) {
-  const { t, i18n } = useTranslation('chat')
+  const { t } = useTranslation('chat')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<VulnFilter>('all')
@@ -205,23 +193,13 @@ export default function VulnsPage({
     void loadVulns({ reset: true })
   }
 
-  const formatCreated = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return { day: iso, time: '' }
-    return {
-      day: date.toLocaleDateString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit' }),
-      time: date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false }),
-    }
-  }
-
   const total = STATUS_ORDER.reduce((sum, status) => sum + counts[status], 0)
   const filterItems: FilterPillItem<VulnFilter>[] = [
     { key: 'all', label: t('shell.filterAll'), count: total },
     ...STATUS_ORDER.map((status) => ({
       key: status,
-      label: t(STATUS_META[status].key),
+      label: t(`webapi.vulnStatus${status.charAt(0).toUpperCase()}${status.slice(1)}`),
       count: counts[status],
-      dot: STATUS_META[status].dot,
     })),
   ]
   const filtered = filter !== 'all' || query !== '' || assetId !== '' || severity !== '' || disposition !== '' || overdueOnly
@@ -260,76 +238,97 @@ export default function VulnsPage({
                 <Timer className="mr-1.5 h-3.5 w-3.5" />
                 {t('shell.triageSlaSettings')}
               </Button>
-              <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading}>
-                <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-              </IconAction>
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={refresh} disabled={loading}>
+                <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')} />
+                {t('shell.refresh')}
+              </Button>
             </>
           )}
         >
-          <Input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder={t('shell.searchVulns')}
-            aria-label={t('shell.searchVulns')}
-            className="h-9 w-[220px] sm:w-[320px]"
-          />
-          <Select value={assetId || ALL_ASSETS} onValueChange={(value) => setAssetId(value === ALL_ASSETS ? '' : value)}>
-            <SelectTrigger aria-label={t('shell.vulnsAssetFilter')} className="h-9 w-[180px] shrink-0">
-              <SelectValue placeholder={t('shell.vulnsAssetAll')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_ASSETS}>{t('shell.vulnsAssetAll')}</SelectItem>
-              {assets.map((asset) => (
-                <SelectItem key={asset.id} value={asset.id}>{asset.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={severity || ALL_OPTION}
-            onValueChange={(value) => setSeverity(value === ALL_OPTION ? '' : value as SeverityFilter)}
-          >
-            <SelectTrigger aria-label={t('shell.triageSeverityFilter')} className="h-9 w-[120px] shrink-0">
-              <SelectValue placeholder={t('shell.triageSeverityAll')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_OPTION}>{t('shell.triageSeverityAll')}</SelectItem>
-              {SEVERITY_ORDER.map((value) => (
-                <SelectItem key={value} value={value}>{t(SEVERITY_META[value].key)}</SelectItem>
-              ))}
-              <SelectItem value="none">{t('shell.triageSeverityNone')}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={disposition || ALL_OPTION}
-            onValueChange={(value) => setDisposition(value === ALL_OPTION ? '' : value as DispositionFilter)}
-          >
-            <SelectTrigger aria-label={t('shell.triageDispositionFilter')} className="h-9 w-[120px] shrink-0">
-              <SelectValue placeholder={t('shell.triageDispositionAll')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_OPTION}>{t('shell.triageDispositionAll')}</SelectItem>
-              {DISPOSITION_ORDER.map((value) => (
-                <SelectItem key={value} value={value}>{t(DISPOSITION_META[value].key)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t('shell.vulnsHelp')}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[260px] whitespace-normal text-left leading-relaxed">
+              {t('shell.vulnsHelp')}
+            </TooltipContent>
+          </Tooltip>
         </PageHeader>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterPills items={filterItems} value={filter} onChange={setFilter} />
-          <button
-            type="button"
-            aria-pressed={overdueOnly}
-            onClick={() => setOverdueOnly((value) => !value)}
-            className={cn(
-              'flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-              overdueOnly ? 'border border-border bg-accent font-medium text-foreground' : 'border border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-            )}
-          >
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-destructive" />
-            <span>{t('shell.triageOverdue')}</span>
-            <span className={cn('tabular-nums', overdueOnly ? 'text-foreground/70' : 'text-muted-foreground')}>{counts.overdue}</span>
-          </button>
+        {/* 筛选胶囊 + 右侧 [资产/等级/处置 + 搜索]（设计稿：搜索框最右） */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+            <button
+              type="button"
+              aria-pressed={overdueOnly}
+              onClick={() => setOverdueOnly((value) => !value)}
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                overdueOnly
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <span>{t('shell.triageOverdue')}</span>
+              <span className={cn('tabular', overdueOnly ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{counts.overdue}</span>
+            </button>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Select value={assetId || ALL_ASSETS} onValueChange={(value) => setAssetId(value === ALL_ASSETS ? '' : value)}>
+              <SelectTrigger aria-label={t('shell.vulnsAssetFilter')} className="h-9 w-[168px] shrink-0 bg-card">
+                <SelectValue placeholder={t('shell.vulnsAssetAll')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ASSETS}>{t('shell.vulnsAssetAll')}</SelectItem>
+                {assets.map((asset) => (
+                  <SelectItem key={asset.id} value={asset.id}>{asset.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={severity || ALL_OPTION}
+              onValueChange={(value) => setSeverity(value === ALL_OPTION ? '' : value as SeverityFilter)}
+            >
+              <SelectTrigger aria-label={t('shell.triageSeverityFilter')} className="h-9 w-[132px] shrink-0 bg-card">
+                <SelectValue placeholder={t('shell.triageSeverityAll')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_OPTION}>{t('shell.triageSeverityAll')}</SelectItem>
+                {SEVERITY_ORDER.map((value) => (
+                  <SelectItem key={value} value={value}>{t(SEVERITY_KEYS[value])}</SelectItem>
+                ))}
+                <SelectItem value="none">{t('shell.triageSeverityNone')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={disposition || ALL_OPTION}
+              onValueChange={(value) => setDisposition(value === ALL_OPTION ? '' : value as DispositionFilter)}
+            >
+              <SelectTrigger aria-label={t('shell.triageDispositionFilter')} className="h-9 w-[132px] shrink-0 bg-card">
+                <SelectValue placeholder={t('shell.triageDispositionAll')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_OPTION}>{t('shell.triageDispositionAll')}</SelectItem>
+                {DISPOSITION_ORDER.map((value) => (
+                  <SelectItem key={value} value={value}>{t(DISPOSITION_KEYS[value])}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t('shell.searchVulns')}
+              aria-label={t('shell.searchVulns')}
+              className="h-9 w-[220px] bg-card sm:w-[240px]"
+            />
+          </div>
         </div>
         {(error || assetError) && (
           <p role="status" className="text-[12px] text-warning">{t('shell.loadFailed')}：{error || assetError}</p>
@@ -356,77 +355,68 @@ export default function VulnsPage({
             <EmptyState title={filtered ? t('shell.vulnsFilterEmpty') : t('shell.vulnsEmpty')} />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
+              <table className="w-full min-w-[1080px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
                 <colgroup>
-                  <col className="w-[84px]" />
+                  <col className="w-[96px]" />
+                  <col className="w-[80px]" />
                   <col />
-                  <col className="w-[84px]" />
-                  <col className="w-[120px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[100px]" />
+                  <col className="w-[130px]" />
+                  <col className="w-[96px]" />
+                  <col className="w-[128px]" />
                   <col className="w-[180px]" />
-                  <col className="w-[92px]" />
-                  <col className="w-[92px]" />
-                  <col className="w-[52px]" />
+                  <col className="w-[56px]" />
                   <col className="w-[72px]" />
                 </colgroup>
                 <thead>
-                  <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
+                  <tr className="ws-table-head h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colVuln')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageSeverity')}</th>
+                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colVuln')} / {t('shell.triageDisposition')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colAsset')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageOwner')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageDue')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colEndpoint')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colFirstSeen')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colLastConfirmed')}</th>
                     <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colCandidates')}</th>
                     <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => {
-                    const first = formatCreated(item.first_seen_at)
-                    const meta = STATUS_META[item.status]
                     const triage = item.triage
-                    const sev = severityKey(triage?.severity || '')
-                    const sevMeta = SEVERITY_META[sev]
                     const disp = triage?.disposition || 'open'
-                    const dispMeta = DISPOSITION_META[disp]
                     const falsePositive = disp === 'false_positive'
                     const ownerFromAsset = Boolean(triage && !triage.owner && triage.owner_effective)
-                    const fixedAt = item.status === 'fixed' && item.fixed_at ? formatCreated(item.fixed_at) : null
-                    const confirmed = fixedAt || (item.last_confirmed_at ? formatCreated(item.last_confirmed_at) : null)
+                    const endpoint = endpointDisplay(item.endpoint_key)
                     return (
                       <tr
                         key={item.id}
-                        className="h-12 cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40"
+                        className={cn(
+                          'cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40',
+                          falsePositive && 'ws-row-muted',
+                        )}
                         onClick={() => openVuln(item)}
                       >
-                        <td className="px-3">
-                          <Badge variant={meta.variant} size="sm">{t(meta.key)}</Badge>
+                        <td className="px-3 py-2.5">
+                          <StatusBadge status={item.status} />
                         </td>
-                        <td className="min-w-0 px-3">
-                          <span
-                            className={cn('block truncate text-[13px] font-medium text-foreground', falsePositive && 'text-muted-foreground line-through')}
-                            title={item.title}
-                          >
+                        <td className="px-3 py-2.5">
+                          <SeverityBadge severity={triage?.severity} />
+                        </td>
+                        <td className="min-w-0 px-3 py-2.5">
+                          <span className="block truncate font-medium text-foreground" title={item.title}>
                             {item.title}
                           </span>
-                          {disp !== 'open' && (
-                            <Badge variant={dispMeta.variant} size="sm" className="mt-0.5">{t(dispMeta.key)}</Badge>
-                          )}
+                          <span className="mt-1 flex min-w-0 items-center gap-1.5">
+                            <DispositionBadge disposition={disp} />
+                            <span className="font-mono text-[11px] text-muted-foreground">{shortId(item.id)}</span>
+                          </span>
                         </td>
-                        <td className="px-3">
-                          <Badge variant={sevMeta.variant} size="sm" className={sevMeta.className}>{t(sevMeta.key)}</Badge>
-                        </td>
-                        <td className="px-3">
+                        <td className="px-3 py-2.5">
                           {item.asset
                             ? <span className="block truncate text-[12px] text-foreground" title={item.asset.name}>{item.asset.name}</span>
-                            : <Badge variant="muted" size="sm">{t('shell.vulnsNoAsset')}</Badge>}
+                            : <span className="text-[12px] text-muted-foreground">{t('shell.vulnsNoAsset')}</span>}
                         </td>
-                        <td className="px-3">
+                        <td className="px-3 py-2.5">
                           {triage?.owner_effective
                             ? (
                               <span
@@ -438,39 +428,21 @@ export default function VulnsPage({
                             )
                             : <span className="text-[12px] text-muted-foreground">—</span>}
                         </td>
-                        <td className="px-3 leading-tight">
-                          {triage?.due_effective ? (
-                            <>
-                              <div className={cn('text-[12px]', triage.overdue ? 'text-destructive' : 'text-foreground')}>{triage.due_effective}</div>
-                              {triage.overdue && (
-                                <div className="text-[11px] text-destructive">
-                                  {t('shell.triageOverdueDays', { count: overdueDays(triage.due_effective) })}
-                                </div>
-                              )}
-                            </>
-                          ) : <span className="text-[12px] text-muted-foreground">—</span>}
+                        <td className="whitespace-nowrap px-3 py-2.5">
+                          <DeadlineText
+                            due={triage?.due_effective}
+                            overdue={triage?.overdue}
+                            fixed={item.status === 'fixed'}
+                            className="text-[12px]"
+                          />
                         </td>
-                        <td className="min-w-0 px-3">
-                          <span className="block truncate font-mono text-[12px] text-muted-foreground" title={item.endpoint_key || undefined}>
-                            {item.endpoint_key || '—'}
+                        <td className="min-w-0 px-3 py-2.5">
+                          <span className="block truncate font-mono text-[11px] text-secondary-foreground" title={endpoint}>
+                            {endpoint}
                           </span>
                         </td>
-                        <td className="px-3 leading-tight">
-                          <div className="text-[12px] text-foreground">{first.day}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{first.time}</div>
-                        </td>
-                        <td className="px-3 leading-tight">
-                          {confirmed ? (
-                            <>
-                              <div className="text-[12px] text-foreground">{confirmed.day}</div>
-                              <div className="font-mono text-[11px] text-muted-foreground">
-                                {fixedAt ? `${t('shell.vulnsFixedAtLabel')} ${confirmed.time}` : confirmed.time}
-                              </div>
-                            </>
-                          ) : <span className="text-[12px] text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-3 text-right tabular-nums text-foreground">{item.member_count}</td>
-                        <td className="px-3" onClick={(event) => event.stopPropagation()}>
+                        <td className="px-3 py-2.5 text-right tabular text-secondary-foreground">{item.member_count}</td>
+                        <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
                           <div className="flex justify-end gap-1">
                             <IconAction label={t('shell.triageOpen')} onClick={() => setTriageItem(item)}>
                               <ClipboardEdit className="h-3.5 w-3.5" />

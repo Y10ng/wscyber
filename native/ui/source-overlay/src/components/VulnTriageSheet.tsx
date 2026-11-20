@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import {
-  Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Sheet, SheetContent, SheetTitle, Textarea,
 } from '@cyber/ui'
+import { DeadlineText, DispositionBadge, SeverityBadge, StatusBadge } from './ui-badges'
 import {
   saveWebApiVulnTriage,
   type WebApiGlobalVuln,
@@ -23,22 +24,6 @@ interface Props {
 
 const SEVERITY_VALUES: WebApiVulnSeverity[] = ['', 'critical', 'high', 'medium', 'low', 'info']
 const DISPOSITION_VALUES: WebApiVulnDisposition[] = ['open', 'fixing', 'risk_accepted', 'false_positive']
-
-const STATUS_KEYS: Record<string, string> = {
-  new: 'webapi.vulnStatusNew',
-  present: 'webapi.vulnStatusPresent',
-  pending: 'webapi.vulnStatusPending',
-  unconfirmed: 'webapi.vulnStatusUnconfirmed',
-  fixed: 'webapi.vulnStatusFixed',
-}
-
-const STATUS_VARIANTS: Record<string, 'danger' | 'warning' | 'info' | 'muted' | 'success'> = {
-  new: 'danger',
-  present: 'warning',
-  pending: 'info',
-  unconfirmed: 'muted',
-  fixed: 'success',
-}
 
 const SEVERITY_KEYS: Record<WebApiVulnSeverity, string> = {
   '': 'shell.triageSeverityNone',
@@ -142,12 +127,20 @@ export default function VulnTriageSheet({ open, item, onClose, onSaved }: Props)
           <SheetTitle className="truncate text-[15px] font-semibold text-foreground" title={item?.title}>
             {item?.title || ''}
           </SheetTitle>
-          <div className="mt-2 flex items-center gap-2">
-            <Badge variant={STATUS_VARIANTS[status] || 'muted'} size="sm">{t(STATUS_KEYS[status] || 'webapi.vulnStatusNew')}</Badge>
-            {assetName
-              ? <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={assetName}>{assetName}</span>
-              : <Badge variant="muted" size="sm">{t('shell.vulnsNoAsset')}</Badge>}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusBadge status={status} />
+            <SeverityBadge severity={severity} />
+            <DispositionBadge disposition={disposition} />
+            <DeadlineText
+              due={dueDate || view?.due_effective}
+              overdue={view?.overdue}
+              fixed={status === 'fixed'}
+              className="text-[12px]"
+            />
           </div>
+          {assetName && (
+            <div className="mt-1.5 truncate text-[12px] text-muted-foreground" title={assetName}>{assetName}</div>
+          )}
         </div>
 
         <form

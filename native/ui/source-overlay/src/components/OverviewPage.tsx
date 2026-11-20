@@ -4,6 +4,7 @@ import { ArrowRight, RefreshCw } from 'lucide-react'
 import { Badge, Button, Callout, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { IconAction, Page, PageHeader } from './PageFrame'
+import { SeverityBadge } from './ui-badges'
 import { usePolling } from '../hooks/usePolling'
 import { formatTokens } from '../lib/format-tokens'
 import {
@@ -460,13 +461,12 @@ export default function OverviewPage({ onNavigate, onOpenTask, onOpenAsset, onOp
                       )
                     })}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-[12px]">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-border pt-3 text-[12px]">
                     <span className="text-muted-foreground">{t('shell.triageOpenUnfixed')}</span>
                     {(['critical', 'high', 'medium', 'low'] as const).map((severity) => (
-                      <span key={severity} className="text-muted-foreground">
-                        {t(`shell.triageSeverity${severity.charAt(0).toUpperCase()}${severity.slice(1)}`)}
-                        {' '}
-                        <span className="tabular-nums text-foreground">{data.vulns.open_by_severity?.[severity] || 0}</span>
+                      <span key={severity} className="inline-flex items-center gap-1">
+                        <SeverityBadge severity={severity} />
+                        <span className="tabular text-foreground">{data.vulns.open_by_severity?.[severity] || 0}</span>
                       </span>
                     ))}
                     <button

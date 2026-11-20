@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +26,7 @@ import {
   type WebApiVulnStatus,
 } from '../api'
 import { formatTime } from './WebApiEvidenceReference'
+import { RetestBadge, StatusBadge, VerdictBadge } from './ui-badges'
 
 interface Props {
   assetId: string
@@ -43,12 +43,12 @@ const EMPTY_COUNTS: Record<WebApiVulnStatus, number> = { new: 0, present: 0, pen
 
 const STATUS_ORDER: WebApiVulnStatus[] = ['new', 'present', 'pending', 'unconfirmed', 'fixed']
 
-const STATUS_META: Record<WebApiVulnStatus, { key: string; variant: 'danger' | 'warning' | 'muted' | 'success' }> = {
-  new: { key: 'webapi.vulnStatusNew', variant: 'danger' },
-  present: { key: 'webapi.vulnStatusPresent', variant: 'warning' },
-  pending: { key: 'webapi.vulnStatusPending', variant: 'muted' },
-  unconfirmed: { key: 'webapi.vulnStatusUnconfirmed', variant: 'muted' },
-  fixed: { key: 'webapi.vulnStatusFixed', variant: 'success' },
+const STATUS_META: Record<WebApiVulnStatus, { key: string }> = {
+  new: { key: 'webapi.vulnStatusNew' },
+  present: { key: 'webapi.vulnStatusPresent' },
+  pending: { key: 'webapi.vulnStatusPending' },
+  unconfirmed: { key: 'webapi.vulnStatusUnconfirmed' },
+  fixed: { key: 'webapi.vulnStatusFixed' },
 }
 
 function errorText(err: unknown): string {
@@ -68,20 +68,7 @@ const RETEST_KEYS: Record<string, string> = {
 }
 
 function VulnStatusBadge({ status }: { status: WebApiVulnStatus }) {
-  const { t } = useTranslation('chat')
-  const meta = STATUS_META[status]
-  return <Badge variant={meta.variant} size="sm" className="shrink-0">{t(meta.key)}</Badge>
-}
-
-function verdictTone(value: string | null): string {
-  if (value === 'supported') return 'text-destructive'
-  return 'text-muted-foreground'
-}
-
-function retestTone(value: string | null): string {
-  if (value === 'reproducible') return 'text-destructive'
-  if (value === 'fixed_in_scope') return 'text-emerald-600 dark:text-emerald-400'
-  return 'text-muted-foreground'
+  return <StatusBadge status={status} className="shrink-0" />
 }
 
 export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts, focusVulnId, onFocusConsumed }: Props) {
@@ -370,8 +357,8 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts, focusV
                         <tr className="text-left text-muted-foreground">
                           <th className="py-1 pr-2 font-normal">{t('webapi.vulnColCandidate')}</th>
                           <th className="vuln-narrow-hide w-[120px] py-1 pr-2 font-normal">{t('webapi.vulnColFound')}</th>
-                          <th className="w-[72px] py-1 pr-2 font-normal">{t('webapi.vulnColVerify')}</th>
-                          <th className="w-[96px] py-1 pr-2 font-normal">{t('webapi.vulnColRetest')}</th>
+                          <th className="w-[80px] py-1 pr-2 font-normal">{t('webapi.vulnColVerify')}</th>
+                          <th className="w-[120px] py-1 pr-2 font-normal">{t('webapi.vulnColRetest')}</th>
                           <th className="vuln-narrow-hide w-[48px] py-1 pr-2 font-normal">{t('webapi.vulnColLink')}</th>
                           <th className="w-[96px] py-1 text-right font-normal">{t('webapi.vulnColActions')}</th>
                         </tr>
@@ -386,15 +373,11 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts, focusV
                               </div>
                             </td>
                             <td className="vuln-narrow-hide truncate py-1 pr-2 text-muted-foreground">{formatTime(member.created_at)}</td>
-                            <td className={cn('truncate py-1 pr-2', verdictTone(member.latest_verdict))}>
-                              {member.latest_verdict && VERDICT_KEYS[member.latest_verdict]
-                                ? t(VERDICT_KEYS[member.latest_verdict])
-                                : member.latest_verdict || '—'}
+                            <td className="truncate py-1 pr-2">
+                              <VerdictBadge verdict={member.latest_verdict} showModelLabel={false} />
                             </td>
-                            <td className={cn('truncate py-1 pr-2', retestTone(member.latest_retest))}>
-                              {member.latest_retest && RETEST_KEYS[member.latest_retest]
-                                ? t(RETEST_KEYS[member.latest_retest])
-                                : member.latest_retest || '—'}
+                            <td className="truncate py-1 pr-2">
+                              <RetestBadge conclusion={member.latest_retest} />
                             </td>
                             <td className="vuln-narrow-hide py-1 pr-2 text-muted-foreground">
                               {member.link === 'manual' ? t('webapi.vulnLinkManual') : t('webapi.vulnLinkAuto')}

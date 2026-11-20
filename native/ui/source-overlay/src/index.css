@@ -14,6 +14,89 @@
     ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* ── 设计 Token（docs/设计稿.html 原样，2026-11-20 用户确认）──────────────
+   浅/深两套；shadcn 原生变量在下方 @layer base 映射到这些值。组件直接用
+   var(--…) 或 ui-badges 的语义类，避免再复制十六进制。 */
+:root {
+  --bg-canvas: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F1F5F9;
+  --bg-elevated: #FFFFFF;
+  --bg-code: #0F172A;
+  --bg-code-light: #F8FAFC;
+  --border-default: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --brand-primary: #2563EB;
+  --brand-primary-hover: #1D4ED8;
+  --brand-soft: #EFF6FF;
+  --ring-focus: rgba(37, 99, 235, 0.25);
+
+  --sev-critical-bg: #FEF2F2; --sev-critical-text: #B91C1C; --sev-critical-border: #FECACA;
+  --sev-high-bg: #FFF7ED; --sev-high-text: #C2410C; --sev-high-border: #FED7AA;
+  --sev-medium-bg: #FEFCE8; --sev-medium-text: #A16207; --sev-medium-border: #FEF08A;
+  --sev-low-bg: #EFF6FF; --sev-low-text: #1D4ED8; --sev-low-border: #BFDBFE;
+  --sev-info-bg: #F4F4F5; --sev-info-text: #52525B; --sev-info-border: #E4E4E7;
+
+  --st-new-dot: #E11D48; --st-new-bg: #FFF1F2; --st-new-text: #BE123C;
+  --st-persist-dot: #D97706; --st-persist-bg: #FFFBEB; --st-persist-text: #B45309;
+  --st-verify-dot: #0284C7; --st-verify-bg: #F0F9FF; --st-verify-text: #0369A1;
+  --st-unsup-dot: #64748B; --st-unsup-bg: #F1F5F9; --st-unsup-text: #475569;
+  --st-fixed-dot: #059669; --st-fixed-bg: #ECFDF5; --st-fixed-text: #047857;
+
+  --disp-todo-bg: #F8FAFC; --disp-todo-text: #334155; --disp-todo-border: #CBD5E1;
+  --disp-fixing-bg: #F5F3FF; --disp-fixing-text: #6D28D9; --disp-fixing-border: #DDD6FE;
+  --disp-accept-bg: #F5F5F4; --disp-accept-text: #57534E; --disp-accept-border: #D6D3D1;
+  --disp-fp-bg: #F8FAFC; --disp-fp-text: #94A3B8; --disp-fp-border: #E2E8F0;
+
+  --code-hl-bg: rgba(239, 68, 68, 0.14);
+  --code-hl-border: #EF4444;
+  --code-hl-ok-bg: rgba(16, 185, 129, 0.14);
+  --code-hl-ok-border: #10B981;
+}
+
+.dark {
+  --bg-canvas: #09090B;
+  --bg-surface: #111114;
+  --bg-subtle: #18181B;
+  --bg-elevated: #1C1C21;
+  --bg-code: #09090B;
+  --bg-code-light: #0D0D11;
+  --border-default: #27272A;
+  --border-strong: #3F3F46;
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+  --brand-primary: #3B82F6;
+  --brand-primary-hover: #60A5FA;
+  --brand-soft: rgba(59, 130, 246, 0.14);
+  --ring-focus: rgba(59, 130, 246, 0.35);
+
+  --sev-critical-bg: rgba(239, 68, 68, 0.16); --sev-critical-text: #FCA5A5; --sev-critical-border: rgba(239, 68, 68, 0.35);
+  --sev-high-bg: rgba(249, 115, 22, 0.16); --sev-high-text: #FDBA74; --sev-high-border: rgba(249, 115, 22, 0.35);
+  --sev-medium-bg: rgba(234, 179, 8, 0.15); --sev-medium-text: #FDE047; --sev-medium-border: rgba(234, 179, 8, 0.32);
+  --sev-low-bg: rgba(59, 130, 246, 0.16); --sev-low-text: #93C5FD; --sev-low-border: rgba(59, 130, 246, 0.35);
+  --sev-info-bg: rgba(161, 161, 170, 0.12); --sev-info-text: #D4D4D8; --sev-info-border: rgba(161, 161, 170, 0.25);
+
+  --st-new-dot: #FB7185; --st-new-bg: rgba(225, 29, 72, 0.16); --st-new-text: #FDA4AF;
+  --st-persist-dot: #FBBF24; --st-persist-bg: rgba(217, 119, 6, 0.16); --st-persist-text: #FDE68A;
+  --st-verify-dot: #38BDF8; --st-verify-bg: rgba(2, 132, 199, 0.16); --st-verify-text: #7DD3FC;
+  --st-unsup-dot: #94A3B8; --st-unsup-bg: rgba(100, 116, 139, 0.18); --st-unsup-text: #CBD5E1;
+  --st-fixed-dot: #34D399; --st-fixed-bg: rgba(5, 150, 105, 0.16); --st-fixed-text: #6EE7B7;
+
+  --disp-todo-bg: #18181B; --disp-todo-text: #D4D4D8; --disp-todo-border: #3F3F46;
+  --disp-fixing-bg: rgba(139, 92, 246, 0.16); --disp-fixing-text: #C4B5FD; --disp-fixing-border: rgba(139, 92, 246, 0.35);
+  --disp-accept-bg: rgba(168, 162, 158, 0.14); --disp-accept-text: #D6D3D1; --disp-accept-border: rgba(168, 162, 158, 0.3);
+  --disp-fp-bg: #18181B; --disp-fp-text: #71717A; --disp-fp-border: #27272A;
+
+  --code-hl-bg: rgba(248, 113, 113, 0.18);
+  --code-hl-border: #F87171;
+  --code-hl-ok-bg: rgba(52, 211, 153, 0.16);
+  --code-hl-ok-border: #34D399;
+}
+
 @layer utilities {
   .font-sans {
     font-family: var(--font-sans);
@@ -124,26 +207,27 @@
     color-scheme: light;
     /* DAY — clean white. Cool paper field sits a touch below pure white so the
        white cards lift off it instead of dissolving into the background. */
-    --background: 216 38% 96%;
-    --foreground: 222 34% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 34% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 34% 11%;
-    --primary: 220 84% 56%;
+    /* UI-A：映射到设计稿 Token（十六进制见上方 :root）。 */
+    --background: 210 40% 98%;        /* --bg-canvas #F8FAFC */
+    --foreground: 222.2 47.4% 11.2%;  /* --text-primary #0F172A */
+    --card: 0 0% 100%;                /* --bg-surface #FFFFFF */
+    --card-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 100%;             /* --bg-surface */
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --primary: 221.2 83.2% 53.3%;     /* --brand-primary #2563EB */
     --primary-foreground: 0 0% 100%;
-    --secondary: 215 30% 94%;
-    --secondary-foreground: 220 25% 22%;
-    --muted: 215 28% 94%;
-    --muted-foreground: 218 13% 42%;
-    --accent: 216 52% 94%;
-    --accent-foreground: 220 70% 38%;
-    --destructive: 350 75% 52%;
+    --secondary: 210 40% 96.1%;       /* --bg-subtle #F1F5F9 */
+    --secondary-foreground: 215.3 19.3% 34.5%; /* --text-secondary #475569 */
+    --muted: 210 40% 96.1%;           /* --bg-subtle */
+    --muted-foreground: 215.4 16.3% 46.9%; /* --text-muted #64748B */
+    --accent: 213.8 100% 96.9%;       /* --brand-soft #EFF6FF 近似 */
+    --accent-foreground: 221.2 83.2% 53.3%; /* --brand-primary */
+    --destructive: 346.8 77.2% 49.8%; /* --st-new-dot #E11D48 */
     --destructive-foreground: 0 0% 100%;
-    --border: 216 26% 86%;
-    --input: 216 24% 84%;
-    --ring: 220 84% 56%;
-    --radius: 0.7rem;
+    --border: 214.3 31.8% 91.4%;      /* --border-default #E2E8F0 */
+    --input: 214.3 31.8% 91.4%;       /* --border-default */
+    --ring: 221.2 83.2% 53.3%;        /* --brand-primary */
+    --radius: 0.5rem;                 /* 设计稿 rounded-lg / 控件 rounded-md */
 
     /* Elevation — theme-aware. Light uses a cool, layered blue-slate umbra (never
        muddy black) so cards read as lifted paper; dark keeps its glassy top-lit
@@ -176,27 +260,28 @@
   .dark {
     color-scheme: dark;
     /* NIGHT — clean black. Neutral ink, no colour cast; blue is the only accent. */
-    --background: 218 28% 6%;
-    --foreground: 213 25% 92%;
-    --card: 216 22% 9%;
-    --card-foreground: 213 25% 92%;
-    --popover: 216 22% 11%;
-    --popover-foreground: 213 25% 92%;
+    /* UI-A：映射到设计稿 Token（十六进制见上方 .dark）。 */
+    --background: 240 10% 3.9%;        /* --bg-canvas #09090B */
+    --foreground: 0 0% 98%;            /* --text-primary #FAFAFA */
+    --card: 240 8.1% 7.3%;             /* --bg-surface #111114 */
+    --card-foreground: 0 0% 98%;
+    --popover: 240 8.1% 7.3%;          /* --bg-surface */
+    --popover-foreground: 0 0% 98%;
     /* Signal — one refined blue. Bright enough to read as text on the black field;
-       buttons (bg-primary) carry dark foreground text for guaranteed contrast. */
-    --primary: 216 92% 62%;
-    --primary-foreground: 216 72% 11%;
-    --secondary: 216 18% 15%;
-    --secondary-foreground: 213 20% 88%;
-    --muted: 216 16% 14%;
-    --muted-foreground: 215 14% 62%;
-    --accent: 216 22% 18%;
-    --accent-foreground: 213 38% 88%;
-    --destructive: 350 80% 62%;
+       buttons (bg-primary) carry white foreground text per the design. */
+    --primary: 217.2 91.2% 59.8%;      /* --brand-primary #3B82F6 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5.9% 10%;         /* --bg-subtle #18181B */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 5.9% 10%;             /* --bg-subtle */
+    --muted-foreground: 240 3.8% 46.1%; /* --text-muted #71717A */
+    --accent: 240 8.2% 12%;            /* --bg-elevated #1C1C21 */
+    --accent-foreground: 0 0% 98%;
+    --destructive: 351.3 94.5% 71.4%;  /* --st-new-dot #FB7185 */
     --destructive-foreground: 0 0% 100%;
-    --border: 216 18% 18%;
-    --input: 216 18% 22%;
-    --ring: 216 92% 62%;
+    --border: 240 3.7% 15.9%;          /* --border-default #27272A */
+    --input: 240 3.7% 15.9%;           /* --border-default */
+    --ring: 217.2 91.2% 59.8%;         /* --brand-primary */
 
     /* NIGHT elevation — glassy top-highlight + black-based drop (unchanged look). */
     --shadow-soft: inset 0 1px 0 0 hsl(0 0% 100% / 0.04), 0 1px 2px hsl(0 0% 0% / 0.28);
@@ -698,4 +783,66 @@
       animation: none !important;
     }
   }
+}
+
+/* ── 七类徽标（设计稿“设计规范”第 1 节，形状与色系严格区分）──────────────
+   ui-badges.tsx 只负责文案与图标；颜色/圆角/字号全部在这里，深浅色随 Token。 */
+@layer components {
+  .ws-sev-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 7px; border-radius: 5px; border: 1px solid;
+    font-size: 11.5px; font-weight: 600; line-height: 18px; white-space: nowrap;
+  }
+  .ws-sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical-text); border-color: var(--sev-critical-border); }
+  .ws-sev-high { background: var(--sev-high-bg); color: var(--sev-high-text); border-color: var(--sev-high-border); }
+  .ws-sev-medium { background: var(--sev-medium-bg); color: var(--sev-medium-text); border-color: var(--sev-medium-border); }
+  .ws-sev-low { background: var(--sev-low-bg); color: var(--sev-low-text); border-color: var(--sev-low-border); }
+  .ws-sev-info { background: var(--sev-info-bg); color: var(--sev-info-text); border-color: var(--sev-info-border); }
+  .ws-sev-none { background: transparent; color: var(--text-muted); border: 1px dashed var(--border-strong); }
+  .ws-sev-suggest { background: transparent; color: var(--sev-high-text); border: 1px dashed var(--sev-high-border); font-weight: 500; }
+
+  .ws-st-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 500; line-height: 18px; white-space: nowrap;
+  }
+  .ws-st-dot { width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0; }
+  .ws-st-new { background: var(--st-new-bg); color: var(--st-new-text); }
+  .ws-st-new .ws-st-dot { background: var(--st-new-dot); box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.22); }
+  .ws-st-present { background: var(--st-persist-bg); color: var(--st-persist-text); }
+  .ws-st-present .ws-st-dot { background: var(--st-persist-dot); }
+  .ws-st-pending { background: var(--st-verify-bg); color: var(--st-verify-text); }
+  .ws-st-pending .ws-st-dot { background: var(--st-verify-dot); }
+  .ws-st-unconfirmed { background: var(--st-unsup-bg); color: var(--st-unsup-text); }
+  .ws-st-unconfirmed .ws-st-dot { background: var(--st-unsup-dot); }
+  .ws-st-fixed { background: var(--st-fixed-bg); color: var(--st-fixed-text); }
+  .ws-st-fixed .ws-st-dot { background: var(--st-fixed-dot); }
+
+  .ws-disp-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; border-radius: 4px; border: 1px solid;
+    font-size: 11px; font-weight: 500; line-height: 17px; white-space: nowrap;
+  }
+  .ws-disp-open { background: var(--disp-todo-bg); color: var(--disp-todo-text); border-color: var(--disp-todo-border); }
+  .ws-disp-fixing { background: var(--disp-fixing-bg); color: var(--disp-fixing-text); border-color: var(--disp-fixing-border); }
+  .ws-disp-accepted { background: var(--disp-accept-bg); color: var(--disp-accept-text); border-color: var(--disp-accept-border); }
+  .ws-disp-false { background: var(--disp-fp-bg); color: var(--disp-fp-text); border-color: var(--disp-fp-border); text-decoration: line-through; }
+
+  .ws-model-label {
+    display: inline-flex; align-items: center;
+    padding: 0 4px; border: 1px dashed var(--border-default); border-radius: 4px;
+    font-size: 10.5px; line-height: 16px; color: var(--text-muted); white-space: nowrap;
+  }
+
+  .ws-deadline-normal { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .ws-deadline-soon { color: var(--st-persist-text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .ws-deadline-overdue { color: var(--st-new-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ws-deadline-closed { color: var(--st-fixed-text); font-variant-numeric: tabular-nums; }
+
+  .ws-table-head { background: var(--bg-subtle); }
+  .ws-row-muted { opacity: 0.55; }
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
 }

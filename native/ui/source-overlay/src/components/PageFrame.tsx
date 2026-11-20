@@ -56,7 +56,7 @@ export interface FilterPillItem<K extends string> {
   dot?: string
 }
 
-/** 筛选行：状态胶囊，选中 border + bg-accent；计数与色点可选。 */
+/** 筛选行：状态胶囊；选中为品牌色实底白字，计数可选（设计稿“漏洞列表”）。 */
 export function FilterPills<K extends string>({ items, value, onChange }: {
   items: FilterPillItem<K>[]
   value: K
@@ -73,13 +73,17 @@ export function FilterPills<K extends string>({ items, value, onChange }: {
             aria-pressed={selected}
             onClick={() => onChange(item.key)}
             className={cn(
-              'flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-              selected ? 'border border-border bg-accent font-medium text-foreground' : 'border border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+              'flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+              selected
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-card text-muted-foreground hover:text-foreground',
             )}
           >
             {item.dot && <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', item.dot)} />}
             <span>{item.label}</span>
-            {item.count !== undefined && <span className={cn('tabular-nums', selected ? 'text-foreground/70' : 'text-muted-foreground')}>{item.count}</span>}
+            {item.count !== undefined && (
+              <span className={cn('tabular', selected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{item.count}</span>
+            )}
           </button>
         )
       })}

@@ -154,10 +154,20 @@ export function PendingApprovalsButton({ items, onResolve, onViewSession }: Prop
           size="xs"
           aria-label={t('webapi.pendingApprovalsControl', { count })}
           data-pending-approvals={count}
-          className="h-7 gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 text-[12px] text-warning hover:bg-warning/15"
+          className="h-auto w-full justify-between gap-2 rounded-md border px-2.5 py-2 text-[12px] font-semibold"
+          style={{
+            background: 'var(--sev-high-bg)',
+            color: 'var(--sev-high-text)',
+            borderColor: 'var(--sev-high-border)',
+          }}
         >
-          <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="font-medium tabular-nums text-warning">{t('webapi.pendingApprovalsLabel', { count })}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">{t('shell.pendingApprovalsCard')}</span>
+          </span>
+          <span className="shrink-0 rounded bg-orange-600 px-1.5 py-0.5 text-[10.5px] font-semibold tabular text-white">
+            {count}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] space-y-2 p-3">
