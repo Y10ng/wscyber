@@ -32,6 +32,9 @@ interface Props {
   assetId: string
   onOpenTask: (sessionID: string) => void
   onCounts: (counts: Record<WebApiVulnStatus, number>) => void
+  /** 从全局漏洞页跳入时定位并展开该条目；消费后回调清空。 */
+  focusVulnId?: string | null
+  onFocusConsumed?: () => void
 }
 
 type Filter = 'all' | WebApiVulnStatus
@@ -81,7 +84,7 @@ function retestTone(value: string | null): string {
   return 'text-muted-foreground'
 }
 
-export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts }: Props) {
+export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts, focusVulnId, onFocusConsumed }: Props) {
   const { t } = useTranslation('chat')
   const confirm = useConfirm()
   const [list, setList] = useState<WebApiVulnList | null>(null)
@@ -96,6 +99,7 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts }: Prop
   const [actionError, setActionError] = useState('')
   const [acting, setActing] = useState(false)
   const loadSeq = useRef(0)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // nextExpand：undefined 保留当前展开（条目已不存在则收起）；null 全部收起；字符串展开该条目。
   const load = useCallback(async (nextExpand?: string | null) => {
@@ -129,6 +133,25 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts }: Prop
     setRenaming(false)
     void loadRef.current(null)
   }, [assetId])
+
+  // 外部定位（全局漏洞页 → 资产漏洞库）：列表就绪后展开该条目并滚到可见区。
+  // 条目已不存在时也消费定位，避免父级状态悬留。
+  useEffect(() => {
+    if (!focusVulnId || !list) return
+    if (!list.vulns.some((item) => item.id === focusVulnId)) {
+      onFocusConsumed?.()
+      return
+    }
+    setFilter('all')
+    setExpandedId(focusVulnId)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const element = containerRef.current?.querySelector<HTMLElement>(`[data-vuln-id="${CSS.escape(focusVulnId)}"]`)
+        element?.scrollIntoView({ block: 'nearest' })
+      })
+    })
+    onFocusConsumed?.()
+  }, [focusVulnId, list, onFocusConsumed])
 
   const counts = list?.counts ?? EMPTY_COUNTS
   const total = STATUS_ORDER.reduce((sum, status) => sum + counts[status], 0)
@@ -204,7 +227,7 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts }: Prop
   const filterCount = (value: Filter) => (value === 'all' ? total : counts[value])
 
   return (
-    <div className="vuln-detail-container">
+    <div className="vuln-detail-container" ref={containerRef}>
       <div className="mb-3 flex items-center gap-2">
         <div className="min-w-0 flex-1 overflow-x-auto">
           <div role="group" aria-label={t('webapi.vulnTab')} className="flex w-max shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
@@ -266,7 +289,7 @@ export default function WebApiAssetVulns({ assetId, onOpenTask, onCounts }: Prop
               meta.push(t('webapi.vulnLastConfirmed', { time: formatTime(vuln.last_confirmed_at) }))
             }
             return (
-              <div key={vuln.id}>
+              <div key={vuln.id} data-vuln-id={vuln.id}>
                 <button
                   type="button"
                   onClick={() => toggleExpanded(vuln.id)}

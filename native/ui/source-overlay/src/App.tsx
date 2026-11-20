@@ -4,6 +4,8 @@ import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import AppSidebar from './components/AppSidebar'
 import OverviewPage from './components/OverviewPage'
 import TasksPage from './components/TasksPage'
+import VulnsPage from './components/VulnsPage'
+import ReportsPage from './components/ReportsPage'
 import { Page, PageHeader } from './components/PageFrame'
 import ConfigPanel from './components/ConfigPanel'
 import AgentPanel from './components/AgentPanel'
@@ -47,9 +49,8 @@ import type { CapabilityManifest } from './runtime/capabilities'
 
 export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations'
 
-// 已实现页面：总览/任务/资产/集成/模型/节点；漏洞、报告后续片实现，URL 里出现时归一到总览页，
-// 不暴露未实现的占位入口。
-const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'models', 'nodes', 'integrations']
+// 已实现页面：总览/任务/资产/漏洞/报告/集成/模型/节点；URL 里出现未实现的占位入口时归一为总览。
+const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'vulns', 'reports', 'models', 'nodes', 'integrations']
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
@@ -128,6 +129,7 @@ export default function App({ services }: { services: HubServices }) {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
   const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
+  const [focusVulnId, setFocusVulnId] = useState<string | null>(null)
   const [activeWebApiTask, setActiveWebApiTask] = useState<WebApiTask | null>(null)
   const [workspaceView, setWorkspaceView] = useState<WebApiView>('execution')
   // 任务导航计数失效信号：新建验证/报告成功时 bump，TaskNav 感知后重取计数。
@@ -604,6 +606,37 @@ export default function App({ services }: { services: HubServices }) {
     }
   }, [chat.selectSession])
 
+  // 全局漏洞页打开任务候选：按 task_id 解析初始会话，再经 pendingFindingIdRef
+  // 在任务工作区切到候选视图并定位（同 handleReturnToFinding）。
+  const handleOpenTaskFinding = useCallback(async (taskID: string, findingID: string) => {
+    try {
+      const task = await getWebApiTask(taskID)
+      pendingFindingIdRef.current = { sessionID: task.initial_session_id, findingID }
+      void chat.selectSession(task.initial_session_id)
+    } catch (err) {
+      setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }, [chat.selectSession])
+
+  // 全局报告页打开报告：按 task_id 解析初始会话，再经 pendingReportIdRef
+  // 在任务工作区切到报告视图并选中该报告（同 handleReturnToReport）。
+  const handleOpenTaskReport = useCallback(async (taskID: string, reportID: string) => {
+    try {
+      const task = await getWebApiTask(taskID)
+      pendingReportIdRef.current = { sessionID: task.initial_session_id, reportID }
+      void chat.selectSession(task.initial_session_id)
+    } catch (err) {
+      setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }, [chat.selectSession])
+
+  // 全局漏洞页点资产条目：打开资产页并定位漏洞库中该条（自动展开）。
+  const handleOpenAssetVuln = useCallback((assetID: string, vulnID: string) => {
+    setFocusAssetId(assetID)
+    setFocusVulnId(vulnID)
+    navigate('assets')
+  }, [navigate])
+
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
     <TooltipProvider delayDuration={300}>
@@ -875,11 +908,40 @@ export default function App({ services }: { services: HubServices }) {
                   onArchive={(id, archived) => chat.updateSession(id, { archived })}
                 />
               )}
+              {page === 'vulns' && (
+                webapiEnabled ? (
+                  <VulnsPage
+                    webapiEnabled={webapiEnabled}
+                    onOpenAssetVuln={handleOpenAssetVuln}
+                    onOpenTaskFinding={handleOpenTaskFinding}
+                    onOpenMenu={() => setSidebarOpen(true)}
+                  />
+                ) : (
+                  <Page>
+                    <PageHeader title={tc('shell.navVulns')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                )
+              )}
+              {page === 'reports' && (
+                webapiEnabled ? (
+                  <ReportsPage
+                    webapiEnabled={webapiEnabled}
+                    onOpenTaskReport={handleOpenTaskReport}
+                    onOpenMenu={() => setSidebarOpen(true)}
+                  />
+                ) : (
+                  <Page>
+                    <PageHeader title={tc('shell.navReports')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                )
+              )}
               {page === 'assets' && (
                 webapiEnabled ? (
                   <WebApiAssetsPanel
                     focusAssetId={focusAssetId}
+                    focusVulnId={focusVulnId}
                     onFocusConsumed={() => setFocusAssetId(null)}
+                    onFocusVulnConsumed={() => setFocusVulnId(null)}
                     onOpenTask={openTaskSession}
                   />
                 ) : (

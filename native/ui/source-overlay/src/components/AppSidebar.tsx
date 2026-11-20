@@ -14,7 +14,7 @@ import BrandLogo from './brand/BrandLogo'
 import LanguageToggle from './LanguageToggle'
 import QuickConnect from './QuickConnect'
 import { PendingApprovalsButton, type PendingItem } from './WebApiPendingApprovals'
-import { listWebApiAssets, listWebApiTaskList, logout, type AgentView, type LLMProviderView } from '../api'
+import { listWebApiAssets, listWebApiGlobalVulns, listWebApiTaskList, logout, type AgentView, type LLMProviderView } from '../api'
 import { WorkbenchSlots } from '../runtime/react'
 import type { HubServices } from '../runtime/services'
 import type { AppPage } from '../App'
@@ -35,17 +35,17 @@ interface NavDef {
   icon: LucideIcon
   labelKey: string
   enabled: boolean
-  /** 计数来源：tasks = 任务列表 counts.all；assets = 未归档资产数；agents = 在线 agent 数。 */
-  count?: 'tasks' | 'assets' | 'agents'
+  /** 计数来源：tasks = 任务列表 counts.all；assets = 未归档资产数；vulns = 新发现+仍存在；agents = 在线 agent 数。 */
+  count?: 'tasks' | 'assets' | 'agents' | 'vulns'
 }
 
-// 漏洞 / 报告页面后续片实现；保留数组项但用 enabled: false 过滤，避免占位入口。
+// 漏洞 / 报告依赖 webapi capability；未启用时在渲染前过滤（下方 operationsNav）。
 const OPERATIONS_NAV: NavDef[] = [
   { key: 'overview', icon: LayoutDashboard, labelKey: 'shell.navOverview', enabled: true },
   { key: 'tasks', icon: ListChecks, labelKey: 'shell.navTasks', enabled: true, count: 'tasks' },
   { key: 'assets', icon: Boxes, labelKey: 'shell.navAssets', enabled: true, count: 'assets' },
-  { key: 'vulns', icon: ShieldAlert, labelKey: 'shell.navVulns', enabled: false },
-  { key: 'reports', icon: FileText, labelKey: 'shell.navReports', enabled: false },
+  { key: 'vulns', icon: ShieldAlert, labelKey: 'shell.navVulns', enabled: true, count: 'vulns' },
+  { key: 'reports', icon: FileText, labelKey: 'shell.navReports', enabled: true },
 ]
 
 const CONFIG_NAV: NavDef[] = [
@@ -95,6 +95,7 @@ export default function AppSidebar({
   const { isDark, toggle } = useTheme()
   const [taskCount, setTaskCount] = useState<number | null>(null)
   const [assetCount, setAssetCount] = useState<number | null>(null)
+  const [vulnCounts, setVulnCounts] = useState<{ total: number; new: number } | null>(null)
   // 移动端是抽屉（不受折叠状态影响），桌面是固定栏（折叠为 56px 图标栏）。
   const mobile = useIsMobile()
   const rail = !mobile && collapsed
@@ -109,12 +110,17 @@ export default function AppSidebar({
   // 计数：挂载与页面变化时各请求一次；失败不显示数字（不显示假 0）。
   const loadCounts = useCallback(async () => {
     if (!webapiEnabled) return
-    const [tasks, assets] = await Promise.allSettled([
+    const [tasks, assets, vulns] = await Promise.allSettled([
       listWebApiTaskList({ limit: 1 }),
       listWebApiAssets(false),
+      listWebApiGlobalVulns({ limit: 1 }),
     ])
     if (tasks.status === 'fulfilled') setTaskCount(tasks.value.counts.all)
     if (assets.status === 'fulfilled') setAssetCount(assets.value.length)
+    if (vulns.status === 'fulfilled') {
+      const counts = vulns.value.counts
+      setVulnCounts({ total: counts.new + counts.present, new: counts.new })
+    }
   }, [webapiEnabled])
 
   useEffect(() => { void loadCounts() }, [loadCounts, page])
@@ -129,11 +135,18 @@ export default function AppSidebar({
   const countOf = (source: NavDef['count']): number | null => {
     if (source === 'tasks') return taskCount
     if (source === 'assets') return assetCount
+    if (source === 'vulns') return vulnCounts && vulnCounts.total > 0 ? vulnCounts.total : null
     if (source === 'agents') return agents.length > 0 ? agents.length : null
     return null
   }
+  // 漏洞计数在有新发现时用 danger 色，提醒需要关注（docs/ui-shell.md §1）。
+  const countIsDanger = (source: NavDef['count']): boolean => source === 'vulns' && !!vulnCounts && vulnCounts.new > 0
   // 集成（企业微信推送）依赖 webapi capability；未启用时不显示入口。
   const configNav = webapiEnabled ? CONFIG_NAV : CONFIG_NAV.filter(item => item.key !== 'integrations')
+  // 漏洞 / 报告依赖 webapi capability；未启用时不显示入口。
+  const operationsNav = webapiEnabled
+    ? OPERATIONS_NAV
+    : OPERATIONS_NAV.filter(item => item.key !== 'vulns' && item.key !== 'reports')
 
   return (
     <>
@@ -190,10 +203,10 @@ export default function AppSidebar({
         )}
 
         <nav aria-label={t('shell.navLabel')} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          <NavGroup title={t('shell.groupOperations')} items={OPERATIONS_NAV} collapsed={rail}
-            activePage={page} countOf={countOf} onNavigate={onNavigate} />
+          <NavGroup title={t('shell.groupOperations')} items={operationsNav} collapsed={rail}
+            activePage={page} countOf={countOf} countIsDanger={countIsDanger} onNavigate={onNavigate} />
           <NavGroup title={t('shell.groupConfig')} items={configNav} collapsed={rail}
-            activePage={page} countOf={countOf} onNavigate={onNavigate} />
+            activePage={page} countOf={countOf} countIsDanger={countIsDanger} onNavigate={onNavigate} />
         </nav>
 
         {/* 底部：待审批 → 工具图标行 → 语言/主题/退出 → 用量 */}
@@ -237,12 +250,13 @@ export default function AppSidebar({
   )
 }
 
-function NavGroup({ title, items, collapsed, activePage, countOf, onNavigate }: {
+function NavGroup({ title, items, collapsed, activePage, countOf, countIsDanger, onNavigate }: {
   title: string
   items: NavDef[]
   collapsed: boolean
   activePage: AppPage
   countOf: (source: NavDef['count']) => number | null
+  countIsDanger: (source: NavDef['count']) => boolean
   onNavigate: (page: AppPage) => void
 }) {
   const { t } = useTranslation('chat')
@@ -272,7 +286,10 @@ function NavGroup({ title, items, collapsed, activePage, countOf, onNavigate }: 
               <Icon className="h-4 w-4 shrink-0" />
               {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
               {!collapsed && count !== null && (
-                <span className="ml-auto rounded bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">{count}</span>
+                <span className={cn(
+                  'ml-auto rounded px-1.5 text-[11px] tabular-nums',
+                  countIsDanger(item.count) ? 'bg-destructive/15 text-destructive' : 'bg-muted text-muted-foreground',
+                )}>{count}</span>
               )}
             </button>
           )

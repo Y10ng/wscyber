@@ -720,6 +720,93 @@ export async function listWebApiTaskList(params: {
   return apiJSON<WebApiTaskList>(`/api/webapi/task-list${suffix ? `?${suffix}` : ''}`, 'Failed to load tasks')
 }
 
+// --- 全局漏洞（U2a，只读）：GET /vulns，字段见 native/OVERVIEW.md ---
+// 全局漏洞 = 未归档资产的漏洞条目 + 未关联资产任务的候选（kind=task_finding，
+// id=finding:<finding_id>）。状态与排序由后端按资产漏洞库同一规则派生。
+export interface WebApiGlobalVuln {
+  id: string
+  kind: 'asset_vuln' | 'task_finding'
+  title: string
+  status: WebApiVulnStatus
+  endpoint_key: string
+  asset: { id: string; name: string } | null
+  task_id: string
+  first_seen_at: string
+  last_confirmed_at: string | null
+  fixed_at: string | null
+  last_event: WebApiVulnEvent | null
+  member_count: number
+  task_count: number
+}
+
+export interface WebApiGlobalVulnCounts {
+  new: number
+  present: number
+  pending: number
+  unconfirmed: number
+  fixed: number
+}
+
+export interface WebApiGlobalVulnList {
+  items: WebApiGlobalVuln[]
+  has_more: boolean
+  next_cursor: string | null
+  counts: WebApiGlobalVulnCounts
+}
+
+export async function listWebApiGlobalVulns(params: {
+  status?: WebApiVulnStatus
+  asset_id?: string
+  q?: string
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiGlobalVulnList> {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.asset_id) query.set('asset_id', params.asset_id)
+  if (params.q) query.set('q', params.q)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiGlobalVulnList>(`/api/webapi/vulns${suffix ? `?${suffix}` : ''}`, 'Failed to load vulnerabilities')
+}
+
+// --- 全局报告（U2a，只读）：GET /report-list，字段见 native/OVERVIEW.md ---
+export interface WebApiGlobalReport {
+  report_id: string
+  task_id: string
+  task_title: string
+  asset: { id: string; name: string } | null
+  session_id: string
+  title: string
+  has_draft: boolean
+  item_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WebApiGlobalReportList {
+  items: WebApiGlobalReport[]
+  has_more: boolean
+  next_cursor: string | null
+  total: number
+}
+
+export async function listWebApiGlobalReports(params: {
+  q?: string
+  asset_id?: string
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiGlobalReportList> {
+  const query = new URLSearchParams()
+  if (params.q) query.set('q', params.q)
+  if (params.asset_id) query.set('asset_id', params.asset_id)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiGlobalReportList>(`/api/webapi/report-list${suffix ? `?${suffix}` : ''}`, 'Failed to load reports')
+}
+
 // --- 总览聚合（U2a，只读）：GET /overview，字段见 native/OVERVIEW.md ---
 export interface WebApiOverviewDayCount {
   date: string

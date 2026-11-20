@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "c5ef332878c4d79061d2ce71aec19c7df1b7630df0050febac84c9d89257f498"
+      "sha256": "f1f3c9b8537ed17ac92d1895cca01b36d8a884663e43965b807f1023479709a1"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "5b99c1703bbcef8ec5ef887097fc81f432cf559b62d04959112285074e475ba2"
+      "sha256": "6d1ee15eefe40fd6966f620dcd88812d9a2f06ca3603a05952531bdeb3195a38"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -32,7 +32,7 @@
     },
     "src/components/AppSidebar.tsx": {
       "source_sha256": null,
-      "sha256": "0ac87bc92f7457008b53e8f154e3e66abd39f0fdb387b25c729fbc82d16a1697"
+      "sha256": "af1b68a2373f365205b22838d99f13f6fece2bc862d658b03cfa2c1e9ed38a30"
     },
     "src/components/ChatPanel.tsx": {
       "source_sha256": "386b1f68b80a1df3cbdb2f9b6c3b92c42079abf069898ed6708c0df37cc828bc",
@@ -42,9 +42,21 @@
       "source_sha256": "0bb622868c9864363cc4fce61fe471af76873d1c6aa598851d031720abbbce95",
       "sha256": "c81143d2cdc8cdd97dbcf848471c2e1095858a6e00bab88d85231bd512646385"
     },
+    "src/components/IntegrationsPage.tsx": {
+      "source_sha256": null,
+      "sha256": "a53b22b7fb04008dad4bed70befa8300a59505bd41a92a5ec4b5500cb475ba8d"
+    },
+    "src/components/OverviewPage.tsx": {
+      "source_sha256": null,
+      "sha256": "45f83c2618a027f48727751d005ceec39f9a1419b4d7b7e0b68f6b5bcd7ae2bd"
+    },
     "src/components/PageFrame.tsx": {
       "source_sha256": null,
       "sha256": "bcc7ab8e53bc49384c4e094c48c4071188923ba9a031e0ca42e54d03a7e6b95b"
+    },
+    "src/components/ReportsPage.tsx": {
+      "source_sha256": null,
+      "sha256": "7aa20019a62216cdc4788c9e5b1e6c94daa4f5c63cee41e7a5d895c64a09aa72"
     },
     "src/components/SessionList.tsx": {
       "source_sha256": "3723f1fcdff820f5504231a761a54a8af9d04adfb90f4f0b13612c4d53fbab0a",
@@ -54,13 +66,17 @@
       "source_sha256": null,
       "sha256": "4793a59f89ff57449c797dbd79ac7b7955465c2dcefa68c880cda35fa9e9eea4"
     },
+    "src/components/VulnsPage.tsx": {
+      "source_sha256": null,
+      "sha256": "44c42a8eb412a5c55d3b9cec24a220ce1d30078cd3b6185d3aa0876cf7ba4fb5"
+    },
     "src/components/WebApiAssetLaunchDialog.tsx": {
       "source_sha256": null,
       "sha256": "64db8f756e4ddc9a43a51995d25436864d86f9a2433e47bc1197485a32e1692c"
     },
     "src/components/WebApiAssetVulns.tsx": {
       "source_sha256": null,
-      "sha256": "7f92052c9b5330354c4cccd02dbbac6bdef48734595f52fd8f08cc31637871f7"
+      "sha256": "00aa997e84f58d78f716712e3e2276170a0c5357b3f2290ea7d9dc79c77e89a6"
     },
     "src/components/WebApiAssetsPanel.css": {
       "source_sha256": null,
@@ -68,7 +84,7 @@
     },
     "src/components/WebApiAssetsPanel.tsx": {
       "source_sha256": null,
-      "sha256": "b4cba92ae5ae6c81cd645b0fba1d60980bf3c77731e6fd267542cabcbac7806b"
+      "sha256": "735dd31b44d18e6a34296c257fbf39c087f4258d676f75b635104001a57bb6e1"
     },
     "src/components/WebApiEvidenceImageDialog.tsx": {
       "source_sha256": null,
@@ -180,7 +196,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "197fa05407855f61145588d25c1bfc3b81678c9cfc394599b13f2c87d8ac7413"
+      "sha256": "f600ce056fdcd177375f40e7799d7dbd494ed3bac4260945dad109384ffbac85"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -192,7 +208,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "5e3e123730e540f54e6e97147de7b6cfb5dbbb48d07c8f5d440fded0e5aa5ecb"
+      "sha256": "77b6566de80eb55ac855a6ba6e1f72130d0682545db1fd2bf57fadd9582cc9cd"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -209,6 +225,10 @@
     "src/lib/finding-draft.ts": {
       "source_sha256": null,
       "sha256": "e60f81b2e0ee4c2e5f71de9c5c6dd38ae54d8a5d8009cae6077d58f9dd717189"
+    },
+    "src/lib/format-tokens.ts": {
+      "source_sha256": null,
+      "sha256": "303d363a1d8a73884d6280f541a9f3725c099c027241e5d636fff01b1e0f0475"
     },
     "src/lib/report-message.ts": {
       "source_sha256": null,
@@ -229,18 +249,6 @@
     "src/plugins/composition.ts": {
       "source_sha256": "3252c992ce7ca633eda7da95a554e951e9471af5653734a48b35ea36712c544c",
       "sha256": "f49deea004b7f7726d00500e6cbad9da94795f1346aee5f7b7174e4b33eb9300"
-    },
-    "src/components/OverviewPage.tsx": {
-      "source_sha256": null,
-      "sha256": "45f83c2618a027f48727751d005ceec39f9a1419b4d7b7e0b68f6b5bcd7ae2bd"
-    },
-    "src/lib/format-tokens.ts": {
-      "source_sha256": null,
-      "sha256": "303d363a1d8a73884d6280f541a9f3725c099c027241e5d636fff01b1e0f0475"
-    },
-    "src/components/IntegrationsPage.tsx": {
-      "source_sha256": null,
-      "sha256": "a53b22b7fb04008dad4bed70befa8300a59505bd41a92a5ec4b5500cb475ba8d"
     }
   }
 }

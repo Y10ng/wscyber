@@ -41,7 +41,10 @@ import './WebApiAssetsPanel.css'
 
 interface Props {
   focusAssetId: string | null
+  /** 从全局漏洞页跳入时要展开的漏洞条目；随 focusAssetId 一起消费。 */
+  focusVulnId?: string | null
   onFocusConsumed: () => void
+  onFocusVulnConsumed?: () => void
   onOpenTask: (sessionID: string) => void
 }
 
@@ -118,7 +121,7 @@ type AssetDetailTab = 'info' | 'vulns'
 
 // 资产视图：左列表（360px @≥1100px）+ 右详情。详情内为基本信息表单、测试账号、
 // 周期计划与关联任务，均为原生 /api/webapi 接口，不读其它来源。
-export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpenTask }: Props) {
+export default function WebApiAssetsPanel({ focusAssetId, focusVulnId, onFocusConsumed, onFocusVulnConsumed, onOpenTask }: Props) {
   const { t } = useTranslation('chat')
   const [assets, setAssets] = useState<WebApiAsset[]>([])
   const [schedules, setSchedules] = useState<Record<string, WebApiSchedule>>({})
@@ -164,6 +167,7 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
       setCreatingId('')
       setSelected(found)
       setShowDetail(true)
+      if (focusVulnId) setDetailTab('vulns')
       onFocusConsumed()
       return
     }
@@ -180,6 +184,7 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
         setCreatingId('')
         setSelected(asset)
         setShowDetail(true)
+        if (focusVulnId) setDetailTab('vulns')
         if (asset.archived !== showArchived) setShowArchived(asset.archived)
       } catch (err) {
         setListError(errorText(err))
@@ -187,7 +192,7 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
         onFocusConsumed()
       }
     })()
-  }, [focusAssetId, assets, loading, showArchived, onFocusConsumed])
+  }, [focusAssetId, focusVulnId, assets, loading, showArchived, onFocusConsumed])
 
   const visibleAssets = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -318,6 +323,8 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
               schedule={null}
               tab={detailTab}
               onTabChange={setDetailTab}
+              focusVulnId={focusVulnId}
+              onFocusVulnConsumed={onFocusVulnConsumed}
               onSaved={handleSaved}
               onAssetUpdated={updateAsset}
               onScheduleChange={handleScheduleChange}
@@ -332,6 +339,8 @@ export default function WebApiAssetsPanel({ focusAssetId, onFocusConsumed, onOpe
               schedule={schedules[selected.id] ?? null}
               tab={detailTab}
               onTabChange={setDetailTab}
+              focusVulnId={focusVulnId}
+              onFocusVulnConsumed={onFocusVulnConsumed}
               onSaved={handleSaved}
               onAssetUpdated={updateAsset}
               onScheduleChange={handleScheduleChange}
@@ -400,12 +409,14 @@ function DetailSection({ title, first, children }: { title?: ReactNode; first?: 
   )
 }
 
-function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, onSaved, onAssetUpdated, onScheduleChange, onOpenTask, onBack }: {
+function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, focusVulnId, onFocusVulnConsumed, onSaved, onAssetUpdated, onScheduleChange, onOpenTask, onBack }: {
   asset: WebApiAsset | null
   creatingId: string | null
   schedule: WebApiSchedule | null
   tab: AssetDetailTab
   onTabChange: (tab: AssetDetailTab) => void
+  focusVulnId?: string | null
+  onFocusVulnConsumed?: () => void
   onSaved: (asset: WebApiAsset) => void
   onAssetUpdated: (asset: WebApiAsset) => void
   onScheduleChange: (assetId: string, schedule: WebApiSchedule | null) => void
@@ -566,7 +577,13 @@ function AssetDetail({ asset, creatingId, schedule, tab, onTabChange, onSaved, o
           )}
 
           {tab === 'vulns' && !creating ? (
-            <WebApiAssetVulns assetId={asset.id} onOpenTask={onOpenTask} onCounts={setVulnCounts} />
+            <WebApiAssetVulns
+              assetId={asset.id}
+              onOpenTask={onOpenTask}
+              onCounts={setVulnCounts}
+              focusVulnId={focusVulnId}
+              onFocusConsumed={onFocusVulnConsumed}
+            />
           ) : (
             <>
           <DetailSection title={t('webapi.assetBasicInfo')} first>
