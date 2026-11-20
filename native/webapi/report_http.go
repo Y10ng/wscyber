@@ -101,6 +101,7 @@ func (c *Capability) handleReportPut(w http.ResponseWriter, r *http.Request) {
 	status := 200
 	if isNew {
 		status = 201
+		c.auditReportStart(r.Context(), saved)
 	}
 	writeJSON(w, status, map[string]any{"report": saved, "created": isNew, "idempotent": !isNew})
 }

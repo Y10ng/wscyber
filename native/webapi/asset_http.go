@@ -180,11 +180,17 @@ func (c *Capability) handleAssetPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	before, err := c.store.assetModel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取资产失败")
+		return
+	}
 	created, err := c.store.putAsset(r.Context(), *model)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存资产失败")
 		return
 	}
+	c.auditAssetSave(r.Context(), before, *model)
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
@@ -264,6 +270,7 @@ func (c *Capability) handleCredentialPut(w http.ResponseWriter, r *http.Request)
 		}
 		sealed = &value
 	}
+	before := c.credentialBefore(r.Context(), assetID, credentialID)
 	err := c.store.putCredential(r.Context(), assetID, credentialID, body.Label, body.Username, body.Note, sealed)
 	if errors.Is(err, errCredentialOtherAsset) {
 		writeError(w, http.StatusConflict, err.Error())
@@ -273,6 +280,7 @@ func (c *Capability) handleCredentialPut(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "保存测试账号失败")
 		return
 	}
+	c.auditCredentialSave(r.Context(), assetID, credentialID, before, body, sealed != nil)
 	c.writeAsset(w, r, assetID, http.StatusOK)
 }
 
@@ -281,6 +289,7 @@ func (c *Capability) handleCredentialDelete(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	before := c.credentialBefore(r.Context(), assetID, credentialID)
 	deleted, err := c.store.deleteCredential(r.Context(), assetID, credentialID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "删除测试账号失败")
@@ -290,6 +299,7 @@ func (c *Capability) handleCredentialDelete(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, "测试账号不存在")
 		return
 	}
+	c.auditCredentialDelete(r.Context(), assetID, credentialID, before)
 	c.writeAsset(w, r, assetID, http.StatusOK)
 }
 

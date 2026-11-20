@@ -473,14 +473,22 @@ func (c *Capability) sendNotification(ctx context.Context, item notificationMode
 		}
 	}
 	sentAt := sql.NullString{String: notifyTime(c.scheduleClock()), Valid: true}
-	return false, c.store.finishNotification(context.WithoutCancel(ctx), item.ID, NotifySent, item.Attempts, sql.NullString{}, "", sentAt)
+	if err := c.store.finishNotification(context.WithoutCancel(ctx), item.ID, NotifySent, item.Attempts, sql.NullString{}, "", sentAt); err != nil {
+		return false, err
+	}
+	c.auditNotification(ctx, auditActorSystem, "notification.sent", item.ID, map[string]any{"attempts": item.Attempts, "last_error": ""})
+	return false, nil
 }
 
 // failNotification 计一次失败：未满 3 次按 1 分钟/5 分钟后重试，第 3 次 → failed。
 func (c *Capability) failNotification(ctx context.Context, item notificationModel, lastError string) error {
 	attempts := item.Attempts + 1
 	if attempts >= notifyMaxAttempts {
-		return c.store.finishNotification(ctx, item.ID, NotifyFailed, attempts, sql.NullString{}, lastError, sql.NullString{})
+		if err := c.store.finishNotification(ctx, item.ID, NotifyFailed, attempts, sql.NullString{}, lastError, sql.NullString{}); err != nil {
+			return err
+		}
+		c.auditNotification(ctx, auditActorSystem, "notification.failed", item.ID, map[string]any{"attempts": attempts, "last_error": lastError})
+		return nil
 	}
 	next := sql.NullString{String: notifyTime(c.scheduleClock().Add(notifyRetryDelays[attempts-1])), Valid: true}
 	return c.store.finishNotification(ctx, item.ID, NotifyQueued, attempts, next, lastError, sql.NullString{})

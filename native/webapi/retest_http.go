@@ -53,6 +53,7 @@ func (c *Capability) handleRetestPut(w http.ResponseWriter, r *http.Request) {
 	status := 200
 	if isNew {
 		status = 201
+		c.auditSessionStart(r.Context(), "retest", taskID, created.FindingID, created.RetestID, created.SessionID)
 	}
 	writeJSON(w, status, map[string]any{"retest": created, "created": isNew, "idempotent": !isNew})
 }

@@ -157,11 +157,13 @@ func (c *Capability) handleSchedulePut(w http.ResponseWriter, r *http.Request) {
 		model.NextRunAt = formatScheduleTime(cron.Next(now))
 	}
 	options := scheduleOptionsModel{AssetID: id, AutoVerify: body.AutoVerify == nil || *body.AutoVerify, AutoRetest: body.AutoRetest == nil || *body.AutoRetest, UpdatedAt: model.UpdatedAt}
+	before := c.scheduleSnapshot(r.Context(), id)
 	created, err := c.store.putSchedule(r.Context(), model, options)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "保存计划失败")
 		return
 	}
+	c.auditScheduleSave(r.Context(), id, before, model, options)
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
@@ -175,6 +177,7 @@ func (c *Capability) handleScheduleDelete(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	before := c.scheduleSnapshot(r.Context(), id)
 	deleted, err := c.store.deleteSchedule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "删除计划失败")
@@ -184,6 +187,7 @@ func (c *Capability) handleScheduleDelete(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "资产未设置周期计划")
 		return
 	}
+	c.auditScheduleDelete(r.Context(), id, before)
 	writeJSON(w, http.StatusOK, map[string]any{"asset_id": id, "deleted": true})
 }
 

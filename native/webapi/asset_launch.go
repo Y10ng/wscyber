@@ -290,6 +290,9 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 		return nil, launchFail(http.StatusInternalServerError, "task", "保存任务失败", nil)
 	}
 	result.Created = created
+	if created {
+		c.auditTaskCreate(ctx, task, assetID, scope, approval)
+	}
 	result.Progress.TaskCreated = true
 	result.SessionID = task.InitialSessionID
 	if decorated, err := c.store.withPolicy(ctx, task); err == nil {

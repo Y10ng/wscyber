@@ -133,6 +133,7 @@ func (c *Capability) handleVulnTitle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存漏洞条目失败")
 		return
 	}
+	c.auditVulnRename(r.Context(), assetID, ids["vid"], view.Title)
 	c.writeVuln(w, r, assetID, ids["vid"], http.StatusOK)
 }
 
@@ -148,6 +149,7 @@ func (c *Capability) handleVulnMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
+	fromVuln := c.vulnMemberBefore(r.Context(), ids["finding_id"])
 	created, err := c.store.moveVulnMember(r.Context(), assetID, ids["vid"], ids["finding_id"])
 	switch {
 	case errors.Is(err, errVulnFindingMissing):
@@ -160,6 +162,7 @@ func (c *Capability) handleVulnMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "移动候选失败")
 		return
 	}
+	c.auditVulnMove(r.Context(), assetID, ids["vid"], ids["finding_id"], fromVuln, created)
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
@@ -189,6 +192,7 @@ func (c *Capability) handleVulnMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
+	fromTitle := c.vulnTitle(r.Context(), assetID, body.From)
 	err := c.store.mergeVulns(r.Context(), assetID, ids["vid"], body.From)
 	if errors.Is(err, errVulnNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -198,5 +202,6 @@ func (c *Capability) handleVulnMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "合并漏洞条目失败")
 		return
 	}
+	c.auditVulnMerge(r.Context(), assetID, ids["vid"], body.From, fromTitle)
 	c.writeVuln(w, r, assetID, ids["vid"], http.StatusOK)
 }

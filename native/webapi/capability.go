@@ -228,6 +228,7 @@ func (c *Capability) handlePutTask(w http.ResponseWriter, r *http.Request) {
 	case result.Idempotent:
 		writeJSON(w, http.StatusOK, SaveResult{Task: result.Task, Idempotent: true})
 	default:
+		c.auditTaskCreate(r.Context(), result.Task, "", result.Task.Policy.Scope, result.Task.Policy.Approval)
 		status := http.StatusCreated
 		writeJSON(w, status, SaveResult{Task: result.Task, Created: true})
 	}
@@ -388,6 +389,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "POST /api/webapi/notifications/{id}/confirm", Handler: http.HandlerFunc(c.handleNotificationConfirm)},
 		{Pattern: "POST /api/webapi/notifications/{id}/dismiss", Handler: http.HandlerFunc(c.handleNotificationDismiss)},
 		{Pattern: "POST /api/webapi/notifications/{id}/retry", Handler: http.HandlerFunc(c.handleNotificationRetry)},
+		{Pattern: "GET /api/webapi/audit", Handler: http.HandlerFunc(c.handleAuditList)},
 	}
 }
 

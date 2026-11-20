@@ -186,10 +186,16 @@ func (c *Capability) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在"})
 		return
 	}
+	before, err := c.store.policyForTask(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取测试策略失败"})
+		return
+	}
 	policy, err := c.store.setPolicy(r.Context(), id, scope, approval)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存测试策略失败"})
 		return
 	}
+	c.auditTaskPolicy(r.Context(), id, before, policy)
 	writeJSON(w, http.StatusOK, map[string]any{"task_id": id, "policy": policy})
 }

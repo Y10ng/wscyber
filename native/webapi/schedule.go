@@ -182,11 +182,11 @@ func (c *Capability) processDueSchedule(ctx context.Context, item assetScheduleM
 	next, err := parseScheduleTime(item.NextRunAt)
 	if err != nil {
 		// 不可解析的 next_run_at 不应出现（只由本代码写）；按现在重算，避免卡死。
-		return false, c.store.recordScheduleRun(ctx, newRun(formatScheduleTime(now.Truncate(time.Minute)), "", ScheduleRunFailed, "next_run_at 损坏，已按当前时间重算"), item.NextRunAt, c.nextAfter(item.Cron, now))
+		return false, c.recordRun(ctx, newRun(formatScheduleTime(now.Truncate(time.Minute)), "", ScheduleRunFailed, "next_run_at 损坏，已按当前时间重算"), item.NextRunAt, c.nextAfter(item.Cron, now), item.Cron, item.Enabled)
 	}
 	cron, err := agent.ParseCron(item.Cron)
 	if err != nil {
-		return false, c.store.recordScheduleRun(ctx, newRun(item.NextRunAt, "", ScheduleRunFailed, "cron 非法："+err.Error()), item.NextRunAt, "")
+		return false, c.recordRun(ctx, newRun(item.NextRunAt, "", ScheduleRunFailed, "cron 非法："+err.Error()), item.NextRunAt, "", item.Cron, item.Enabled)
 	}
 	// 停机期间错过多次：只补最近一次应运行时间。
 	scheduledAt := next.In(now.Location())
@@ -200,7 +200,7 @@ func (c *Capability) processDueSchedule(ctx context.Context, item assetScheduleM
 	scheduledFor := formatScheduleTime(scheduledAt)
 	newNext := formatScheduleTime(cron.Next(now))
 	record := func(taskID, status, message string) error {
-		return c.store.recordScheduleRun(ctx, newRun(scheduledFor, taskID, status, message), item.NextRunAt, newNext)
+		return c.recordRun(ctx, newRun(scheduledFor, taskID, status, message), item.NextRunAt, newNext, item.Cron, item.Enabled)
 	}
 
 	// 发起前重读：期间被人停用/改动则按最新状态处理。
@@ -241,7 +241,7 @@ func (c *Capability) processDueSchedule(ctx context.Context, item assetScheduleM
 		return false, nil // 并发已满：保持到期，下轮再试，不记 run
 	}
 	taskID := scheduleTaskID(item.AssetID, scheduledFor)
-	_, err = c.LaunchAssetTask(ctx, item.AssetID, taskID, AssetLaunchOptions{})
+	_, err = c.LaunchAssetTask(withAuditActor(ctx, auditActorSystem), item.AssetID, taskID, AssetLaunchOptions{})
 	if err != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err() // Hub 关闭中断：不记失败，重启后同 task_id 续完

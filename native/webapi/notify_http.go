@@ -104,6 +104,7 @@ func (c *Capability) handleNotifySettingsPut(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "保存推送配置失败")
 		return
 	}
+	c.auditNotifySettings(ctx, existing, model, webhook, body.Webhook != nil && *body.Webhook == "-")
 	writeJSON(w, http.StatusOK, c.notifySettingsView(model))
 }
 
@@ -129,9 +130,11 @@ func (c *Capability) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
 	}
 	outcome, err := sendWeCom(r.Context(), webhook, wecomMarkdown(notifyTestContent))
 	if err != nil {
+		c.auditNotifyTest(r.Context(), false, -1)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "errcode": -1, "errmsg": err.Error()})
 		return
 	}
+	c.auditNotifyTest(r.Context(), outcome.ErrCode == 0, outcome.ErrCode)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": outcome.ErrCode == 0, "errcode": outcome.ErrCode, "errmsg": outcome.ErrMsg})
 }
 
@@ -169,7 +172,7 @@ func (c *Capability) handleNotificationList(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (c *Capability) notificationAction(from []string, conflict string, set func(*bun.UpdateQuery) *bun.UpdateQuery) http.HandlerFunc {
+func (c *Capability) notificationAction(action string, from []string, conflict string, set func(*bun.UpdateQuery) *bun.UpdateQuery) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		ctx := r.Context()
@@ -186,6 +189,7 @@ func (c *Capability) notificationAction(from []string, conflict string, set func
 			writeError(w, http.StatusConflict, conflict)
 			return
 		}
+		c.auditNotification(ctx, auditActorUser, action, id, nil)
 		c.writeNotification(ctx, w, id)
 	}
 }
@@ -202,14 +206,14 @@ func (c *Capability) writeNotification(ctx context.Context, w http.ResponseWrite
 // handleNotificationConfirm: pending_confirm → queued（立即到期）。
 func (c *Capability) handleNotificationConfirm(w http.ResponseWriter, r *http.Request) {
 	now := sql.NullString{String: notifyTime(c.scheduleClock()), Valid: true}
-	c.notificationAction([]string{NotifyPendingConfirm}, "只有待确认的推送可以确认", func(q *bun.UpdateQuery) *bun.UpdateQuery {
+	c.notificationAction("notification.confirm", []string{NotifyPendingConfirm}, "只有待确认的推送可以确认", func(q *bun.UpdateQuery) *bun.UpdateQuery {
 		return q.Set("status = ?", NotifyQueued).Set("next_attempt_at = ?", now)
 	})(w, r)
 }
 
 // handleNotificationDismiss: pending_confirm|failed → dismissed。
 func (c *Capability) handleNotificationDismiss(w http.ResponseWriter, r *http.Request) {
-	c.notificationAction([]string{NotifyPendingConfirm, NotifyFailed}, "只有待确认或失败的推送可以忽略", func(q *bun.UpdateQuery) *bun.UpdateQuery {
+	c.notificationAction("notification.dismiss", []string{NotifyPendingConfirm, NotifyFailed}, "只有待确认或失败的推送可以忽略", func(q *bun.UpdateQuery) *bun.UpdateQuery {
 		return q.Set("status = ?", NotifyDismissed).Set("next_attempt_at = NULL")
 	})(w, r)
 }
@@ -217,7 +221,7 @@ func (c *Capability) handleNotificationDismiss(w http.ResponseWriter, r *http.Re
 // handleNotificationRetry: failed → queued，attempts 清零（立即到期）。
 func (c *Capability) handleNotificationRetry(w http.ResponseWriter, r *http.Request) {
 	now := sql.NullString{String: notifyTime(c.scheduleClock()), Valid: true}
-	c.notificationAction([]string{NotifyFailed}, "只有失败的推送可以重试", func(q *bun.UpdateQuery) *bun.UpdateQuery {
+	c.notificationAction("notification.retry", []string{NotifyFailed}, "只有失败的推送可以重试", func(q *bun.UpdateQuery) *bun.UpdateQuery {
 		return q.Set("status = ?", NotifyQueued).Set("attempts = 0").Set("next_attempt_at = ?", now)
 	})(w, r)
 }

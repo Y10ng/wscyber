@@ -75,6 +75,7 @@ func (c *Capability) handleVerificationPut(w http.ResponseWriter, r *http.Reques
 	status := 200
 	if isNew {
 		status = 201
+		c.auditSessionStart(r.Context(), "verification", taskID, created.FindingID, created.VerificationID, created.SessionID)
 	}
 	writeJSON(w, status, map[string]any{"verification": created, "created": isNew, "idempotent": !isNew})
 }

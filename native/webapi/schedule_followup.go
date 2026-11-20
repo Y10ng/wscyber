@@ -277,20 +277,26 @@ func (c *Capability) launchFollowup(ctx context.Context, item scheduleFollowupMo
 				return FollowupSkipped, "候选已有验证", nil
 			}
 		}
-		summary, _, conflict, err := c.store.saveVerification(ctx, item.TargetID, item.TaskID, item.FindingID, item.RevisionID)
+		summary, isNew, conflict, err := c.store.saveVerification(ctx, item.TargetID, item.TaskID, item.FindingID, item.RevisionID)
 		if status, message, ok := pinnedSaveFailure(err, conflict); ok {
 			return status, message, nil
 		} else if err != nil {
 			return "", "", err
 		}
+		if isNew {
+			c.auditSessionStart(withAuditActor(ctx, auditActorSystem), "verification", item.TaskID, item.FindingID, item.TargetID, summary.SessionID)
+		}
 		sessionID = summary.SessionID
 	} else {
 		subject, variant = "复测", retestMessageVariant
-		summary, _, conflict, err := c.store.saveRetest(ctx, item.TargetID, item.TaskID, item.FindingID, item.RevisionID)
+		summary, isNew, conflict, err := c.store.saveRetest(ctx, item.TargetID, item.TaskID, item.FindingID, item.RevisionID)
 		if status, message, ok := pinnedSaveFailure(err, conflict); ok {
 			return status, message, nil
 		} else if err != nil {
 			return "", "", err
+		}
+		if isNew {
+			c.auditSessionStart(withAuditActor(ctx, auditActorSystem), "retest", item.TaskID, item.FindingID, item.TargetID, summary.SessionID)
 		}
 		sessionID = summary.SessionID
 	}

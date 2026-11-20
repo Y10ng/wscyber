@@ -316,10 +316,10 @@ func snapshotResultEvidence(evidence []requestModel, refs []verificationEvidence
 }
 
 // webapiTableOrder 与SchemaModule().Models顺序一致；已知历史阶段都是其前缀。
-var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts", "webapi_retests", "webapi_retest_results", "webapi_task_policies", "webapi_task_policy_events", "webapi_assets", "webapi_asset_credentials", "webapi_asset_tasks", "webapi_asset_schedules", "webapi_schedule_runs", "webapi_schedule_options", "webapi_schedule_run_followups", "webapi_schedule_followups", "webapi_asset_vulns", "webapi_asset_vuln_members", "webapi_egress_flows", "webapi_notify_settings", "webapi_notifications"}
+var webapiTableOrder = []string{"webapi_tasks", "webapi_requests", "webapi_findings", "webapi_finding_revisions", "webapi_verifications", "webapi_verification_results", "webapi_reports", "webapi_report_drafts", "webapi_retests", "webapi_retest_results", "webapi_task_policies", "webapi_task_policy_events", "webapi_assets", "webapi_asset_credentials", "webapi_asset_tasks", "webapi_asset_schedules", "webapi_schedule_runs", "webapi_schedule_options", "webapi_schedule_run_followups", "webapi_schedule_followups", "webapi_asset_vulns", "webapi_asset_vuln_members", "webapi_egress_flows", "webapi_notify_settings", "webapi_notifications", "webapi_audit_events"}
 
-// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表、含报告八表、含复测十表、含测试策略十二表、含资产十五表、含周期计划十七表、含计划后续二十表、含资产漏洞库二十二表（C3）、含全工具出口二十三表（B2/U2a/D1）。
-var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}, {8, 10}, {10, 12}, {12, 13}, {15, 15}, {17, 16}, {20, 17}, {22, 20}, {23, 22}}
+// webapiSchemaStages 是已知旧结构（模型数、索引数）：旧四表、含验证六表、含报告八表、含复测十表、含测试策略十二表、含资产十五表、含周期计划十七表、含计划后续二十表、含资产漏洞库二十二表（C3）、含全工具出口二十三表（B2/U2a/D1）、含企业微信推送二十五表（D2/U2b/U2c）。
+var webapiSchemaStages = []struct{ models, indexes int }{{4, 6}, {6, 8}, {8, 10}, {10, 12}, {12, 13}, {15, 15}, {17, 16}, {20, 17}, {22, 20}, {23, 22}, {25, 25}}
 
 func webapiSchemaStage(models, indexes int) webservice.SchemaModule {
 	module := SchemaModule()

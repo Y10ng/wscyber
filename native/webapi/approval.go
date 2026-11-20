@@ -327,6 +327,7 @@ func (c *Capability) admitTool(ctx, lifetime context.Context, stream *events.Str
 		reason += fmt.Sprintf("（任务 %s 测试策略 approval=%s）", task.ID, policy.Approval)
 	}
 	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason)
+	c.auditReview(ctx, inv.SessionID, event.Operation.GetOperationId(), task, name, arguments, state)
 	if state == guardrail.ReviewState_REVIEW_STATE_APPROVED {
 		return toolhooks.Admission{}, nil
 	}
