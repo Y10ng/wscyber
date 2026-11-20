@@ -3,13 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { fromBinary } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
-import { aopFlowToHttpView, HttpViewPanels, type TrafficHttpView } from '@cyber/traffic'
+import type { TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
 import { Button } from '@cyber/ui'
 import { webApiEvidenceImageURL, type WebApiEvidenceDetail, type WebApiFindingEvidenceSnapshot } from '../api'
+import { formatShortDateTime } from '../lib/time'
+import HttpPairBlock from './HttpPairBlock'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 
-// 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给原生 HttpViewPanels
+// 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给共享 HttpPairBlock
 // 渲染；与 WebApiEvidencePanel 同一解码路径，不把替换字符当原件、不重放。
 export function decodeFlow(base64: string): TrafficFlow {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -17,9 +19,7 @@ export function decodeFlow(base64: string): TrafficFlow {
 }
 
 export function formatTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatShortDateTime(value)
 }
 
 export function relationLabelKey(relation: string): string {
@@ -70,7 +70,7 @@ function sameOriginPath(url: string, origins: string[]): string | null {
   return null
 }
 
-// 复用的证据引用条目：元数据摘要 + 按需展开原生 HttpViewPanels。它只负责展示，
+// 复用的证据引用条目：元数据摘要 + 按需展开共享 HTTP 并排代码块。它只负责展示，
 // 取数/解码/展开态由调用方维护，便于候选证据与独立验证新证据共用同一渲染器。
 // origins：任务授权 origin 列表；与授权同源的 URL 只显示路径（title 保留完整 URL），
 // 非授权目标显示完整 URL 并允许换行（fix-2 #3）。
@@ -150,18 +150,17 @@ export function EvidenceReference({
                   </Button>
                 ) : null}
               </div>
-              <div className="h-72 min-h-0">
-                <HttpViewPanels
+              <div className="min-w-0 p-2.5">
+                <HttpPairBlock
                   view={view}
-                  requestTitle={t('webapi.request')}
-                  responseTitle={t('webapi.response')}
-                  emptyText={t('webapi.selectEvidence')}
-                  labels={{
-                    loadFailed: t('webapi.loadFailed'),
-                    requestError: t('webapi.requestError'),
-                    noResponse: t('webapi.noResponse'),
-                    emptyBody: t('webapi.emptyBody'),
-                  }}
+                  loading={false}
+                  error=""
+                  retry={() => {}}
+                  requestMarks={[]}
+                  responseMarks={[]}
+                  masked
+                  foldHeaders
+                  stacked
                 />
               </div>
             </>

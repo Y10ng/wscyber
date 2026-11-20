@@ -4,6 +4,7 @@ import { ArrowLeft, Boxes, Compass, Globe, ShieldCheck } from 'lucide-react'
 import { Button, Callout, Popover, PopoverContent, PopoverTrigger, Spinner } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiTask, putWebApiTaskScenario, type WebApiScenario, type WebApiTask, type WebApiTaskPolicy } from '../api'
+import { formatDateTime } from '../lib/time'
 import { useWebApiTaskViewCounts } from '../hooks/useWebApiTaskViewCounts'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
 import WebApiScenarioPicker, { normalizeWebApiScenario, scenarioDraftOf, type WebApiScenarioDraft } from './WebApiScenarioPicker'
@@ -38,7 +39,7 @@ const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'bo
 // 任务工作区顶栏（高 48px）：返回 · 资产标签 · 任务标题 · origin · 策略指示
 // …… 右侧视图页签（替代原左侧任务导航列；计数取数逻辑抽到 useWebApiTaskViewCounts）。
 export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0 }: Props) {
-  const { t, i18n } = useTranslation('chat')
+  const { t } = useTranslation('chat')
   const counts = useWebApiTaskViewCounts(task.id, countsRevision)
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
   const policy = normalizeWebApiPolicy(task.policy)
@@ -198,7 +199,7 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
               <p className="text-[13px] font-medium text-foreground">{t('webapi.policyTitle')}</p>
               <p className="text-[11px] text-muted-foreground">
                 {draft.updated_at
-                  ? t('webapi.policyUpdatedAt', { time: new Date(draft.updated_at).toLocaleString(i18n.language) })
+                  ? t('webapi.policyUpdatedAt', { time: formatDateTime(draft.updated_at) })
                   : t('webapi.policyDefaultSince')}
               </p>
             </div>

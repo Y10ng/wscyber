@@ -19,6 +19,7 @@ const SENSITIVE_HEADERS = new Set([
 
 const BODY_FOLD_LINES = 12
 const BODY_LINE_CHARS = 400
+const BODY_MAX_CHARS = 200_000
 
 /** 把证据原件解码成 HTTP 视图；404/解析失败由调用方展示重试。 */
 export function useEvidenceHttpView(taskId: string, evidenceId: string) {
@@ -117,11 +118,14 @@ interface Line {
   num: number
   text: string
   highlight: boolean
+  /** 折叠显示时该行原始字符数（超过 400 才设置），用于灰字提示。 */
+  truncatedCount?: number
   /** 折叠空隙提示行：不显示行号。 */
   omitted?: boolean
 }
 
 function LineRow({ line }: { line: Line }) {
+  const { t } = useTranslation('chat')
   if (line.omitted) {
     return (
       <div className="px-[10px] py-0.5 font-sans text-[11px] italic text-muted-foreground opacity-80">
@@ -138,7 +142,12 @@ function LineRow({ line }: { line: Line }) {
       } : undefined}
     >
       <span aria-hidden className="w-6 shrink-0 select-none text-[10.5px] text-muted-foreground opacity-65">{line.num}</span>
-      <span className="min-w-0">{line.text}</span>
+      <span className="min-w-0">
+        {line.text}
+        {line.truncatedCount !== undefined && (
+          <span className="text-muted-foreground"> {t('vulnCard.lineTruncated', { count: line.truncatedCount })}</span>
+        )}
+      </span>
     </div>
   )
 }
@@ -190,7 +199,7 @@ function HttpBox({ title, header, headerLines, headerCollapse, bodyLines, bodyCo
 
 /** 漏洞卡“关键请求”的请求/响应并排代码块（行号、高亮、折叠与遮盖）。 */
 export default function HttpPairBlock({
-  view, loading, error, retry, requestMarks, responseMarks, masked,
+  view, loading, error, retry, requestMarks, responseMarks, masked, foldHeaders = true, stacked = false,
 }: {
   view: TrafficHttpView | null
   loading: boolean
@@ -199,6 +208,10 @@ export default function HttpPairBlock({
   requestMarks: string[]
   responseMarks: string[]
   masked: boolean
+  /** 默认折叠非关键请求头；false 时全部显示且不出现“展开其余请求头”。 */
+  foldHeaders?: boolean
+  /** 窄栏内强制上下堆叠（默认按视口宽度在 ≥769px 并排）。 */
+  stacked?: boolean
 }) {
   const { t } = useTranslation('chat')
   const [headersExpanded, setHeadersExpanded] = useState(false)
@@ -214,7 +227,7 @@ export default function HttpPairBlock({
 
   if (loading) {
     return (
-      <div className="grid min-h-[150px] grid-cols-1 gap-3 min-[769px]:grid-cols-2" aria-busy>
+      <div className={cn('grid min-h-[150px] grid-cols-1 gap-3', !stacked && 'min-[769px]:grid-cols-2')} aria-busy>
         {[0, 1].map((side) => (
           <div key={side} className="space-y-2 rounded-md border border-border bg-[var(--bg-code-light)] p-3">
             <div className="h-3 w-1/3 animate-pulse rounded bg-muted" />
@@ -247,7 +260,36 @@ export default function HttpPairBlock({
   const clipLine = (line: Line): Line => {
     const chars = Array.from(line.text)
     if (chars.length <= BODY_LINE_CHARS) return line
-    return { ...line, text: chars.slice(0, BODY_LINE_CHARS).join('') + t('vulnCard.lineTruncated', { count: chars.length }) }
+    return { ...line, text: chars.slice(0, BODY_LINE_CHARS).join(''), truncatedCount: chars.length }
+  }
+
+  const bodyCharCount = (content: Line[]): number =>
+    content.reduce((sum, line) => sum + Array.from(line.text).length, 0)
+
+  // 行数超过 12 或任一行超过 400 字都进入折叠态（截断捕获的单行 JSON 也受控）。
+  const needsFold = (content: Line[]): boolean => content.length > BODY_FOLD_LINES
+    || content.some((line) => Array.from(line.text).length > BODY_LINE_CHARS)
+
+  // 展开后最多渲染 200000 字，剩余字数以灰字提示（不改变复制/下载原件）。
+  const capBody = (content: Line[]): Line[] => {
+    const total = bodyCharCount(content)
+    if (total <= BODY_MAX_CHARS) return content
+    const result: Line[] = []
+    let used = 0
+    for (const line of content) {
+      if (used >= BODY_MAX_CHARS) break
+      const chars = Array.from(line.text)
+      const take = Math.min(chars.length, BODY_MAX_CHARS - used)
+      result.push(take < chars.length ? { ...line, text: chars.slice(0, take).join('') } : line)
+      used += take
+    }
+    result.push({
+      num: 0,
+      text: t('vulnCard.bodyTruncated', { count: total - used }),
+      highlight: false,
+      omitted: true,
+    })
+    return result
   }
 
   const omitLine = (count: number): Line => ({
@@ -258,8 +300,11 @@ export default function HttpPairBlock({
   })
 
   // 默认前 12 行；12 行之后的高亮行各带上下 1 行，空隙合并为“省略 N 行”。
+  // 长行在折叠态裁到 400 字；展开态保留完整行，但总字符数有上限。
   const foldBody = (content: Line[], expanded: boolean): Line[] => {
-    if (expanded || content.length <= BODY_FOLD_LINES) return content
+    if (expanded) return capBody(content)
+    if (!needsFold(content)) return content
+    if (content.length <= BODY_FOLD_LINES) return content.map(clipLine)
     const ranges: Array<[number, number]> = [[0, BODY_FOLD_LINES - 1]]
     content.forEach((line, index) => {
       if (index >= BODY_FOLD_LINES && line.highlight) {
@@ -299,16 +344,17 @@ export default function HttpPairBlock({
     text: `${name}: ${maskHeader(name, value, masked)}`,
     highlight: lineMatches(`${name}: ${value}`, requestMarks),
   }))
-  const visibleRequestHeaders = headersExpanded
+  const visibleRequestHeaders = headersExpanded || !foldHeaders
     ? fullRequestHeaders
     : fullRequestHeaders.filter((line, index) => {
       const [name, value] = request.headers[index]
       return name.toLowerCase() === 'host' || lineMatches(`${name}: ${value}`, requestMarks)
     })
-  const hiddenHeaderCount = fullRequestHeaders.length - fullRequestHeaders.filter((line, index) => {
+  const foldedHeaderCount = fullRequestHeaders.filter((line, index) => {
     const [name, value] = request.headers[index]
     return name.toLowerCase() === 'host' || lineMatches(`${name}: ${value}`, requestMarks)
   }).length
+  const hiddenHeaderCount = foldHeaders ? fullRequestHeaders.length - foldedHeaderCount : 0
 
   const requestHeaderLines: Line[] = [
     { num: 1, text: requestStart, highlight: lineMatches(requestStart, requestMarks) },
@@ -319,14 +365,18 @@ export default function HttpPairBlock({
     ? buildBody(request.body, requestMarks, fullRequestHeaders.length + 2)
     : null
   const requestBodyTotal = requestBody?.content.length || 0
+  const requestBodyChars = requestBody ? bodyCharCount(requestBody.content) : 0
+  const requestBodyFolded = requestBody ? needsFold(requestBody.content) : false
   const requestBodyRows = requestBody
     ? [requestBody.blank, ...foldBody(requestBody.content, requestBodyExpanded)]
     : []
-  const requestBodyToggle = requestBodyTotal > BODY_FOLD_LINES ? (
+  const requestBodyToggle = requestBodyFolded ? (
     <CollapseButton onClick={() => setRequestBodyExpanded((value) => !value)}>
       {requestBodyExpanded
         ? t('vulnCard.collapseRequestBody')
-        : t('vulnCard.expandRequestBody', { count: requestBodyTotal })}
+        : requestBodyTotal > BODY_FOLD_LINES
+          ? t('vulnCard.expandRequestBody', { count: requestBodyTotal })
+          : t('vulnCard.expandLongBody', { count: requestBodyChars })}
     </CollapseButton>
   ) : null
 
@@ -355,14 +405,18 @@ export default function HttpPairBlock({
     ? buildBody(response.body, responseMarks, responseHeaderLines.length + 1)
     : null
   const responseBodyTotal = responseBody?.content.length || 0
+  const responseBodyChars = responseBody ? bodyCharCount(responseBody.content) : 0
+  const responseBodyFolded = responseBody ? needsFold(responseBody.content) : false
   const responseBodyRows = responseBody
     ? [responseBody.blank, ...foldBody(responseBody.content, responseBodyExpanded)]
     : []
-  const responseBodyToggle = responseBodyTotal > BODY_FOLD_LINES ? (
+  const responseBodyToggle = responseBodyFolded ? (
     <CollapseButton onClick={() => setResponseBodyExpanded((value) => !value)}>
       {responseBodyExpanded
         ? t('vulnCard.collapseBody')
-        : t('vulnCard.expandBody', { count: responseBodyTotal })}
+        : responseBodyTotal > BODY_FOLD_LINES
+          ? t('vulnCard.expandBody', { count: responseBodyTotal })
+          : t('vulnCard.expandLongBody', { count: responseBodyChars })}
     </CollapseButton>
   ) : null
 
@@ -385,7 +439,7 @@ export default function HttpPairBlock({
   ) : null
 
   return (
-    <div className="grid grid-cols-1 items-start gap-3 min-[769px]:grid-cols-2">
+    <div className={cn('grid grid-cols-1 items-start gap-3', !stacked && 'min-[769px]:grid-cols-2')}>
       <HttpBox
         title="Request"
         header={requestHeader}

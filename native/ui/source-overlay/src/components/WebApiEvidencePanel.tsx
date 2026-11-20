@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Image as ImageIcon, Info, Loader2, RefreshCw, Search } from 'lucide-react'
 import { fromBinary } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
-import { aopFlowToHttpView, HttpViewPanels, type TrafficHttpView } from '@cyber/traffic'
+import { aopFlowToHttpView, type TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
+import { Button, Switch, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import {
   getWebApiEgress,
@@ -21,6 +21,7 @@ import {
   type WebApiTask,
 } from '../api'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
+import HttpPairBlock from './HttpPairBlock'
 
 interface Props {
   task: WebApiTask
@@ -29,7 +30,7 @@ interface Props {
   onFocusConsumed?: () => void
 }
 
-// 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给原生 HttpViewPanels
+// 把后端持久化的 Flow protobuf 原件解码为 TrafficFlow，再交给共享 HttpPairBlock
 // 渲染；原始 body 字节保留可下载，不把替换字符当原件、不重放。
 function decodeFlow(base64: string): TrafficFlow {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
@@ -182,6 +183,8 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   const [detailError, setDetailError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
+  // 详情区敏感头遮盖：默认开，状态只在本组件内。
+  const [masked, setMasked] = useState(true)
   // 筛选条：搜索（前端过滤当前已加载数据）+ 状态分段。
   const [query, setQuery] = useState('')
   const [segment, setSegment] = useState<TrafficSegment>('all')
@@ -761,7 +764,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
           <span aria-hidden className="h-0.5 w-10 rounded-full bg-border" />
         </PanelResizeHandle>
 
-        {/* 下：请求/响应双栏（原生 HttpViewPanels，保持不变）。 */}
+        {/* 下：请求/响应双栏（共享 HttpPairBlock，请求头全显示、可遮盖敏感值）。 */}
         <Panel minSize={25} className="flex min-h-0 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
             {source === 'http' ? (
@@ -785,6 +788,10 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                   {detail?.capture.capture_truncated && <span className="text-warning">{t('webapi.captureTruncated')}</span>}
                   <span className="text-muted-foreground">{t('webapi.reconstructionNote')}</span>
                   <span className="ml-auto" />
+                  <label className="flex select-none items-center gap-1.5 text-[12px] text-secondary-foreground">
+                    <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
+                    <span>{t('vulnCard.maskSensitive')}</span>
+                  </label>
                   {requestBody?.length ? (
                     <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(requestBody, `${detail?.metadata.evidence_id || 'request'}.request.body`)} className="text-muted-foreground">
                       {t('webapi.downloadRequestBody')}
@@ -812,18 +819,16 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
                   </Button>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1">
-                  <HttpViewPanels
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+                  <HttpPairBlock
                     view={view}
-                    requestTitle={t('webapi.request')}
-                    responseTitle={t('webapi.response')}
-                    emptyText={t('webapi.selectEvidence')}
-                    labels={{
-                      loadFailed: t('webapi.loadFailed'),
-                      requestError: t('webapi.requestError'),
-                      noResponse: t('webapi.noResponse'),
-                      emptyBody: t('webapi.emptyBody'),
-                    }}
+                    loading={false}
+                    error=""
+                    retry={() => { if (selectedId) void loadDetail(selectedId) }}
+                    requestMarks={[]}
+                    responseMarks={[]}
+                    masked={masked}
+                    foldHeaders={false}
                   />
                 </div>
               </>
@@ -854,6 +859,10 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     </span>
                   ) : null}
                   <span className="ml-auto" />
+                  <label className="flex select-none items-center gap-1.5 text-[12px] text-secondary-foreground">
+                    <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
+                    <span>{t('vulnCard.maskSensitive')}</span>
+                  </label>
                   {egressRequestBody?.length ? (
                     <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(egressRequestBody, `${egressDetail?.summary.id || 'request'}.request.body`)} className="text-muted-foreground">
                       {t('webapi.downloadRequestBody')}
@@ -881,18 +890,16 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     {copied ? t('webapi.copied') : copyError ? t('webapi.copyFailed') : t('webapi.copyDisplay')}
                   </Button>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1">
-                  <HttpViewPanels
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+                  <HttpPairBlock
                     view={egressView}
-                    requestTitle={t('webapi.request')}
-                    responseTitle={t('webapi.response')}
-                    emptyText={t('webapi.selectEvidence')}
-                    labels={{
-                      loadFailed: t('webapi.loadFailed'),
-                      requestError: t('webapi.requestError'),
-                      noResponse: t('webapi.noResponse'),
-                      emptyBody: t('webapi.emptyBody'),
-                    }}
+                    loading={false}
+                    error=""
+                    retry={() => { if (egressSelectedId) void loadEgressDetail(egressSelectedId) }}
+                    requestMarks={[]}
+                    responseMarks={[]}
+                    masked={masked}
+                    foldHeaders={false}
                   />
                 </div>
               </>

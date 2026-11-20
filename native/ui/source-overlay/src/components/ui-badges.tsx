@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@cyber/theme'
 import type {
   WebApiNotificationStatus,
+  WebApiTaskListStatus,
   WebApiVulnDisposition,
   WebApiVulnSeverity,
   WebApiVulnStatus,
@@ -27,6 +28,35 @@ export function StatusBadge({ status, className }: { status: WebApiVulnStatus; c
   return (
     <span className={cn('ws-st-badge', meta.className, className)}>
       <span aria-hidden className="ws-st-dot" />
+      {t(meta.labelKey)}
+    </span>
+  )
+}
+
+const TASK_STATE_CLASS: Record<WebApiTaskListStatus, {
+  className: string
+  dotClassName?: string
+  labelKey: string
+}> = {
+  // 运行中：品牌蓝底蓝字 + 呼吸圆点。
+  running: { className: 'bg-primary/10 text-primary', dotClassName: 'bg-primary animate-pulse', labelKey: 'shell.statusRunning' },
+  // 空闲：绿色（同“已修复”配色）。
+  idle: { className: 'ws-st-fixed', labelKey: 'shell.statusIdle' },
+  // 未开始：中性灰。
+  not_started: { className: 'ws-st-unconfirmed', labelKey: 'shell.statusNotStarted' },
+  unknown: { className: 'ws-st-unconfirmed', labelKey: 'shell.statusUnknown' },
+}
+
+/** 任务状态：圆角胶囊 + 圆点（running 品牌蓝并呼吸，idle 绿，not_started 中性灰）。 */
+export function TaskStateBadge({ status, className }: {
+  status: WebApiTaskListStatus
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const meta = TASK_STATE_CLASS[status] || TASK_STATE_CLASS.unknown
+  return (
+    <span className={cn('ws-st-badge', meta.className, className)}>
+      <span aria-hidden className={cn('ws-st-dot', meta.dotClassName)} />
       {t(meta.labelKey)}
     </span>
   )

@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, ArchiveRestore, ArrowRight, Loader2, MoreHorizontal, Plus, RefreshCw } from 'lucide-react'
+import {
+  Archive, ArchiveRestore, ArrowRight, HelpCircle, Loader2, MoreHorizontal, Plus, RefreshCw,
+} from 'lucide-react'
 import {
   Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-  EmptyState, Input, Spinner, useConfirm,
+  EmptyState, Input, Spinner, Tooltip, TooltipContent, TooltipTrigger, useConfirm,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { FilterPills, IconAction, Page, PageHeader, TableCard } from './PageFrame'
+import { FilterPills, Page, PageHeader, TableCard } from './PageFrame'
+import { TaskStateBadge } from './ui-badges'
 import { usePolling } from '../hooks/usePolling'
 import { formatTokens } from '../lib/format-tokens'
+import { formatDateTime, formatShortDateTime } from '../lib/time'
 import {
   listWebApiAssets,
   listWebApiSchedules,
@@ -33,14 +37,8 @@ type PageMode = 'tasks' | 'schedules'
 
 const PAGE_LIMIT = 50
 
-function statusBadgeVariant(status: WebApiTaskListStatus): 'info' | 'success' | 'muted' {
-  if (status === 'running') return 'info'
-  if (status === 'idle') return 'success'
-  return 'muted'
-}
-
 export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onOpenAsset, onOpenMenu, onArchive }: TasksPageProps) {
-  const { t, i18n } = useTranslation('chat')
+  const { t } = useTranslation('chat')
   const confirm = useConfirm()
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [mode, setMode] = useState<PageMode>('tasks')
@@ -140,21 +138,11 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
   }
 
   const now = Date.now()
+  // 创建时间单行：当年 MM-DD HH:mm；跨年 YYYY-MM-DD HH:mm。
   const formatCreated = (iso: string) => {
     const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return { day: iso, time: '' }
-    return {
-      day: date.toLocaleDateString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit' }),
-      time: date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false }),
-    }
-  }
-  const formatDateTime = (iso: string | null | undefined) => {
-    if (!iso) return '—'
-    const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    return date.toLocaleString(i18n.language, {
-      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-    })
+    return date.getFullYear() === new Date().getFullYear() ? formatShortDateTime(iso) : formatDateTime(iso)
   }
   const relativeTime = (iso: string) => {
     const date = new Date(iso)
@@ -163,9 +151,8 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
     if (diff < 60_000) return t('shell.relJustNow')
     if (diff < 3_600_000) return t('shell.relMinutes', { count: Math.floor(diff / 60_000) })
     if (diff < 86_400_000) return t('shell.relHours', { count: Math.floor(diff / 3_600_000) })
-    return date.toLocaleDateString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit' })
+    return formatDateTime(iso)
   }
-  const statusLabel = (status: WebApiTaskListStatus) => t(`shell.status${status === 'not_started' ? 'NotStarted' : status === 'running' ? 'Running' : status === 'idle' ? 'Idle' : 'Unknown'}`)
 
   const filterItems = [
     { key: 'all' as const, label: t('shell.filterAll'), count: counts?.all, dot: undefined },
@@ -208,9 +195,33 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
           menuLabel={t('shell.openMenu')}
           actions={(
             <>
-              <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading || loadingSchedules}>
-                <RefreshCw className={cn('h-3.5 w-3.5', (loading || loadingSchedules) && 'animate-spin')} />
-              </IconAction>
+              <div role="group" aria-label={t('shell.navTasks')} className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5">
+                {(['tasks', 'schedules'] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={mode === key}
+                    onClick={() => setMode(key)}
+                    className={cn(
+                      'h-8 rounded px-3 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                      mode === key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                    )}
+                  >
+                    {key === 'tasks' ? t('shell.segmentTasks') : t('shell.segmentSchedules')}
+                  </button>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={refresh}
+                disabled={loading || loadingSchedules}
+              >
+                <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', (loading || loadingSchedules) && 'animate-spin')} />
+                {t('shell.refresh')}
+              </Button>
               {webapiEnabled && (
                 <Button type="button" size="sm" className="h-9 gap-1.5" onClick={onCreateTask}>
                   <Plus className="h-4 w-4" />
@@ -220,34 +231,35 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
             </>
           )}
         >
-          <Input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder={t('shell.searchTasks')}
-            aria-label={t('shell.searchTasks')}
-            className="h-9 w-[220px] sm:w-[320px]"
-          />
-          <div role="group" aria-label={t('shell.navTasks')} className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5">
-            {(['tasks', 'schedules'] as const).map((key) => (
+          <Tooltip>
+            <TooltipTrigger asChild>
               <button
-                key={key}
                 type="button"
-                aria-pressed={mode === key}
-                onClick={() => setMode(key)}
-                className={cn(
-                  'h-8 rounded px-3 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                  mode === key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-                )}
+                aria-label={t('shell.tasksHelp')}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
-                {key === 'tasks' ? t('shell.segmentTasks') : t('shell.segmentSchedules')}
+                <HelpCircle className="h-3.5 w-3.5" />
               </button>
-            ))}
-          </div>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+              {t('shell.tasksHelp')}
+            </TooltipContent>
+          </Tooltip>
         </PageHeader>
 
         {mode === 'tasks' ? (
           <>
-            <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+            {/* 状态胶囊在左，搜索框在右（同漏洞页）。 */}
+            <div className="flex flex-wrap items-center gap-3">
+              <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+              <Input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder={t('shell.searchTasks')}
+                aria-label={t('shell.searchTasks')}
+                className="ml-auto h-9 w-[240px] bg-card"
+              />
+            </div>
             {error && <p role="status" className="text-[12px] text-warning">{t('shell.loadFailed')}：{error}</p>}
             <TableCard
               footer={(
@@ -274,44 +286,41 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                 />
               ) : (
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] table-fixed border-collapse text-[13px]">
-                  <colgroup>
-                    <col className="w-10" />
-                    <col className="w-[120px]" />
-                    <col />
-                    <col className="w-[100px]" />
-                    <col className="w-[110px]" />
-                    <col className="w-[90px]" />
-                    <col className="w-[110px]" />
-                    <col className="w-20" />
-                  </colgroup>
-                  <thead>
-                    <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
-                      <th className="whitespace-nowrap px-3 text-left font-medium">#</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colCreated')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colTask')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
-                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colFindings')}</th>
-                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colTokens')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colLastActivity')}</th>
-                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item, index) => {
-                      const created = formatCreated(item.created_at)
-                      return (
+                  <table className="w-full min-w-[1080px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
+                    <colgroup>
+                      <col className="w-10" />
+                      <col className="w-[132px]" />
+                      <col />
+                      <col className="w-[110px]" />
+                      <col className="w-[110px]" />
+                      <col className="w-[90px]" />
+                      <col className="w-[120px]" />
+                      <col className="w-20" />
+                    </colgroup>
+                    <thead>
+                      <tr className="ws-table-head h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
+                        <th className="whitespace-nowrap px-3 text-left font-medium">#</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colCreated')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colTask')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
+                        <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colFindings')}</th>
+                        <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colTokens')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colLastActivity')}</th>
+                        <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item, index) => (
                         <tr
                           key={item.task_id}
-                          className="h-12 cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40"
+                          className="cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40"
                           onClick={() => onOpenTask(item.initial_session_id)}
                         >
-                          <td className="px-3 tabular-nums text-muted-foreground">{index + 1}</td>
-                          <td className="px-3 leading-tight">
-                            <div className="text-[12px] text-foreground">{created.day}</div>
-                            <div className="font-mono text-[11px] text-muted-foreground">{created.time}</div>
+                          <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{index + 1}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5">
+                            <span className="font-mono text-[12px] tabular text-muted-foreground">{formatCreated(item.created_at)}</span>
                           </td>
-                          <td className="min-w-0 px-3">
+                          <td className="min-w-0 px-3 py-2.5">
                             <div className="flex min-w-0 items-center gap-1.5">
                               {item.asset && <Badge variant="muted" size="sm" className="shrink-0 max-w-[8rem] truncate">{item.asset.name}</Badge>}
                               {item.scheduled && <Badge variant="outline" size="sm" className="shrink-0">{t('shell.scheduled')}</Badge>}
@@ -324,13 +333,16 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                               )}
                             </div>
                           </td>
-                          <td className="px-3">
-                            <Badge variant={statusBadgeVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge>
+                          <td className="px-3 py-2.5">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <TaskStateBadge status={item.status} />
+                              {item.archived && <span className="ws-st-badge ws-st-unconfirmed">{t('shell.archiveFilter')}</span>}
+                            </span>
                           </td>
-                          <td className="px-3 text-right tabular-nums text-foreground">{item.finding_count} / {item.supported_count}</td>
-                          <td className="px-3 text-right tabular-nums text-muted-foreground">{formatTokens(item.total_tokens)}</td>
-                          <td className="px-3 text-[12px] text-muted-foreground">{relativeTime(item.last_activity_at)}</td>
-                          <td className="px-3">
+                          <td className="px-3 py-2.5 text-right tabular text-secondary-foreground">{item.finding_count} / {item.supported_count}</td>
+                          <td className="px-3 py-2.5 text-right tabular text-muted-foreground">{formatTokens(item.total_tokens)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-muted-foreground">{relativeTime(item.last_activity_at)}</td>
+                          <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1">
                               <Button
                                 type="button"
@@ -370,10 +382,9 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                             </div>
                           </td>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </TableCard>
@@ -391,68 +402,70 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                 <EmptyState title={t('shell.scheduleEmpty')} />
               ) : (
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[780px] table-fixed border-collapse text-[13px]">
-                  <colgroup>
-                    <col />
-                    <col className="w-[160px]" />
-                    <col className="w-[80px]" />
-                    <col className="w-[160px]" />
-                    <col className="w-[220px]" />
-                    <col className="w-16" />
-                  </colgroup>
-                  <thead>
-                    <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleAsset')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleCron')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleStatus')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleNext')}</th>
-                      <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleLast')}</th>
-                      <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schedules.map((schedule) => {
-                      const last = schedule.last_run
-                      return (
-                        <tr key={schedule.asset_id} className="h-12 border-b border-border/70 hover:bg-muted/40">
-                          <td className="truncate px-3 text-foreground" title={assetNames[schedule.asset_id] || schedule.asset_id}>
-                            {assetNames[schedule.asset_id] || schedule.asset_id}
-                          </td>
-                          <td className="px-3 font-mono text-[12px] text-foreground">{schedule.cron}</td>
-                          <td className="px-3">
-                            <Badge variant={schedule.enabled ? 'success' : 'muted'} size="sm">
-                              {schedule.enabled ? t('shell.scheduleEnabled') : t('shell.scheduleDisabled')}
-                            </Badge>
-                          </td>
-                          <td className="px-3 text-[12px] text-muted-foreground">{formatDateTime(schedule.next_run_at)}</td>
-                          <td className="px-3">
-                            {last ? (
-                              <span className="flex items-center gap-1.5">
-                                <Badge variant={last.status === 'launched' ? 'success' : last.status === 'failed' ? 'danger' : 'muted'} size="sm">
-                                  {t(`shell.run${last.status === 'launched' ? 'Launched' : last.status === 'failed' ? 'Failed' : 'Skipped'}`)}
-                                </Badge>
-                                <span className="text-[12px] text-muted-foreground">{formatDateTime(last.scheduled_for)}</span>
-                              </span>
-                            ) : <span className="text-[12px] text-muted-foreground">—</span>}
-                          </td>
-                          <td className="px-3 text-right">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={t('shell.openAsset')}
-                              title={t('shell.openAsset')}
-                              onClick={() => onOpenAsset(schedule.asset_id)}
-                              className="text-muted-foreground"
-                            >
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </Button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                  <table className="w-full min-w-[860px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
+                    <colgroup>
+                      <col />
+                      <col className="w-[160px]" />
+                      <col className="w-[80px]" />
+                      <col className="w-[160px]" />
+                      <col className="w-[220px]" />
+                      <col className="w-16" />
+                    </colgroup>
+                    <thead>
+                      <tr className="ws-table-head h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleAsset')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleCron')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleStatus')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleNext')}</th>
+                        <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.scheduleLast')}</th>
+                        <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {schedules.map((schedule) => {
+                        const last = schedule.last_run
+                        return (
+                          <tr key={schedule.asset_id} className="border-b border-border/70 transition-colors hover:bg-muted/40">
+                            <td className="truncate px-3 py-2.5 text-foreground" title={assetNames[schedule.asset_id] || schedule.asset_id}>
+                              {assetNames[schedule.asset_id] || schedule.asset_id}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-[12px] text-foreground">{schedule.cron}</td>
+                            <td className="px-3 py-2.5">
+                              <Badge variant={schedule.enabled ? 'success' : 'muted'} size="sm">
+                                {schedule.enabled ? t('shell.scheduleEnabled') : t('shell.scheduleDisabled')}
+                              </Badge>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5">
+                              <span className="font-mono text-[12px] tabular text-muted-foreground">{formatDateTime(schedule.next_run_at) || '—'}</span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {last ? (
+                                <span className="flex items-center gap-1.5">
+                                  <Badge variant={last.status === 'launched' ? 'success' : last.status === 'failed' ? 'danger' : 'muted'} size="sm">
+                                    {t(`shell.run${last.status === 'launched' ? 'Launched' : last.status === 'failed' ? 'Failed' : 'Skipped'}`)}
+                                  </Badge>
+                                  <span className="whitespace-nowrap font-mono text-[12px] tabular text-muted-foreground">{formatDateTime(last.scheduled_for)}</span>
+                                </span>
+                              ) : <span className="text-[12px] text-muted-foreground">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={t('shell.openAsset')}
+                                title={t('shell.openAsset')}
+                                onClick={() => onOpenAsset(schedule.asset_id)}
+                                className="text-muted-foreground"
+                              >
+                                <ArrowRight className="h-3.5 w-3.5" />
+                              </Button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </TableCard>
