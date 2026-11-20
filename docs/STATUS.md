@@ -31,19 +31,19 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 ## 进度（2026-11-20）
 
-已提交：此前 U2a/U2b/U2c、D1、D2 后端等（见 git log）；本日 **D2 前端集成页**（c4ee2e4，演示环境主会话验收：webhook 不回显、待确认→确认发送→排队、跳转验证会话）、**B3 审计后端**（15cc413，契约 `native/AUDIT.md`）。
+已提交：此前 U2a/U2b/U2c、D1、D2 后端等（见 git log）；本日 D2 前端集成页（c4ee2e4）、B3 审计后端（15cc413）、U2d 漏洞页+报告页（08f8e60）、V1 处置后端（4005fb2，契约 `native/TRIAGE.md`）。均经主会话代码+定向测试验收，前端在演示环境走过用户链。
 
-路线新增 **V 漏洞运营闭环**（[roadmap](roadmap.md)）：V1 处置（严重度/处置/负责人/SLA 逾期）→ V2 模型建议等级 → V3 申请复测 → V4 运营通知（待审批/运行失败/周报推企业微信）。
+路线（11-20 用户确认）：新增 **M 挖掘能力** 排在 V2 前——上游可复用循环/Goal 评估器/子 Agent，共享黑板（地图/事实/Oracle）须自建；场景内容自写（[scenarios](scenarios.md)）。M0 真实对比用户稍后自行建任务做。不抓取、不照抄线上 Cyber 平台的模板与提示词。
 
-进行中：**U2d 漏洞页 + 报告页**（ds-flash，`var/u2d-vulns-reports/task.md`，用演示环境）、**V1 处置后端**（o-latest，`var/v1-vuln-triage-backend/task.md`，只做 Go 测试）。
+进行中：**V1 前端**（ds-flash，`var/v1-triage-frontend/task.md`，用演示环境）、**M2 黑板后端**（o-latest，`var/m2-board-backend/task.md`，只做 Go 测试）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. U2d 验收 → V1 验收 → V1 前端（漏洞页加等级/处置/负责人/期限列与处置面板、总览逾期数）→ B3 审计页前端（配置下“审计”）。
-2. V2 → V3 → V4；U2e 分隔线与按钮全量走查、资产页套规范。
-3. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览 `tasks` 统计是否排除已归档任务待定。
+1. V1 前端验收；M2 后端验收 → M1 场景（后端：任务 scenario/done_criteria + 按场景的提示词贡献；前端：建任务选场景）→ M3 Goal 持续探索 → M4 黑板界面 → M5。
+2. B3 审计页前端；U2e 走查；V2–V4。
+3. 小打磨：用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；AUDIT.md 补 vuln.triage/vuln.sla 两行。
 4. D3 SDL（需接口文档）。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；B2 出口为代理强制（可被刻意绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝（V4 推送待审批缓解）；审计无保留期、无用户名（单 key）。
@@ -54,4 +54,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-U2d 前端（ds-flash）与 V1 处置后端（o-latest）运行中。
+V1 前端（ds-flash）与 M2 黑板后端（o-latest）运行中。
