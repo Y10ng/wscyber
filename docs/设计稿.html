@@ -1,0 +1,2046 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecAI 安全测试平台 — 核心界面高保真设计稿</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <style>
+    :root {
+      --bg-canvas: #F8FAFC;
+      --bg-surface: #FFFFFF;
+      --bg-subtle: #F1F5F9;
+      --bg-elevated: #FFFFFF;
+      --bg-code: #0F172A;
+      --bg-code-light: #F8FAFC;
+      --border-default: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --text-primary: #0F172A;
+      --text-secondary: #475569;
+      --text-muted: #64748B;
+      --brand-primary: #2563EB;
+      --brand-primary-hover: #1D4ED8;
+      --brand-soft: #EFF6FF;
+      --ring-focus: rgba(37, 99, 235, 0.25);
+
+      /* Severity Tokens */
+      --sev-critical-bg: #FEF2F2; --sev-critical-text: #B91C1C; --sev-critical-border: #FECACA;
+      --sev-high-bg: #FFF7ED; --sev-high-text: #C2410C; --sev-high-border: #FED7AA;
+      --sev-medium-bg: #FEFCE8; --sev-medium-text: #A16207; --sev-medium-border: #FEF08A;
+      --sev-low-bg: #EFF6FF; --sev-low-text: #1D4ED8; --sev-low-border: #BFDBFE;
+      --sev-info-bg: #F4F4F5; --sev-info-text: #52525B; --sev-info-border: #E4E4E7;
+
+      /* Status Tokens (Distinct from Severity) */
+      --st-new-dot: #E11D48; --st-new-bg: #FFF1F2; --st-new-text: #BE123C;
+      --st-persist-dot: #D97706; --st-persist-bg: #FFFBEB; --st-persist-text: #B45309;
+      --st-verify-dot: #0284C7; --st-verify-bg: #F0F9FF; --st-verify-text: #0369A1;
+      --st-unsup-dot: #64748B; --st-unsup-bg: #F1F5F9; --st-unsup-text: #475569;
+      --st-fixed-dot: #059669; --st-fixed-bg: #ECFDF5; --st-fixed-text: #047857;
+
+      /* Disposition Tokens (Distinct neutral/purple/stone shapes) */
+      --disp-todo-bg: #F8FAFC; --disp-todo-text: #334155; --disp-todo-border: #CBD5E1;
+      --disp-fixing-bg: #F5F3FF; --disp-fixing-text: #6D28D9; --disp-fixing-border: #DDD6FE;
+      --disp-accept-bg: #F5F5F4; --disp-accept-text: #57534E; --disp-accept-border: #D6D3D1;
+      --disp-fp-bg: #F8FAFC; --disp-fp-text: #94A3B8; --disp-fp-border: #E2E8F0;
+
+      /* Code highlight */
+      --code-hl-bg: rgba(239, 68, 68, 0.14);
+      --code-hl-border: #EF4444;
+      --code-hl-ok-bg: rgba(16, 185, 129, 0.14);
+      --code-hl-ok-border: #10B981;
+    }
+
+    [data-theme="dark"] {
+      --bg-canvas: #09090B;
+      --bg-surface: #111114;
+      --bg-subtle: #18181B;
+      --bg-elevated: #1C1C21;
+      --bg-code: #09090B;
+      --bg-code-light: #0D0D11;
+      --border-default: #27272A;
+      --border-strong: #3F3F46;
+      --text-primary: #FAFAFA;
+      --text-secondary: #A1A1AA;
+      --text-muted: #71717A;
+      --brand-primary: #3B82F6;
+      --brand-primary-hover: #60A5FA;
+      --brand-soft: rgba(59, 130, 246, 0.14);
+      --ring-focus: rgba(59, 130, 246, 0.35);
+
+      --sev-critical-bg: rgba(239, 68, 68, 0.16); --sev-critical-text: #FCA5A5; --sev-critical-border: rgba(239, 68, 68, 0.35);
+      --sev-high-bg: rgba(249, 115, 22, 0.16); --sev-high-text: #FDBA74; --sev-high-border: rgba(249, 115, 22, 0.35);
+      --sev-medium-bg: rgba(234, 179, 8, 0.15); --sev-medium-text: #FDE047; --sev-medium-border: rgba(234, 179, 8, 0.32);
+      --sev-low-bg: rgba(59, 130, 246, 0.16); --sev-low-text: #93C5FD; --sev-low-border: rgba(59, 130, 246, 0.35);
+      --sev-info-bg: rgba(161, 161, 170, 0.12); --sev-info-text: #D4D4D8; --sev-info-border: rgba(161, 161, 170, 0.25);
+
+      --st-new-dot: #FB7185; --st-new-bg: rgba(225, 29, 72, 0.16); --st-new-text: #FDA4AF;
+      --st-persist-dot: #FBBF24; --st-persist-bg: rgba(217, 119, 6, 0.16); --st-persist-text: #FDE68A;
+      --st-verify-dot: #38BDF8; --st-verify-bg: rgba(2, 132, 199, 0.16); --st-verify-text: #7DD3FC;
+      --st-unsup-dot: #94A3B8; --st-unsup-bg: rgba(100, 116, 139, 0.18); --st-unsup-text: #CBD5E1;
+      --st-fixed-dot: #34D399; --st-fixed-bg: rgba(5, 150, 105, 0.16); --st-fixed-text: #6EE7B7;
+
+      --disp-todo-bg: #18181B; --disp-todo-text: #D4D4D8; --disp-todo-border: #3F3F46;
+      --disp-fixing-bg: rgba(139, 92, 246, 0.16); --disp-fixing-text: #C4B5FD; --disp-fixing-border: rgba(139, 92, 246, 0.35);
+      --disp-accept-bg: rgba(168, 162, 158, 0.14); --disp-accept-text: #D6D3D1; --disp-accept-border: rgba(168, 162, 158, 0.3);
+      --disp-fp-bg: #18181B; --disp-fp-text: #71717A; --disp-fp-border: #27272A;
+
+      --code-hl-bg: rgba(248, 113, 113, 0.18);
+      --code-hl-border: #F87171;
+      --code-hl-ok-bg: rgba(52, 211, 153, 0.16);
+      --code-hl-ok-border: #34D399;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Noto Sans SC", "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-mono-code {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* Surfaces & Borders */
+    .surface { background: var(--bg-surface); border: 1px solid var(--border-default); }
+    .surface-subtle { background: var(--bg-subtle); border: 1px solid var(--border-default); }
+    .border-def { border-color: var(--border-default); }
+    .text-pri { color: var(--text-primary); }
+    .text-sec { color: var(--text-secondary); }
+    .text-mut { color: var(--text-muted); }
+
+    /* Buttons (shadcn/ui style) */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      height: 32px; padding: 0 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s ease; border: 1px solid transparent; white-space: nowrap;
+    }
+    .btn-sm { height: 28px; padding: 0 9px; font-size: 12px; }
+    .btn-primary { background: var(--brand-primary); color: #FFFFFF; }
+    .btn-primary:hover { background: var(--brand-primary-hover); }
+    .btn-outline { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-default); }
+    .btn-outline:hover { background: var(--bg-subtle); border-color: var(--border-strong); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); }
+    .btn-ghost:hover { background: var(--bg-subtle); color: var(--text-primary); }
+    .btn-danger-outline { background: var(--bg-surface); color: var(--sev-critical-text); border-color: var(--sev-critical-border); }
+    .btn-danger-outline:hover { background: var(--sev-critical-bg); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Severity Badges (Solid/Tinted Pill with crisp border) */
+    .sev-badge {
+      display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 5px;
+      font-size: 11.5px; font-weight: 600; border: 1px solid; line-height: 18px; white-space: nowrap;
+    }
+    .sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical-text); border-color: var(--sev-critical-border); }
+    .sev-high { background: var(--sev-high-bg); color: var(--sev-high-text); border-color: var(--sev-high-border); }
+    .sev-medium { background: var(--sev-medium-bg); color: var(--sev-medium-text); border-color: var(--sev-medium-border); }
+    .sev-low { background: var(--sev-low-bg); color: var(--sev-low-text); border-color: var(--sev-low-border); }
+    .sev-info { background: var(--sev-info-bg); color: var(--sev-info-text); border-color: var(--sev-info-border); }
+    .sev-unrated { background: transparent; color: var(--text-muted); border: 1px dashed var(--border-strong); }
+    .sev-ai-suggest { background: transparent; color: var(--sev-high-text); border: 1px dashed var(--sev-high-border); font-weight: 500; }
+
+    /* Status Badges (Rounded full pill with status dot) */
+    .st-badge {
+      display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px;
+      font-size: 11.5px; font-weight: 500; line-height: 18px; white-space: nowrap;
+    }
+    .st-dot { width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0; }
+    .st-new { background: var(--st-new-bg); color: var(--st-new-text); }
+    .st-new .st-dot { background: var(--st-new-dot); box-shadow: 0 0 0 2px rgba(225,29,72,0.22); }
+    .st-persist { background: var(--st-persist-bg); color: var(--st-persist-text); }
+    .st-persist .st-dot { background: var(--st-persist-dot); }
+    .st-verify { background: var(--st-verify-bg); color: var(--st-verify-text); }
+    .st-verify .st-dot { background: var(--st-verify-dot); }
+    .st-unsup { background: var(--st-unsup-bg); color: var(--st-unsup-text); }
+    .st-unsup .st-dot { background: var(--st-unsup-dot); }
+    .st-fixed { background: var(--st-fixed-bg); color: var(--st-fixed-text); }
+    .st-fixed .st-dot { background: var(--st-fixed-dot); }
+
+    /* Disposition Tag (Sharp 4px corner with icon, visually separate from Severity & Status) */
+    .disp-tag {
+      display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px;
+      font-size: 11px; font-weight: 500; border: 1px solid; line-height: 17px; white-space: nowrap;
+    }
+    .disp-todo { background: var(--disp-todo-bg); color: var(--disp-todo-text); border-color: var(--disp-todo-border); }
+    .disp-fixing { background: var(--disp-fixing-bg); color: var(--disp-fixing-text); border-color: var(--disp-fixing-border); }
+    .disp-accept { background: var(--disp-accept-bg); color: var(--disp-accept-text); border-color: var(--disp-accept-border); }
+    .disp-fp { background: var(--disp-fp-bg); color: var(--disp-fp-text); border-color: var(--disp-fp-border); text-decoration: line-through; }
+
+    /* Code / HTTP Viewer */
+    .http-box {
+      background: var(--bg-code-light);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .http-line {
+      display: flex; align-items: baseline; padding: 1px 10px; font-size: 11.5px; line-height: 1.65;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .http-line.muted { opacity: 0.52; }
+    .http-line.hl-danger {
+      background: var(--code-hl-bg);
+      border-left: 2.5px solid var(--code-hl-border);
+      padding-left: 7.5px;
+      opacity: 1 !important;
+      font-weight: 500;
+    }
+    .http-line.hl-ok {
+      background: var(--code-hl-ok-bg);
+      border-left: 2.5px solid var(--code-hl-ok-border);
+      padding-left: 7.5px;
+      opacity: 1 !important;
+      font-weight: 500;
+    }
+    .line-num {
+      width: 24px; flex-shrink: 0; color: var(--text-muted); user-select: none; font-size: 10.5px; opacity: 0.65;
+    }
+
+    /* Viewport Frame Simulator */
+    .viewport-wrapper {
+      transition: max-width 0.25s ease;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .viewport-1440 { max-width: 100%; }
+    .viewport-1280 { max-width: 1280px; border-left: 1px dashed var(--border-strong); border-right: 1px dashed var(--border-strong); }
+    .viewport-mobile {
+      max-width: 412px;
+      margin: 16px auto;
+      border: 2px solid var(--border-strong);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px -12px rgba(0,0,0,0.2);
+    }
+
+    /* Inputs */
+    .ui-input, .ui-select, .ui-textarea {
+      width: 100%; background: var(--bg-surface); color: var(--text-primary);
+      border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 9px;
+      font-size: 12.5px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .ui-input:focus, .ui-select:focus, .ui-textarea:focus {
+      border-color: var(--brand-primary);
+      box-shadow: 0 0 0 3px var(--ring-focus);
+    }
+
+    
+    /* Subtle Top-Right Help Tooltip */
+    .help-tip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: help;
+      opacity: 0.65;
+      transition: opacity 0.15s ease, color 0.15s ease;
+    }
+    .help-tip:hover { opacity: 1; color: var(--text-primary); }
+    .help-tip-bubble {
+      visibility: hidden;
+      opacity: 0;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      z-index: 60;
+      width: max-content;
+      max-width: 220px;
+      padding: 6px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
+      white-space: normal;
+      text-align: left;
+      background: #0F172A;
+      color: #F8FAFC;
+      box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.25);
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    [data-theme="dark"] .help-tip-bubble {
+      background: #27272A;
+      color: #FAFAFA;
+      border: 1px solid #3F3F46;
+    }
+    .help-tip:hover .help-tip-bubble {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Skeleton pulse */
+    @keyframes skelPulse { 0%,100% { opacity: 0.45; } 50% { opacity: 0.85; } }
+    .skel { background: var(--border-default); border-radius: 5px; animation: skelPulse 1.4s ease-in-out infinite; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* Mobile viewport overrides inside simulated mobile container */
+    .is-mobile-sim .desktop-only { display: none !important; }
+    .is-mobile-sim .mobile-stack { flex-direction: column !important; }
+    .is-mobile-sim .mobile-grid-1 { grid-template-columns: minmax(0, 1fr) !important; }
+    .is-mobile-sim .mobile-pad { padding: 12px !important; }
+    .is-mobile-sim .mobile-rail-order { order: -1; width: 100% !important; position: static !important; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- ==================== DESIGN REVIEW BAR (Prototype Controller) ==================== -->
+  <div id="design-review-bar" class="sticky top-0 z-50 border-b border-def px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs" style="background: var(--bg-elevated);">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="inline-flex items-center gap-1.5 font-semibold px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] tracking-wide">
+        <i data-lucide="layers" class="w-3.5 h-3.5"></i> 高保真交互稿
+      </span>
+      <!-- Page Tabs -->
+      <div class="inline-flex rounded-md p-0.5 border border-def" style="background: var(--bg-subtle);" role="tablist">
+        <button data-nav-page="overview" class="page-tab px-2.5 py-1 rounded text-xs font-medium transition">总览页</button>
+        <button data-nav-page="vuln-detail" class="page-tab px-2.5 py-1 rounded text-xs font-medium transition">漏洞卡 (详情)</button>
+        <button data-nav-page="vuln-list" class="page-tab px-2.5 py-1 rounded text-xs font-medium transition">漏洞列表 (上下文)</button>
+        <button data-nav-page="tokens" class="page-tab px-2.5 py-1 rounded text-xs font-medium transition">设计规范 & Tokens</button>
+      </div>
+    </div>
+
+    <!-- Dynamic State Controls for Current Page -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <div id="bar-overview-controls" class="flex items-center gap-1.5">
+        <span class="text-mut">状态:</span>
+        <select id="overview-state-select" class="ui-select !w-auto !py-1 !px-2 !text-xs">
+          <option value="normal">正常数据</option>
+          <option value="empty">空状态 (新部署)</option>
+          <option value="loading">加载骨架</option>
+          <option value="card-error">单卡出错 (Zone C)</option>
+        </select>
+      </div>
+
+      <div id="bar-detail-controls" class="hidden flex items-center gap-1.5 flex-wrap">
+        <span class="text-mut">视角:</span>
+        <select id="detail-role-select" class="ui-select !w-auto !py-1 !px-2 !text-xs">
+          <option value="researcher">研究员 (完整操作)</option>
+          <option value="rd">研发只读 (SDL 链接)</option>
+        </select>
+        <span class="text-mut ml-1">状态:</span>
+        <select id="detail-state-select" class="ui-select !w-auto !py-1 !px-2 !text-xs">
+          <option value="default">默认 (高危·逾期)</option>
+          <option value="fixed">已修复</option>
+          <option value="fp">误报</option>
+          <option value="no-repro">无最小复现</option>
+        </select>
+      </div>
+
+      <!-- Viewport Simulator -->
+      <div class="inline-flex rounded-md p-0.5 border border-def" style="background: var(--bg-subtle);" title="画布尺寸模拟">
+        <button data-viewport="1440" class="vp-btn px-2 py-0.5 rounded text-[11px] font-medium">1440</button>
+        <button data-viewport="1280" class="vp-btn px-2 py-0.5 rounded text-[11px] font-medium">1280</button>
+        <button data-viewport="mobile" class="vp-btn px-2 py-0.5 rounded text-[11px] font-medium">≤768 移动</button>
+      </div>
+
+      <!-- Theme Switcher -->
+      <button id="theme-toggle-btn" class="btn btn-outline btn-sm !h-7" title="切换浅色/深色主题">
+        <i id="theme-icon" data-lucide="moon" class="w-3.5 h-3.5"></i>
+        <span id="theme-label">深色</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== APP SHELL CONTAINER ==================== -->
+  <div id="app-viewport" class="viewport-wrapper viewport-1440 flex-1 flex flex-col">
+    <div class="flex flex-1 min-h-[calc(100vh-42px)]">
+
+      <!-- Global Sidebar (240px <-> 56px) -->
+      <aside id="app-sidebar" class="desktop-only shrink-0 border-r border-def flex flex-col justify-between transition-all duration-200 select-none" style="width: 240px; background: var(--bg-surface);">
+        <div class="p-3 space-y-3">
+          <!-- Brand + Collapse -->
+          <div class="flex items-center justify-between px-1">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <div class="w-7 h-7 rounded-md bg-blue-600 text-white flex items-center justify-center shrink-0 font-bold text-xs shadow-sm">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+              </div>
+              <div class="sidebar-label truncate">
+                <div class="font-semibold text-sm leading-tight text-pri">SecAI 平台</div>
+                <div class="text-[10.5px] text-mut">Web/API 自主安全测试</div>
+              </div>
+            </div>
+            <button id="sidebar-collapse-btn" class="p-1 rounded hover:bg-slate-500/10 text-mut" title="折叠/展开侧栏">
+              <i data-lucide="panel-left-close" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Model Switcher -->
+          <div class="sidebar-label">
+            <div class="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-def text-xs cursor-pointer hover:border-blue-500/50 transition" style="background: var(--bg-subtle);" id="model-switch-trigger">
+              <div class="flex items-center gap-1.5 truncate">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                <span id="active-model-name" class="font-medium truncate">SecModel-v3 (验证)</span>
+              </div>
+              <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-mut shrink-0"></i>
+            </div>
+          </div>
+
+          <!-- Navigation: 运营 -->
+          <div class="space-y-0.5">
+            <div class="sidebar-label px-2 pt-1 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-mut">运营</div>
+            <button data-nav-page="overview" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">总览</span></span>
+            </button>
+            <button data-toast="任务列表（第二批页面，本次先定总览与漏洞卡）" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium text-sec hover:bg-slate-500/10 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="play-circle" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">任务</span></span>
+              <span class="sidebar-label text-[11px] tabular text-mut">12</span>
+            </button>
+            <button data-toast="资产管理（第二批页面）" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium text-sec hover:bg-slate-500/10 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="server" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">资产</span></span>
+              <span class="sidebar-label text-[11px] tabular text-mut">48</span>
+            </button>
+            <button data-nav-page="vuln-list" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="bug" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">漏洞</span></span>
+              <span class="sidebar-label flex items-center gap-1">
+                <span class="text-[11px] tabular text-mut">37</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10.5px] font-semibold tabular bg-rose-600 text-white" title="新发现待处理">6</span>
+              </span>
+            </button>
+            <button data-toast="安全报告中心（第二批页面）" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium text-sec hover:bg-slate-500/10 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="file-bar-chart-2" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">报告</span></span>
+            </button>
+          </div>
+
+          <!-- Navigation: 配置 -->
+          <div class="space-y-0.5 pt-2 border-t border-def">
+            <div class="sidebar-label px-2 pt-1 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-mut">配置</div>
+            <button data-nav-page="tokens" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="palette" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">设计规范</span></span>
+            </button>
+            <button data-toast="执行节点状态：4/4 在线" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium text-sec hover:bg-slate-500/10 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="cpu" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">节点</span></span>
+              <span class="sidebar-label w-2 h-2 rounded-full bg-emerald-500"></span>
+            </button>
+            <button data-toast="企业微信 + 内部 SDL 集成已连接" class="side-nav-item w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-[13px] font-medium text-sec hover:bg-slate-500/10 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="plug" class="w-4 h-4 shrink-0"></i><span class="sidebar-label">集成 (SDL/企微)</span></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bottom Pending Approval + Utility Row -->
+        <div class="p-3 border-t border-def space-y-2.5">
+          <button id="pending-approval-btn" class="w-full flex items-center justify-between px-2.5 py-2 rounded-md text-xs font-semibold transition border" style="background: var(--sev-high-bg); color: var(--sev-high-text); border-color: var(--sev-high-border);">
+            <span class="flex items-center gap-2">
+              <i data-lucide="shield-alert" class="w-4 h-4 shrink-0"></i>
+              <span class="sidebar-label">待审批操作</span>
+            </span>
+            <span class="sidebar-label px-1.5 py-0.5 rounded bg-orange-600 text-white text-[10.5px] tabular">2</span>
+          </button>
+
+          <div class="flex items-center justify-between px-1 text-mut">
+            <button id="side-theme-btn" class="p-1.5 rounded hover:bg-slate-500/10" title="切换深浅主题"><i data-lucide="sun-moon" class="w-4 h-4"></i></button>
+            <button data-toast="语言切换：简体中文 / English（布局已预留英文不破版）" class="sidebar-label p-1.5 rounded hover:bg-slate-500/10 text-xs font-medium">中/EN</button>
+            <button data-toast="当前登录：林哲（安全研究员）" class="sidebar-label flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-slate-500/10 text-xs text-pri">
+              <span class="w-5 h-5 rounded-full bg-blue-600/15 text-blue-600 font-semibold flex items-center justify-center text-[10px]">林</span>
+              <span>林哲</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ==================== MAIN CONTENT CANVAS ==================== -->
+      <main class="flex-1 min-w-0 overflow-x-hidden">
+        <div id="main-container" class="max-w-[1600px] mx-auto p-6 mobile-pad">
+
+          <!-- ============================================================ -->
+          <!-- PAGE 1: 总览页 (OVERVIEW)                                     -->
+          <!-- ============================================================ -->
+          <section id="page-overview" class="space-y-5">
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-3 flex-wrap">
+                <h1 class="text-lg font-semibold tracking-tight text-pri">总览</h1>
+                <div class="inline-flex rounded-md p-0.5 border border-def" style="background: var(--bg-subtle);">
+                  <button data-range="7" class="range-btn px-2.5 py-1 rounded text-xs font-medium">近 7 天</button>
+                  <button data-range="30" class="range-btn px-2.5 py-1 rounded text-xs font-medium">近 30 天</button>
+                  <button data-range="90" class="range-btn px-2.5 py-1 rounded text-xs font-medium">近 90 天</button>
+                </div>
+                <span class="text-xs text-mut hidden sm:inline">最近同步：2026-11-20 18:15</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="overview-refresh-btn" class="btn btn-outline"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+                <button id="new-task-btn" class="btn btn-primary"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建任务</button>
+              </div>
+            </div>
+
+            <!-- Dynamic Overview Body (rendered by JS for Normal / Empty / Loading / Card Error) -->
+            <div id="overview-content" class="space-y-5"></div>
+          </section>
+
+          <!-- ============================================================ -->
+          <!-- PAGE 2: 漏洞卡 (VULNERABILITY DETAIL)                         -->
+          <!-- ============================================================ -->
+          <section id="page-vuln-detail" class="hidden space-y-4">
+            <!-- Top Navigation Bar -->
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div class="flex items-center gap-2 text-sec">
+                <button data-nav-page="vuln-list" class="inline-flex items-center gap-1 hover:text-pri font-medium">
+                  <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>返回漏洞列表
+                </button>
+                <span class="text-mut">/</span>
+                <span class="text-mut">会员中心 API</span>
+                <span class="text-mut">/</span>
+                <span class="font-mono-code font-medium text-pri">VULN-0123</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button data-toast="已切换到上一条漏洞（VULN-0122）" class="btn btn-outline btn-sm"><i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>上一条</button>
+                <button data-toast="已切换到下一条漏洞（VULN-0124）" class="btn btn-outline btn-sm">下一条<i data-lucide="chevron-right" class="w-3.5 h-3.5"></i></button>
+              </div>
+            </div>
+
+            <!-- Contextual Banners (R&D Read-Only / Fixed / False Positive) -->
+            <div id="detail-banners" class="space-y-2"></div>
+
+            <!-- Title Card (Full Width) -->
+            <div id="detail-header-card" class="surface rounded-lg p-4 space-y-3">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="space-y-2 min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span id="detail-sev-badge" class="sev-badge sev-high">高危</span>
+                    <h1 class="text-base sm:text-[17px] font-semibold tracking-tight text-pri leading-snug">
+                      会员中心 API · <span class="font-mono-code text-[15px]">GET /api/orders/{id}</span> · 越权读取他人订单
+                    </h1>
+                  </div>
+                  <div class="flex items-center gap-2 flex-wrap text-xs">
+                    <span id="detail-status-badge" class="st-badge st-new"><span class="st-dot"></span>新发现</span>
+                    <span id="detail-disp-badge" class="disp-tag disp-fixing"><i data-lucide="wrench" class="w-3 h-3"></i>修复中</span>
+                    <span id="detail-sla-badge" class="inline-flex items-center gap-1 font-medium tabular text-rose-600 dark:text-rose-400">
+                      <i data-lucide="clock-alert" class="w-3.5 h-3.5"></i>逾期 3 天
+                    </span>
+                    <span class="text-mut">·</span>
+                    <span class="font-mono-code text-mut">VULN-0123</span>
+                    <span class="text-mut">·</span>
+                    <span class="text-mut tabular">首次发现 2026-11-12 10:24</span>
+                  </div>
+                </div>
+
+                <!-- Header Actions (changes by Role) -->
+                <div id="detail-actions" class="flex items-center gap-2 flex-wrap shrink-0"></div>
+              </div>
+            </div>
+
+            <!-- Two-Column Main + Right Sticky Info Rail -->
+            <div id="detail-body-grid" class="flex flex-col lg:flex-row gap-5 items-start mobile-stack">
+
+              <!-- MAIN COLUMN (2/3) -->
+              <div id="detail-main-col" class="flex-1 min-w-0 w-full space-y-4">
+
+                <!-- ① 一句话影响 + ② 前置条件 (Hero Above-the-Fold Block) -->
+                <div class="surface rounded-lg p-4 space-y-3 border-l-[3px]" style="border-left-color: var(--sev-high-text);">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-pri">一句话影响</span>
+                    <span class="help-tip" tabindex="0">
+                      <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                      <span class="help-tip-bubble">提炼漏洞最直接的业务或数据影响，便于研究员与研发快速判断危害</span>
+                    </span>
+                  </div>
+                  <p class="text-[15px] font-medium leading-relaxed text-pri">
+                    普通用户可通过修改路径中的订单 ID，越权读取任意其他用户的完整订单详情，响应体直接返回收件人手机号、姓名与详细收货地址。
+                  </p>
+                  <div class="pt-2.5 border-t border-def flex items-start gap-2 text-xs">
+                    <span class="font-semibold text-sec shrink-0">前置条件：</span>
+                    <span class="text-pri">需要任意普通登录用户账号（复现使用普通测试账号 <code class="font-mono-code px-1 py-0.5 rounded surface-subtle">user_b</code>，无管理员权限）。</span>
+                  </div>
+                </div>
+
+                <!-- ③ 关键请求 (Signature Feature!) -->
+                <div id="detail-repro-section" class="surface rounded-lg p-4 space-y-3.5">
+                  <!-- Rendered dynamically by JS for Default vs No-Minimal-Repro & Masking -->
+                </div>
+
+                <!-- ④ 对照 (IDOR Comparison) -->
+                <div class="surface rounded-lg p-4 space-y-3">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-semibold text-pri">正常对照</span>
+                      <span class="help-tip" tabindex="0">
+                        <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                        <span class="help-tip-bubble">越权类漏洞必选：展示同一身份访问本人资源与越权访问他人资源的响应差异</span>
+                      </span>
+                    </div>
+                    <div class="inline-flex rounded-md p-0.5 border border-def text-[11px]" style="background: var(--bg-subtle);">
+                      <button id="diff-mode-side" class="px-2 py-0.5 rounded font-medium bg-blue-600 text-white">并排对比</button>
+                      <button id="diff-mode-summary" class="px-2 py-0.5 rounded font-medium text-sec">差异摘要</button>
+                    </div>
+                  </div>
+                  <div id="detail-contrast-body"></div>
+                </div>
+
+                <!-- 修复建议 & 复测方法 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mobile-grid-1">
+                  <div class="surface rounded-lg p-4 space-y-2.5">
+                    <h2 class="text-xs font-semibold text-pri flex items-center gap-1.5">
+                      <i data-lucide="wrench" class="w-3.5 h-3.5 text-blue-600"></i>修复建议
+                    </h2>
+                    <ul class="space-y-2 text-xs text-sec list-disc pl-4">
+                      <li><strong class="text-pri">服务端归属校验</strong>：查询订单前校验 <code class="font-mono-code">order.user_id === session.user_id</code>，不匹配返回 <code class="font-mono-code">403 Forbidden</code>。</li>
+                      <li><strong class="text-pri">防止 ID 遍历</strong>：对外暴露的订单编号改用不可预测的随机串或签名 ID，避免纯自增数字。</li>
+                      <li><strong class="text-pri">补充鉴权单测</strong>：在订单接口集成测试中增加跨账号读取（BOLA/IDOR）回归用例。</li>
+                    </ul>
+                  </div>
+
+                  <div class="surface rounded-lg p-4 flex flex-col justify-between gap-3">
+                    <div class="space-y-2">
+                      <h2 class="text-xs font-semibold text-pri flex items-center gap-1.5">
+                        <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-600"></i>复测方法
+                      </h2>
+                      <p class="text-xs text-sec leading-relaxed">
+                        使用普通用户 <code class="font-mono-code text-pri">user_b</code> 的有效 Token 重放步骤 2 请求（<code class="font-mono-code text-pri">GET /api/orders/90018274</code>），期望服务端返回 <strong class="text-pri">HTTP 403</strong> 且响应体不含他人订单信息。
+                      </p>
+                    </div>
+                    <div class="pt-2.5 border-t border-def flex items-center justify-between gap-2 flex-wrap">
+                      <div class="text-[11.5px]">
+                        <span class="text-mut">最近复测：</span>
+                        <span id="detail-retest-result" class="font-medium text-amber-600 dark:text-amber-400">仍可复现 (11-18 14:20)</span>
+                      </div>
+                      <button id="apply-retest-btn" class="btn btn-outline btn-sm">
+                        <i data-lucide="rotate-cw" class="w-3 h-3"></i>申请复测
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ⑦ 附录（默认全部折叠） -->
+                <div class="surface rounded-lg overflow-hidden">
+                  <div class="px-4 py-2.5 border-b border-def flex items-center justify-between" style="background: var(--bg-subtle);">
+                    <span class="text-xs font-semibold text-pri">附录</span>
+                    <span class="help-tip" tabindex="0">
+                      <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                      <span class="help-tip-bubble">包含 AI 独立验证记录、研究过程摘要、原始证据列表与变更审计，默认折叠</span>
+                    </span>
+                  </div>
+                  <div id="appendix-list" class="divide-y border-def">
+                    <!-- Accordion 1: AI 验证记录 -->
+                    <div class="appendix-item">
+                      <button class="appendix-trigger w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+                        <span class="flex items-center gap-2 font-medium text-pri">
+                          <i data-lucide="chevron-right" class="appendix-chevron w-3.5 h-3.5 text-mut transition-transform"></i>
+                          AI 独立验证记录
+                          <span class="st-badge st-fixed !py-0 !text-[11px]">支持</span>
+                          <span class="text-[10.5px] px-1.5 py-0.2 rounded border border-dashed border-def text-mut">模型判读</span>
+                        </span>
+                        <span class="text-[11px] text-mut tabular">2026-11-12 10:26 · 独立会话 #V-884</span>
+                      </button>
+                      <div class="appendix-body hidden px-4 pb-3.5 pt-1 text-xs text-sec space-y-1.5">
+                        <p><strong class="text-pri">验证方法：</strong>独立验证会话使用全新注册的普通账号 <code class="font-mono-code">user_b</code>，分别请求自有订单 <code class="font-mono-code">90018299</code> 与预置目标订单 <code class="font-mono-code">90018274</code>，确认两者均返回 HTTP 200 且响应中 <code class="font-mono-code">owner_id</code> 归属不同主体。</p>
+                        <p><strong class="text-pri">局限说明：</strong>仅在预发环境验证了 3 条连续订单 ID，未执行大范围遍历扫描。</p>
+                      </div>
+                    </div>
+
+                    <!-- Accordion 2: AI 研究过程摘要 -->
+                    <div class="appendix-item">
+                      <button class="appendix-trigger w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+                        <span class="flex items-center gap-2 font-medium text-pri">
+                          <i data-lucide="chevron-right" class="appendix-chevron w-3.5 h-3.5 text-mut transition-transform"></i>
+                          AI 研究过程摘要
+                        </span>
+                        <span class="text-[11px] text-blue-600 hover:underline">查看完整执行轨迹 →</span>
+                      </button>
+                      <div class="appendix-body hidden px-4 pb-3.5 pt-1 text-xs text-sec space-y-1">
+                        <div>1. 解析 OpenAPI 文档，识别出 <code class="font-mono-code">GET /api/orders/{id}</code> 依赖路径参数。</div>
+                        <div>2. 观察到订单 ID 为 8 位递增数字，构造偏移量 <code class="font-mono-code">-25</code> 探测并命中他人订单。</div>
+                        <div>3. 过滤静态脱敏字段后，确认手机号与地址明文泄露，生成候选漏洞 <code class="font-mono-code">CAND-309</code>。</div>
+                      </div>
+                    </div>
+
+                    <!-- Accordion 3: 全部证据列表 -->
+                    <div class="appendix-item">
+                      <button class="appendix-trigger w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+                        <span class="flex items-center gap-2 font-medium text-pri">
+                          <i data-lucide="chevron-right" class="appendix-chevron w-3.5 h-3.5 text-mut transition-transform"></i>
+                          全部原始证据列表
+                          <span class="px-1.5 py-0.2 rounded surface-subtle text-[11px] tabular text-sec">6 条</span>
+                        </span>
+                        <span class="text-[11px] text-mut">HTTP 流量存档</span>
+                      </button>
+                      <div class="appendix-body hidden px-4 pb-3.5 pt-1 text-xs font-mono-code space-y-1 text-sec">
+                        <div class="flex justify-between py-1 border-b border-def"><span>#1 POST /api/auth/login → 200 OK (user_b)</span><span class="text-mut">10:23:11</span></div>
+                        <div class="flex justify-between py-1 border-b border-def"><span>#2 GET /api/orders/90018299 → 200 OK (自有订单对照)</span><span class="text-mut">10:23:14</span></div>
+                        <div class="flex justify-between py-1 border-b border-def text-rose-600 dark:text-rose-400"><span>#3 GET /api/orders/90018274 → 200 OK (命中越权)</span><span class="text-mut">10:23:19</span></div>
+                        <div class="flex justify-between py-1"><span>#4–#6 独立复验会话重放与响应校验记录</span><span class="text-mut">10:26:02</span></div>
+                      </div>
+                    </div>
+
+                    <!-- Accordion 4: 关联候选 -->
+                    <div class="appendix-item">
+                      <button class="appendix-trigger w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+                        <span class="flex items-center gap-2 font-medium text-pri">
+                          <i data-lucide="chevron-right" class="appendix-chevron w-3.5 h-3.5 text-mut transition-transform"></i>
+                          关联候选（跨任务去重归并）
+                          <span class="px-1.5 py-0.2 rounded surface-subtle text-[11px] tabular text-sec">3 个</span>
+                        </span>
+                        <span class="text-[11px] text-mut">2026-11-12 ~ 11-18</span>
+                      </button>
+                      <div class="appendix-body hidden px-4 pb-3.5 pt-1 text-xs text-sec space-y-1">
+                        <div>• <span class="font-mono-code text-pri">CAND-309</span> — 任务「会员中心 API 例行回归 #41」(11-12)</div>
+                        <div>• <span class="font-mono-code text-pri">CAND-342</span> — 任务「双十一后订单接口专项」(11-15)</div>
+                        <div>• <span class="font-mono-code text-pri">CAND-378</span> — 任务「预发全量越权复测」(11-18)</div>
+                      </div>
+                    </div>
+
+                    <!-- Accordion 5: 变更记录 -->
+                    <div class="appendix-item">
+                      <button class="appendix-trigger w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+                        <span class="flex items-center gap-2 font-medium text-pri">
+                          <i data-lucide="chevron-right" class="appendix-chevron w-3.5 h-3.5 text-mut transition-transform"></i>
+                          变更记录
+                          <span class="px-1.5 py-0.2 rounded surface-subtle text-[11px] tabular text-sec">4 条</span>
+                        </span>
+                        <span class="text-[11px] text-mut">操作审计</span>
+                      </button>
+                      <div class="appendix-body hidden px-4 pb-3.5 pt-1 text-xs text-sec space-y-1 tabular">
+                        <div>• 11-13 09:30 <strong class="text-pri">SDL 同步</strong> 将工单状态更新为「研发处理中」</div>
+                        <div>• 11-12 11:10 <strong class="text-pri">林哲</strong> 提交 SDL 工单 <span class="font-mono-code">SDL-2026-4812</span>，处置改为「修复中」</div>
+                        <div>• 11-12 11:05 <strong class="text-pri">林哲</strong> 采纳 AI 建议，定级为「高危」，修复期限设为 2026-11-17</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- RIGHT STICKY INFO RAIL (380px on 1440px, 340px on 1280px, collapsible on mobile) -->
+              <aside id="detail-right-rail" class="w-full lg:w-[376px] shrink-0 lg:sticky lg:top-14 space-y-3.5 mobile-rail-order">
+
+                <!-- Triage / Disposition Form (Editable for Researcher, Hidden/Read-only for R&D) -->
+                <div id="rail-triage-card" class="surface rounded-lg p-4 space-y-3">
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-semibold text-pri">处置与定级</h3>
+                    <span id="triage-save-indicator" class="text-[11px] text-emerald-600 hidden">已自动保存</span>
+                  </div>
+
+                  <div class="space-y-2.5 text-xs">
+                    <div>
+                      <div class="flex items-center justify-between mb-1">
+                        <label class="text-mut">漏洞等级</label>
+                        <button id="adopt-ai-sev-btn" class="sev-badge sev-ai-suggest !text-[10.5px] !py-0 cursor-pointer hover:opacity-80" title="点击采纳 AI 建议等级">
+                          <i data-lucide="sparkles" class="w-3 h-3"></i>AI 建议：高危
+                        </button>
+                      </div>
+                      <select id="triage-sev-select" class="ui-select">
+                        <option value="critical">严重 (Critical)</option>
+                        <option value="high" selected>高危 (High)</option>
+                        <option value="medium">中危 (Medium)</option>
+                        <option value="low">低危 (Low)</option>
+                        <option value="info">信息 (Info)</option>
+                        <option value="unrated">未定级</option>
+                      </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label class="block text-mut mb-1">处置状态</label>
+                        <select id="triage-disp-select" class="ui-select">
+                          <option value="todo">待处理</option>
+                          <option value="fixing" selected>修复中</option>
+                          <option value="accept">接受风险</option>
+                          <option value="fp">误报</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-mut mb-1">安全负责人</label>
+                        <select id="triage-owner-select" class="ui-select">
+                          <option selected>林哲</option>
+                          <option>周敏</option>
+                          <option>赵凯</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-mut mb-1">修复期限 (SLA)</label>
+                      <div class="flex items-center gap-2">
+                        <input type="date" id="triage-due-input" value="2026-11-17" class="ui-input tabular" />
+                        <span class="text-[11px] font-medium text-rose-600 dark:text-rose-400 shrink-0 tabular">逾期 3 天</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-mut mb-1">内部备注</label>
+                      <textarea id="triage-note-input" rows="2" class="ui-textarea" placeholder="添加研判说明或跟进记录...">已与订单组陈明对齐，计划本周五发版修复。</textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- SDL Ticket Card -->
+                <div class="surface rounded-lg p-4 space-y-2.5 text-xs">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-pri">工单 (SDL)</h3>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" style="background: var(--disp-fixing-bg); color: var(--disp-fixing-text);">研发处理中</span>
+                  </div>
+                  <div class="grid grid-cols-[76px_1fr] gap-y-1.5 text-xs">
+                    <span class="text-mut">工单编号</span>
+                    <button data-toast="跳转至内部 SDL 工单 SDL-2026-4812" class="text-left font-mono-code text-blue-600 hover:underline inline-flex items-center gap-1">SDL-2026-4812 <i data-lucide="external-link" class="w-3 h-3"></i></button>
+                    <span class="text-mut">研发负责人</span>
+                    <span class="text-pri">陈明（订单后端组）</span>
+                    <span class="text-mut">最近同步</span>
+                    <span class="text-sec tabular">2026-11-20 18:10（10 分钟前）</span>
+                  </div>
+                </div>
+
+                <!-- Asset Card -->
+                <div class="surface rounded-lg p-4 space-y-2.5 text-xs">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-pri">所属资产</h3>
+                    <span class="px-1.5 py-0.5 rounded surface-subtle text-[10.5px] font-medium text-sec">预发 Staging</span>
+                  </div>
+                  <div class="grid grid-cols-[76px_1fr] gap-y-1.5">
+                    <span class="text-mut">资产名称</span>
+                    <span class="font-medium text-pri">会员中心 API</span>
+                    <span class="text-mut">资产负责人</span>
+                    <span class="text-pri">陈明</span>
+                    <span class="text-mut">授权范围</span>
+                    <span class="font-mono-code text-[11px] text-sec break-all">*.member-stg.internal/api/*</span>
+                  </div>
+                </div>
+
+                <!-- Lifecycle Timeline (Vertical) -->
+                <div class="surface rounded-lg p-4 space-y-3 text-xs">
+                  <h3 class="font-semibold text-pri">生命周期时间线</h3>
+                  <ol class="relative border-l border-def ml-2 space-y-3">
+                    <li class="pl-4 relative">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[4.5px] top-1.5"></span>
+                      <div class="flex justify-between gap-2"><span class="font-medium text-pri">AI 发现候选</span><span class="text-[11px] text-mut tabular">11-12 10:24</span></div>
+                      <div class="text-[11px] text-mut">自主探测引擎 · 任务 #41</div>
+                    </li>
+                    <li class="pl-4 relative">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[4.5px] top-1.5"></span>
+                      <div class="flex justify-between gap-2"><span class="font-medium text-pri">独立 AI 验证支持</span><span class="text-[11px] text-mut tabular">11-12 10:26</span></div>
+                      <div class="text-[11px] text-mut">验证会话 #V-884</div>
+                    </li>
+                    <li class="pl-4 relative">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[4.5px] top-1.5"></span>
+                      <div class="flex justify-between gap-2"><span class="font-medium text-pri">人工定级「高危」</span><span class="text-[11px] text-mut tabular">11-12 11:05</span></div>
+                      <div class="text-[11px] text-mut">林哲</div>
+                    </li>
+                    <li class="pl-4 relative">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[4.5px] top-1.5"></span>
+                      <div class="flex justify-between gap-2"><span class="font-medium text-pri">推送企业微信 & 提交工单</span><span class="text-[11px] text-mut tabular">11-12 11:10</span></div>
+                      <div class="text-[11px] text-mut">SDL-2026-4812 · 派单给陈明</div>
+                    </li>
+                    <li class="pl-4 relative">
+                      <span class="w-2.5 h-2.5 rounded-full bg-blue-600 ring-4 ring-blue-600/20 absolute -left-[5.5px] top-1"></span>
+                      <div class="flex justify-between gap-2"><span class="font-semibold text-blue-600">研发修复中</span><span class="text-[11px] text-mut tabular">进行中</span></div>
+                      <div class="text-[11px] text-mut">已逾期 3 天 · 待申请复测</div>
+                    </li>
+                    <li class="pl-4 relative opacity-50">
+                      <span class="w-2 h-2 rounded-full border border-strong bg-transparent absolute -left-[4.5px] top-1.5"></span>
+                      <div class="text-sec">复测验证 → 关闭</div>
+                    </li>
+                  </ol>
+                </div>
+
+                <!-- Related Vulns on Same Asset -->
+                <div class="surface rounded-lg p-4 space-y-2.5 text-xs">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-pri">同资产其他漏洞</h3>
+                    <span class="text-[11px] text-mut tabular">3 条</span>
+                  </div>
+                  <div class="space-y-1.5">
+                    <button data-toast="切换到 VULN-0118：POST /api/member/avatar SSRF" class="w-full text-left p-2 rounded hover:bg-slate-500/5 border border-transparent hover:border-def transition flex items-center gap-2">
+                      <span class="sev-badge sev-medium !text-[10.5px] !px-1.5">中危</span>
+                      <span class="truncate text-pri flex-1">POST /api/member/avatar · 头像拉取 SSRF</span>
+                    </button>
+                    <button data-toast="切换到 VULN-0109：GET /api/coupons/export 批量越权" class="w-full text-left p-2 rounded hover:bg-slate-500/5 border border-transparent hover:border-def transition flex items-center gap-2">
+                      <span class="sev-badge sev-high !text-[10.5px] !px-1.5">高危</span>
+                      <span class="truncate text-pri flex-1">GET /api/coupons/export · 越权导出优惠券</span>
+                    </button>
+                    <button data-toast="切换到 VULN-0094：验证码接口缺少频控" class="w-full text-left p-2 rounded hover:bg-slate-500/5 border border-transparent hover:border-def transition flex items-center gap-2">
+                      <span class="sev-badge sev-low !text-[10.5px] !px-1.5">低危</span>
+                      <span class="truncate text-pri flex-1">POST /api/sms/send · 短信接口缺少频控</span>
+                    </button>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <!-- ============================================================ -->
+          <!-- PAGE 3: 漏洞列表 (CONTEXT + SLIDE-OVER DRAWER PROPOSAL)       -->
+          <!-- ============================================================ -->
+          <section id="page-vuln-list" class="hidden space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <h1 class="text-lg font-semibold text-pri">漏洞列表</h1>
+                <span class="help-tip" tabindex="0">
+                  <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                  <span class="help-tip-bubble">点击列表行可在右侧滑出快速预览抽屉，点击抽屉右上角可全页打开完整漏洞卡</span>
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button data-toast="SLA 规则：严重 2 天 / 高危 5 天 / 中危 14 天 / 低危 30 天" class="btn btn-outline">SLA 设置</button>
+                <button data-toast="列表已刷新" class="btn btn-outline"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+              </div>
+            </div>
+
+            <!-- Filter Pills -->
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div id="list-filter-pills" class="flex items-center gap-1.5 flex-wrap"></div>
+              <div class="flex items-center gap-2">
+                <input id="list-search-input" type="text" placeholder="搜索标题、接口路径或编号..." class="ui-input !w-56" />
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div class="surface rounded-lg overflow-x-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="border-b border-def text-mut" style="background: var(--bg-subtle);">
+                    <th class="py-2.5 px-3 font-medium">状态</th>
+                    <th class="py-2.5 px-3 font-medium">等级</th>
+                    <th class="py-2.5 px-3 font-medium">标题 / 处置</th>
+                    <th class="py-2.5 px-3 font-medium">资产</th>
+                    <th class="py-2.5 px-3 font-medium">负责人</th>
+                    <th class="py-2.5 px-3 font-medium">期限</th>
+                    <th class="py-2.5 px-3 font-medium">端点</th>
+                    <th class="py-2.5 px-3 font-medium text-right">候选</th>
+                    <th class="py-2.5 px-3 font-medium text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="vuln-list-tbody" class="divide-y border-def"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ============================================================ -->
+          <!-- PAGE 4: DESIGN TOKENS & COMPONENT SPEC                        -->
+          <!-- ============================================================ -->
+          <section id="page-tokens" class="hidden space-y-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-lg font-semibold text-pri">设计规范与 Token 表（React + Tailwind + shadcn/ui）</h1>
+                <p class="text-xs text-mut mt-0.5">支持一键切换顶部「浅色/深色」实时预览全部 Token 映射；点击 CSS 变量即可复制给开发。</p>
+              </div>
+            </div>
+
+            <!-- 7 Enum Semantic Matrices -->
+            <div class="surface rounded-lg p-5 space-y-4">
+              <h2 class="text-sm font-semibold text-pri">1. 七大维度枚举与语义色（严格区分形状与色系，避免混淆）</h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div class="p-3.5 rounded-md surface-subtle space-y-2">
+                  <div class="font-semibold text-pri">状态（圆角胶囊 + 状态圆点，系统自动得出）</div>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="st-badge st-new"><span class="st-dot"></span>新发现</span>
+                    <span class="st-badge st-persist"><span class="st-dot"></span>仍存在</span>
+                    <span class="st-badge st-verify"><span class="st-dot"></span>待验证</span>
+                    <span class="st-badge st-unsup"><span class="st-dot"></span>未支持</span>
+                    <span class="st-badge st-fixed"><span class="st-dot"></span>已修复</span>
+                  </div>
+                </div>
+
+                <div class="p-3.5 rounded-md surface-subtle space-y-2">
+                  <div class="font-semibold text-pri">等级（实色微底 + 描边方角徽章，人工定级 + AI 虚线建议）</div>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="sev-badge sev-critical">严重</span>
+                    <span class="sev-badge sev-high">高危</span>
+                    <span class="sev-badge sev-medium">中危</span>
+                    <span class="sev-badge sev-low">低危</span>
+                    <span class="sev-badge sev-info">信息</span>
+                    <span class="sev-badge sev-unrated">未定级</span>
+                    <span class="sev-badge sev-ai-suggest"><i data-lucide="sparkles" class="w-3 h-3"></i>AI 建议：高危</span>
+                  </div>
+                </div>
+
+                <div class="p-3.5 rounded-md surface-subtle space-y-2">
+                  <div class="font-semibold text-pri">处置（4px 锐角标签 + 语义图标，误报带弱化删除线）</div>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="disp-tag disp-todo"><i data-lucide="circle-dashed" class="w-3 h-3"></i>待处理</span>
+                    <span class="disp-tag disp-fixing"><i data-lucide="wrench" class="w-3 h-3"></i>修复中</span>
+                    <span class="disp-tag disp-accept"><i data-lucide="shield-off" class="w-3 h-3"></i>接受风险</span>
+                    <span class="disp-tag disp-fp"><i data-lucide="x-circle" class="w-3 h-3"></i>误报</span>
+                  </div>
+                </div>
+
+                <div class="p-3.5 rounded-md surface-subtle space-y-2">
+                  <div class="font-semibold text-pri">期限 / 工单 / 验证判读 / 复测结论</div>
+                  <div class="flex flex-wrap gap-2 items-center">
+                    <span class="text-sec tabular">正常 (剩 6 天)</span>
+                    <span class="text-amber-600 dark:text-amber-400 font-medium tabular">即将到期 (≤2 天)</span>
+                    <span class="text-rose-600 dark:text-rose-400 font-semibold tabular">逾期 3 天</span>
+                    <span class="text-mut">|</span>
+                    <span class="st-badge st-fixed">支持</span><span class="text-[10.5px] px-1 border border-dashed border-def rounded text-mut">模型判读</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CSS Token Table -->
+            <div class="surface rounded-lg p-5 space-y-3">
+              <h2 class="text-sm font-semibold text-pri">2. 核心颜色 Token（CSS 变量映射，点击复制）</h2>
+              <div id="token-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs"></div>
+            </div>
+
+            <!-- Responsive & Component Spec -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="surface rounded-lg p-5 space-y-3">
+                <h2 class="text-sm font-semibold text-pri">3. 响应式断点取舍说明（1440 / 1280 / ≤768）</h2>
+                <ul class="space-y-2 text-xs text-sec list-disc pl-4">
+                  <li><strong class="text-pri">1440×900（主稿）</strong>：侧栏 240px；总览 Zone A 6 卡横排、B/C 2:1、D/E/F 1:1:1；漏洞卡主栏 + 右侧固定 376px 吸附栏，首屏完整露出「一句话影响 + 步骤 2 请求/响应开头」。</li>
+                  <li><strong class="text-pri">1280 宽取舍</strong>：侧栏自动收敛为 56px 图标栏（保留悬浮提示）；漏洞卡右侧信息栏缩至 340px；总览 Zone A 保持 6 卡紧凑排布或 3×2；保证 HTTP 并排视图每侧 ≥380px 不折行。</li>
+                  <li><strong class="text-pri">≤768 宽（研发手机看企微推送）</strong>：隐藏侧栏；右侧处置/工单/资产栏移至标题区下方并默认折叠为摘要条；HTTP 请求与响应改为上下堆叠、支持横向滚动；顶部保留「复制 curl」与「申请复测」。</li>
+                </ul>
+              </div>
+
+              <div class="surface rounded-lg p-5 space-y-3">
+                <h2 class="text-sm font-semibold text-pri">4. 基础组件状态（shadcn/ui 规范）</h2>
+                <div class="space-y-3 text-xs">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button class="btn btn-primary" data-toast="主按钮：每页页头最右至多 1 个">主操作 Primary</button>
+                    <button class="btn btn-outline" data-toast="次要按钮状态正常">次要 Outline</button>
+                    <button class="btn btn-ghost" data-toast="幽灵按钮状态正常">Ghost</button>
+                    <button class="btn btn-danger-outline" data-toast="危险操作需二次确认">破坏性操作</button>
+                    <button class="btn btn-primary" disabled>禁用 Disabled</button>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-3 pt-1">
+                    <span class="font-mono-code text-pri tabular">123,456.78</span>
+                    <span class="text-mut">Inter / JetBrains Mono 等宽数字（tabular-nums）</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE-OVER PREVIEW DRAWER (Vuln List Two-Tier Proposal) ==================== -->
+  <div id="vuln-drawer-backdrop" class="fixed inset-0 z-50 bg-black/40 hidden transition-opacity">
+    <div id="vuln-drawer" class="fixed top-0 right-0 h-full w-full max-w-[540px] border-l border-def shadow-2xl flex flex-col" style="background: var(--bg-surface);">
+      <div class="p-4 border-b border-def flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span id="drawer-sev" class="sev-badge sev-high">高危</span>
+          <span id="drawer-id" class="font-mono-code text-xs text-mut">VULN-0123</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button id="drawer-open-full-btn" class="btn btn-primary btn-sm">全页打开 <i data-lucide="maximize-2" class="w-3 h-3"></i></button>
+          <button id="drawer-close-btn" class="btn btn-ghost btn-sm !px-1.5"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+      </div>
+      <div id="drawer-body" class="p-4 overflow-y-auto flex-1 space-y-4 text-xs"></div>
+    </div>
+  </div>
+
+  <!-- ==================== TOAST NOTIFICATION ==================== -->
+  <div id="toast-box" class="fixed bottom-5 right-5 z-50 hidden px-3.5 py-2.5 rounded-lg shadow-lg border border-def text-xs font-medium flex items-center gap-2" style="background: var(--bg-elevated); color: var(--text-primary);">
+    <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+    <span id="toast-text"></span>
+  </div>
+
+  <script>
+    // ==================== STATE ====================
+    const state = {
+      page: 'overview',          // 'overview' | 'vuln-detail' | 'vuln-list' | 'tokens'
+      theme: 'light',            // 'light' | 'dark'
+      viewport: '1440',          // '1440' | '1280' | 'mobile'
+      sidebarCollapsed: false,
+      overviewRange: 30,         // 7 | 30 | 90
+      overviewState: 'normal',   // 'normal' | 'empty' | 'loading' | 'card-error'
+      aiResourceExpanded: false,
+      detailRole: 'researcher',  // 'researcher' | 'rd'
+      detailState: 'default',    // 'default' | 'fixed' | 'fp' | 'no-repro'
+      maskSensitive: false,
+      headersExpanded: false,
+      bodyExpanded: false,
+      diffMode: 'side',          // 'side' | 'summary'
+      listFilter: 'all',
+      listSearch: '',
+      modelIndex: 0
+    };
+
+    const MODELS = ['SecModel-v3 (验证)', 'DeepSeek-R1-Sec', 'Claude-3.7-Sonnet'];
+
+    const RANGE_DATA = {
+      7:  { sev: [2, 9, 16, 10], sla: '88.2%', mttr: [['严重','1.5d'],['高危','3.9d'],['中危','8.4d'],['低危','14.2d']], labels: ['11-14','11-15','11-16','11-17','11-18','11-19','11-20'], newArr: [2,1,3,0,2,1,2], persistArr: [22,23,24,24,25,24,25], fixedArr: [1,2,1,3,2,3,2], tokens: '4.6M' },
+      30: { sev: [2, 9, 16, 10], sla: '86.4%', mttr: [['严重','1.8d'],['高危','4.2d'],['中危','9.5d'],['低危','16.0d']], labels: ['10-24','10-28','11-01','11-05','11-09','11-13','11-17','11-20'], newArr: [4,6,3,5,7,4,5,6], persistArr: [18,20,21,22,25,24,25,25], fixedArr: [3,4,5,4,6,7,5,6], tokens: '18.4M' },
+      90: { sev: [2, 9, 16, 10], sla: '84.1%', mttr: [['严重','2.1d'],['高危','4.8d'],['中危','10.2d'],['低危','18.5d']], labels: ['09月W1','09月W3','10月W1','10月W3','11月W1','11月W3'], newArr: [12,15,11,14,16,11], persistArr: [15,19,21,23,26,25], fixedArr: [9,12,13,14,15,14], tokens: '52.8M' }
+    };
+
+    const VULNS = [
+      { id: 'VULN-0123', status: 'new', statusLabel: '新发现', sev: 'high', sevLabel: '高危', disp: 'fixing', dispLabel: '修复中', title: '会员中心 API · GET /api/orders/{id} · 越权读取他人订单', asset: '会员中心 API', owner: '林哲', sla: '逾期 3 天', slaOverdue: true, endpoint: 'GET /api/orders/{id}', cands: 3, impact: '普通用户可通过修改路径中的订单 ID，越权读取任意其他用户的完整订单详情，含手机号与收货地址。' },
+      { id: 'VULN-0122', status: 'new', statusLabel: '新发现', sev: 'critical', sevLabel: '严重', disp: 'todo', dispLabel: '待处理', title: '订单服务 · POST /api/internal/refund · 缺失鉴权可任意退款', asset: '订单服务', owner: '周敏', sla: '即将到期 (1 天)', slaOverdue: false, endpoint: 'POST /api/internal/refund', cands: 2, impact: '未携带内部网关签名即可调用退款接口，攻击者可构造任意订单号触发资金原路退回。' },
+      { id: 'VULN-0119', status: 'persist', statusLabel: '仍存在', sev: 'high', sevLabel: '高危', disp: 'fixing', dispLabel: '修复中', title: '结算网关 · POST /api/pay/callback · 回调验签可被重放绕过', asset: '结算网关', owner: '林哲', sla: '逾期 5 天', slaOverdue: true, endpoint: 'POST /api/pay/callback', cands: 4, impact: '回调接口未校验 timestamp 与 nonce 唯一性，拦截历史成功报文可重复触发订单入账。' },
+      { id: 'VULN-0118', status: 'verify', statusLabel: '待验证', sev: 'medium', sevLabel: '中危', disp: 'fixing', dispLabel: '修复中', title: '会员中心 API · POST /api/member/avatar · 头像拉取 SSRF', asset: '会员中心 API', owner: '赵凯', sla: '正常 (剩 6 天)', slaOverdue: false, endpoint: 'POST /api/member/avatar', cands: 1, impact: '头像 URL 参数未限制内网网段，可探测宿主机元数据端口并返回部分响应头。' },
+      { id: 'VULN-0115', status: 'fixed', statusLabel: '已修复', sev: 'high', sevLabel: '高危', disp: 'fixing', dispLabel: '修复中', title: '客服工作台 · GET /api/tickets/search · SQL 注入', asset: '客服工作台', owner: '周敏', sla: '已闭环', slaOverdue: false, endpoint: 'GET /api/tickets/search', cands: 2, impact: 'keyword 参数直接拼接至 ORDER BY 子句，已于 11-19 复测确认修复。' },
+      { id: 'VULN-0112', status: 'unsup', statusLabel: '未支持', sev: 'unrated', sevLabel: '未定级', disp: 'fp', dispLabel: '误报', title: '商品目录服务 · GET /api/items/preview · 疑似信息泄露', asset: '商品目录服务', owner: '赵凯', sla: '—', slaOverdue: false, endpoint: 'GET /api/items/preview', cands: 1, impact: '独立验证会话未能证实存在敏感字段泄露，确认为公开商品预览数据。' }
+    ];
+
+    let trendChartInstance = null;
+    let tokenChartInstance = null;
+    let toastTimer = null;
+
+    function showToast(msg) {
+      const box = document.getElementById('toast-box');
+      document.getElementById('toast-text').textContent = msg;
+      box.classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => box.classList.add('hidden'), 2600);
+    }
+
+    function copyText(text, label) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showToast(`已复制${label || '内容'}`)).catch(() => fallbackCopy(text, label));
+      } else {
+        fallbackCopy(text, label);
+      }
+    }
+    function fallbackCopy(text, label) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      showToast(`已复制${label || '内容'}`);
+    }
+
+    // ==================== OVERVIEW RENDERER ====================
+    function renderOverview() {
+      const container = document.getElementById('overview-content');
+      const range = RANGE_DATA[state.overviewRange];
+
+      // Update range pill styles
+      document.querySelectorAll('.range-btn').forEach(btn => {
+        const active = Number(btn.dataset.range) === state.overviewRange;
+        btn.className = `range-btn px-2.5 py-1 rounded text-xs font-medium transition ${active ? 'bg-blue-600 text-white shadow-sm' : 'text-sec hover:text-pri'}`;
+      });
+
+      if (state.overviewState === 'loading') {
+        container.innerHTML = `
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            ${Array(6).fill('<div class="surface rounded-lg p-3.5 space-y-2.5"><div class="skel h-3 w-20"></div><div class="skel h-7 w-10"></div><div class="skel h-3 w-28"></div></div>').join('')}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="lg:col-span-2 surface rounded-lg p-4 space-y-3"><div class="skel h-4 w-32"></div><div class="skel h-56 w-full"></div></div>
+            <div class="surface rounded-lg p-4 space-y-3"><div class="skel h-4 w-28"></div><div class="skel h-12 w-full"></div><div class="skel h-40 w-full"></div></div>
+          </div>`;
+        return;
+      }
+
+      if (state.overviewState === 'empty') {
+        container.innerHTML = `
+          <div class="surface rounded-lg px-4 py-3 flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+              <i data-lucide="check-circle-2" class="w-4 h-4"></i>今天没有待处理事项
+            </div>
+            <span class="text-mut">所有队列计数为 0</span>
+          </div>
+          <div class="surface rounded-lg p-12 text-center space-y-3">
+            <div class="w-11 h-11 rounded-full surface-subtle mx-auto flex items-center justify-center text-mut">
+              <i data-lucide="radar" class="w-5 h-5"></i>
+            </div>
+            <div class="text-sm font-semibold text-pri">尚未运行安全测试任务</div>
+            <p class="text-xs text-mut max-w-md mx-auto">添加首个授权资产（如预发 API 或 Web 应用）并启动自主探索，AI 确认的漏洞与风险态势将自动汇总到这里。</p>
+            <div class="flex items-center justify-center gap-2 pt-1">
+              <button data-toast="打开资产导入向导" class="btn btn-outline">导入授权资产</button>
+              <button data-toast="打开新建任务弹窗" class="btn btn-primary"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建首个测试任务</button>
+            </div>
+          </div>`;
+        lucide.createIcons();
+        return;
+      }
+
+      const todoCards = [
+        { count: 6, title: '待定级的新漏洞', desc: 'AI 已验证支持，待人工定级', accent: 'text-rose-600 dark:text-rose-400', filter: 'new' },
+        { count: 3, title: '待确认推送', desc: '待推送企业微信安全群', accent: 'text-blue-600 dark:text-blue-400', filter: 'new' },
+        { count: 2, title: '待审批操作', desc: '高危越权探测需人工授权', accent: 'text-amber-600 dark:text-amber-400', action: 'approve' },
+        { count: 4, title: '已逾期', desc: '超出 SLA 期限，含 1 个严重', accent: 'text-rose-600 dark:text-rose-400', filter: 'overdue', urgent: true },
+        { count: 3, title: '研发申请复测', desc: 'SDL 工单已修，待一键复测', accent: 'text-violet-600 dark:text-violet-400', filter: 'verify' },
+        { count: 0, title: '测试信息待补资产', desc: '来自 SDL 申请单同步', accent: 'text-mut', muted: true }
+      ];
+
+      const zoneCHtml = state.overviewState === 'card-error' ? `
+        <div class="surface rounded-lg p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-xs font-semibold text-pri">C. 修复进度</h2>
+            <span class="text-[11px] text-rose-500">同步异常</span>
+          </div>
+          <div class="flex-1 flex flex-col items-center justify-center text-center py-10 space-y-2.5">
+            <i data-lucide="wifi-off" class="w-6 h-6 text-rose-500"></i>
+            <div class="text-xs font-medium text-pri">SDL 工单与 SLA 数据加载失败</div>
+            <div class="text-[11px] text-mut">内部工单接口超时（504），不影响其他指标查看</div>
+            <button id="retry-zone-c-btn" class="btn btn-outline btn-sm mt-1"><i data-lucide="rotate-cw" class="w-3 h-3"></i>重试加载</button>
+          </div>
+        </div>` : `
+        <div class="surface rounded-lg p-4 flex flex-col justify-between space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-semibold text-pri">修复进度与 SLA</h2>
+            <button data-nav-page="vuln-list" class="text-[11px] text-blue-600 hover:underline">查看全部 →</button>
+          </div>
+          <div class="flex items-baseline justify-between">
+            <div>
+              <div class="text-[11px] text-mut">SLA 达成率</div>
+              <div class="text-2xl font-bold tabular text-pri mt-0.5">${range.sla}</div>
+            </div>
+            <span class="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">较上周期 +2.4%</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 text-center">
+            ${range.mttr.map(([lv, d]) => `
+              <div class="p-1.5 rounded surface-subtle">
+                <div class="text-[10.5px] text-mut">${lv}</div>
+                <div class="text-xs font-semibold tabular text-pri mt-0.5">${d}</div>
+              </div>`).join('')}
+          </div>
+          <div class="space-y-1.5 pt-1 border-t border-def">
+            <div class="text-[11px] font-medium text-mut flex justify-between"><span>逾期 Top 5</span><span>逾期天数</span></div>
+            ${[
+              ['结算网关 · 回调验签重放', '林哲', '5 天'],
+              ['会员中心 API · 越权读订单', '林哲', '3 天'],
+              ['发票服务 · PDF 模板注入', '周敏', '2 天'],
+              ['营销活动 · 并发超发优惠券', '赵凯', '1 天']
+            ].map(([t, o, d]) => `
+              <button data-open-vuln="VULN-0123" class="w-full flex items-center justify-between gap-2 py-1 px-1.5 rounded hover:bg-slate-500/5 text-left transition">
+                <span class="truncate text-xs text-pri flex-1">${t}</span>
+                <span class="text-[11px] text-mut shrink-0">${o}</span>
+                <span class="text-[11px] font-semibold tabular text-rose-600 dark:text-rose-400 shrink-0">逾期 ${d}</span>
+              </button>`).join('')}
+          </div>
+        </div>`;
+
+      container.innerHTML = `
+        <!-- ZONE A: 待我处理 (Highest Priority) -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-pri flex items-center gap-1.5">
+              <span class="w-1.5 h-4 rounded-full bg-blue-600 inline-block"></span>待我处理
+            </span>
+            <span class="help-tip" tabindex="0">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+              <span class="help-tip-bubble">点击任意待办卡片，直接进入对应已筛选的队列视图</span>
+            </span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mobile-grid-1">
+            ${todoCards.map(c => `
+              <div ${c.action === 'approve' ? 'data-toast="打开待审批操作抽屉（2 条高危越权探测请求）"' : `data-goto-filter="${c.filter || 'all'}"`}
+                role="button" tabindex="0"
+                class="surface rounded-lg px-3.5 py-3 text-left cursor-pointer transition hover:border-blue-500/60 hover:shadow-sm flex flex-col justify-between gap-2 ${c.muted ? 'opacity-50' : ''} ${c.urgent ? 'border-rose-500/40' : ''}">
+                <div class="flex items-center justify-between gap-1.5 w-full">
+                  <span class="text-xs font-medium text-sec truncate flex items-center gap-1.5">
+                    ${c.urgent ? '<span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>' : ''}${c.title}
+                  </span>
+                  <span class="help-tip shrink-0" onclick="event.stopPropagation()">
+                    <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+                    <span class="help-tip-bubble">${c.desc}</span>
+                  </span>
+                </div>
+                <div class="text-2xl font-bold tabular leading-none ${c.accent}">${c.count}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- ZONE B (2/3) + ZONE C (1/3) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mobile-grid-1">
+          <!-- Zone B: 风险态势 -->
+          <div class="lg:col-span-2 surface rounded-lg p-4 flex flex-col justify-between space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-semibold text-pri">风险态势（未修复漏洞分布与按日趋势）</h2>
+              <button data-nav-page="vuln-list" class="text-[11px] text-blue-600 hover:underline">查看全部 →</button>
+            </div>
+            <div class="grid grid-cols-4 gap-2.5">
+              <div class="px-3 py-2.5 rounded-md surface border-l-[3px]" style="border-left-color: #DC2626;">
+                <div class="text-[11px] font-medium flex items-center gap-1.5 text-sec"><span class="w-1.5 h-1.5 rounded-full bg-red-600"></span>严重 Critical</div>
+                <div class="text-xl font-bold tabular mt-0.5 text-pri">${range.sev[0]}</div>
+              </div>
+              <div class="px-3 py-2.5 rounded-md surface border-l-[3px]" style="border-left-color: #EA580C;">
+                <div class="text-[11px] font-medium flex items-center gap-1.5 text-sec"><span class="w-1.5 h-1.5 rounded-full bg-orange-600"></span>高危 High</div>
+                <div class="text-xl font-bold tabular mt-0.5 text-pri">${range.sev[1]}</div>
+              </div>
+              <div class="px-3 py-2.5 rounded-md surface border-l-[3px]" style="border-left-color: #CA8A04;">
+                <div class="text-[11px] font-medium flex items-center gap-1.5 text-sec"><span class="w-1.5 h-1.5 rounded-full bg-yellow-600"></span>中危 Medium</div>
+                <div class="text-xl font-bold tabular mt-0.5 text-pri">${range.sev[2]}</div>
+              </div>
+              <div class="px-3 py-2.5 rounded-md surface border-l-[3px]" style="border-left-color: #2563EB;">
+                <div class="text-[11px] font-medium flex items-center gap-1.5 text-sec"><span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>低危 Low</div>
+                <div class="text-xl font-bold tabular mt-0.5 text-pri">${range.sev[3]}</div>
+              </div>
+            </div>
+            <div class="relative h-52 w-full">
+              <canvas id="overview-trend-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Zone C: 修复进度 -->
+          ${zoneCHtml}
+        </div>
+
+        <!-- ZONE D / E / F (1/3 each) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mobile-grid-1">
+          <!-- Zone D: 测试运行 -->
+          <div class="surface rounded-lg p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-semibold text-pri">测试运行</h2>
+              <button data-toast="查看全部运行任务" class="text-[11px] text-blue-600 hover:underline">查看全部 →</button>
+            </div>
+            <div class="p-2.5 rounded-md surface-subtle space-y-1.5">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-medium text-pri flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>订单服务 API 全量探索</span>
+                <span class="font-mono-code text-[11px] text-sec tabular">68% · 14m22s</span>
+              </div>
+              <div class="w-full h-1.5 rounded-full bg-slate-500/20 overflow-hidden"><div class="h-full bg-blue-600 rounded-full" style="width: 68%"></div></div>
+            </div>
+            <div class="p-2.5 rounded-md border flex items-start justify-between gap-2 text-xs" style="background: var(--sev-critical-bg); border-color: var(--sev-critical-border);">
+              <div class="space-y-0.5">
+                <div class="font-semibold" style="color: var(--sev-critical-text);">最近失败：支付网关预发环境</div>
+                <div class="text-[11px]" style="color: var(--sev-critical-text); opacity: 0.85;">认证 Cookie 过期 · 16:40 终止</div>
+              </div>
+              <button data-toast="已重新发起支付网关预发环境任务" class="btn btn-outline btn-sm !h-6 !text-[11px]">重试</button>
+            </div>
+            <div class="space-y-1 text-xs pt-1 border-t border-def">
+              <div class="text-[11px] text-mut">即将运行的周期计划</div>
+              <div class="flex justify-between py-0.5"><span class="text-pri">会员中心 API 周度回归</span><span class="text-mut tabular">今晚 22:00</span></div>
+              <div class="flex justify-between py-0.5"><span class="text-pri">供应链 B2B 门户探测</span><span class="text-mut tabular">明天 02:00</span></div>
+            </div>
+          </div>
+
+          <!-- Zone E: 资产覆盖 -->
+          <div class="surface rounded-lg p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-semibold text-pri">资产覆盖（近 30 天）</h2>
+              <button data-toast="查看全部 48 个资产" class="text-[11px] text-blue-600 hover:underline">查看全部 →</button>
+            </div>
+            <div class="space-y-1.5">
+              <div class="flex items-baseline justify-between">
+                <span class="text-xl font-bold tabular text-pri">81.3%</span>
+                <span class="text-xs text-sec tabular">已测 39 / 总计 48 个资产</span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-500/15 overflow-hidden">
+                <div class="h-full bg-emerald-500 rounded-full" style="width: 81.3%"></div>
+              </div>
+            </div>
+            <div class="space-y-1.5 pt-1 border-t border-def text-xs">
+              <div class="text-[11px] text-mut flex justify-between"><span>最久未测 Top 5</span><span>距上次测试</span></div>
+              ${[
+                ['财务对账后台 API', '62 天未测'],
+                ['仓储 WMS 调度接口', '48 天未测'],
+                ['渠道分销开放平台', '41 天未测'],
+                ['员工福利小程序后端', '35 天未测']
+              ].map(([name, days]) => `
+                <div class="flex items-center justify-between py-0.5">
+                  <span class="text-pri truncate">${name}</span>
+                  <span class="text-[11px] text-amber-600 dark:text-amber-400 tabular shrink-0">${days}</span>
+                </div>`).join('')}
+            </div>
+          </div>
+
+          <!-- Zone F: 最近确认 -->
+          <div class="surface rounded-lg p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-semibold text-pri">最近确认漏洞</h2>
+              <button data-nav-page="vuln-list" class="text-[11px] text-blue-600 hover:underline">查看全部 →</button>
+            </div>
+            <div class="divide-y border-def">
+              ${VULNS.slice(0, 5).map(v => `
+                <button data-open-vuln="${v.id}" class="w-full py-2 flex items-center justify-between gap-2 text-left hover:bg-slate-500/5 px-1 rounded transition">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="sev-badge sev-${v.sev} !text-[10.5px] !px-1.5">${v.sevLabel}</span>
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-pri truncate">${v.title}</div>
+                      <div class="text-[11px] text-mut">${v.asset}</div>
+                    </div>
+                  </div>
+                  <span class="text-[11px] text-mut tabular shrink-0">今天</span>
+                </button>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- ZONE G: AI 资源 (Low Priority, Collapsible) -->
+        <div class="surface rounded-lg overflow-hidden">
+          <button id="toggle-ai-resource-btn" class="w-full px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-500/5 transition">
+            <span class="flex items-center gap-2 font-medium text-sec">
+              <i data-lucide="${state.aiResourceExpanded ? 'chevron-down' : 'chevron-right'}" class="w-3.5 h-3.5"></i>
+              AI 资源消耗
+            </span>
+            <span class="text-xs tabular text-mut">近 ${state.overviewRange} 天合计：<strong class="text-pri">${range.tokens} Tokens</strong></span>
+          </button>
+          <div id="ai-resource-body" class="${state.aiResourceExpanded ? '' : 'hidden'} p-4 border-t border-def grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="lg:col-span-2 relative h-36"><canvas id="overview-token-chart"></canvas></div>
+            <div class="space-y-1.5 text-xs">
+              <div class="text-[11px] text-mut font-medium">按任务消耗 Top 5</div>
+              <div class="flex justify-between"><span>订单服务 API 全量探索</span><span class="font-mono-code tabular">4.2M</span></div>
+              <div class="flex justify-between"><span>会员中心 API 周度回归</span><span class="font-mono-code tabular">3.1M</span></div>
+              <div class="flex justify-between"><span>结算网关越权专项</span><span class="font-mono-code tabular">2.6M</span></div>
+              <div class="flex justify-between"><span>客服工作台注入复测</span><span class="font-mono-code tabular">1.8M</span></div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      lucide.createIcons();
+      renderOverviewCharts(range);
+
+      const retryBtn = document.getElementById('retry-zone-c-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          state.overviewState = 'normal';
+          document.getElementById('overview-state-select').value = 'normal';
+          renderOverview();
+          showToast('修复进度卡片已重试并恢复');
+        });
+      }
+      const toggleAiBtn = document.getElementById('toggle-ai-resource-btn');
+      if (toggleAiBtn) {
+        toggleAiBtn.addEventListener('click', () => {
+          state.aiResourceExpanded = !state.aiResourceExpanded;
+          renderOverview();
+        });
+      }
+    }
+
+    function renderOverviewCharts(range) {
+      const isDark = state.theme === 'dark';
+      const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
+      const tickColor = isDark ? '#A1A1AA' : '#64748B';
+
+      if (trendChartInstance) { trendChartInstance.destroy(); trendChartInstance = null; }
+      const trendCtx = document.getElementById('overview-trend-chart');
+      if (trendCtx) {
+        trendChartInstance = new Chart(trendCtx, {
+          type: 'line',
+          data: {
+            labels: range.labels,
+            datasets: [
+              {
+                label: '新发现',
+                data: range.newArr,
+                borderColor: '#E11D48',
+                backgroundColor: isDark ? 'rgba(225, 29, 72, 0.14)' : 'rgba(225, 29, 72, 0.09)',
+                borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4.5,
+                pointBackgroundColor: '#E11D48',
+                tension: 0.35,
+                fill: true
+              },
+              {
+                label: '仍存在',
+                data: range.persistArr,
+                borderColor: '#D97706',
+                backgroundColor: isDark ? 'rgba(217, 119, 6, 0.12)' : 'rgba(217, 119, 6, 0.08)',
+                borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4.5,
+                pointBackgroundColor: '#D97706',
+                tension: 0.35,
+                fill: true
+              },
+              {
+                label: '已修复',
+                data: range.fixedArr,
+                borderColor: '#059669',
+                backgroundColor: isDark ? 'rgba(5, 150, 105, 0.12)' : 'rgba(5, 150, 105, 0.08)',
+                borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4.5,
+                pointBackgroundColor: '#059669',
+                tension: 0.35,
+                fill: true
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'top', align: 'end', labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 7, boxHeight: 7, color: tickColor, font: { size: 11 } } }
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11 } } },
+              y: { stacked: true, beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 11 } } }
+            }
+          }
+        });
+      }
+
+      if (tokenChartInstance) { tokenChartInstance.destroy(); tokenChartInstance = null; }
+      const tokenCtx = document.getElementById('overview-token-chart');
+      if (tokenCtx && state.aiResourceExpanded) {
+        tokenChartInstance = new Chart(tokenCtx, {
+          type: 'bar',
+          data: {
+            labels: range.labels,
+            datasets: [{ label: 'Tokens (M)', data: range.labels.map((_, i) => +(1.4 + (i % 4) * 0.7).toFixed(1)), backgroundColor: '#3B82F6', borderRadius: 4 }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 10 } } },
+              y: { grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 } } }
+            }
+          }
+        });
+      }
+    }
+
+    // ==================== VULN DETAIL RENDERER ====================
+    function renderVulnDetail() {
+      const banners = document.getElementById('detail-banners');
+      const actions = document.getElementById('detail-actions');
+      const triageCard = document.getElementById('rail-triage-card');
+      const mainCol = document.getElementById('detail-main-col');
+      const statusBadge = document.getElementById('detail-status-badge');
+      const dispBadge = document.getElementById('detail-disp-badge');
+      const slaBadge = document.getElementById('detail-sla-badge');
+      const retestEl = document.getElementById('detail-retest-result');
+
+      // 1. Banners
+      let bannerHtml = '';
+      if (state.detailRole === 'rd') {
+        bannerHtml += `
+          <div class="rounded-lg px-4 py-2.5 border flex items-center justify-between gap-2 text-xs" style="background: var(--brand-soft); border-color: var(--sev-low-border); color: var(--sev-low-text);">
+            <span class="flex items-center gap-2 font-medium">
+              <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+              安全团队提交 · 当前为研发只读视图（来自 SDL 工单链接），有疑问请联系安全研究员 <strong>林哲</strong>（企业微信 @linzhe）
+            </span>
+          </div>`;
+      }
+      if (state.detailState === 'fixed') {
+        bannerHtml += `
+          <div class="rounded-lg px-4 py-2.5 border flex items-center justify-between gap-2 text-xs" style="background: var(--st-fixed-bg); border-color: rgba(5,150,105,0.3); color: var(--st-fixed-text);">
+            <span class="flex items-center gap-2 font-medium">
+              <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+              该漏洞已于 2026-11-19 16:40 复测确认修复 · 重放步骤 2 返回 HTTP 403 Forbidden
+            </span>
+            <button data-toast="已展开 11-19 复测通过证据" class="underline font-semibold">查看复测证据</button>
+          </div>`;
+      } else if (state.detailState === 'fp') {
+        bannerHtml += `
+          <div class="rounded-lg px-4 py-2.5 border border-def flex items-center justify-between gap-2 text-xs text-sec" style="background: var(--bg-subtle);">
+            <span class="flex items-center gap-2 font-medium">
+              <i data-lucide="slash" class="w-4 h-4 shrink-0"></i>
+              已标记为误报 · 原因：经业务方确认该测试订单为脱敏公开样例，不涉及真实用户数据（林哲 · 11-19）
+            </span>
+          </div>`;
+      }
+      banners.innerHTML = bannerHtml;
+
+      // 2. Dim whole card if False Positive
+      mainCol.style.opacity = state.detailState === 'fp' ? '0.68' : '1';
+
+      // 3. Status/Disposition badges
+      if (state.detailState === 'fixed') {
+        statusBadge.className = 'st-badge st-fixed';
+        statusBadge.innerHTML = '<span class="st-dot"></span>已修复';
+        slaBadge.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-500"></i><span class="text-emerald-600 dark:text-emerald-400">已闭环</span>';
+        retestEl.textContent = '已修复 (11-19 16:40)';
+        retestEl.className = 'font-medium text-emerald-600 dark:text-emerald-400';
+      } else if (state.detailState === 'fp') {
+        statusBadge.className = 'st-badge st-unsup';
+        statusBadge.innerHTML = '<span class="st-dot"></span>未支持';
+        dispBadge.className = 'disp-tag disp-fp';
+        dispBadge.innerHTML = '<i data-lucide="x-circle" class="w-3 h-3"></i>误报';
+        slaBadge.innerHTML = '<span class="text-mut">无需修复</span>';
+      } else {
+        statusBadge.className = 'st-badge st-new';
+        statusBadge.innerHTML = '<span class="st-dot"></span>新发现';
+        dispBadge.className = 'disp-tag disp-fixing';
+        dispBadge.innerHTML = '<i data-lucide="wrench" class="w-3 h-3"></i>修复中';
+        slaBadge.innerHTML = '<i data-lucide="clock-alert" class="w-3.5 h-3.5"></i>逾期 3 天';
+        retestEl.textContent = '仍可复现 (11-18 14:20)';
+        retestEl.className = 'font-medium text-amber-600 dark:text-amber-400';
+      }
+
+      // 4. Role-based Header Actions & Right Rail Triage visibility
+      if (state.detailRole === 'rd') {
+        triageCard.classList.add('hidden');
+        actions.innerHTML = `
+          <button id="btn-copy-curl" class="btn btn-primary"><i data-lucide="terminal" class="w-3.5 h-3.5"></i>复制 curl</button>
+          <button data-toast="已发起一键重放，返回 HTTP 200 (142ms)" class="btn btn-outline"><i data-lucide="play" class="w-3.5 h-3.5"></i>一键重放</button>
+          <button data-toast="已向安全团队提交复测申请" class="btn btn-outline"><i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>申请复测</button>`;
+      } else {
+        triageCard.classList.remove('hidden');
+        actions.innerHTML = `
+          <button data-toast="已同步提交/更新 SDL 工单 SDL-2026-4812" class="btn btn-primary"><i data-lucide="send" class="w-3.5 h-3.5"></i>提交工单</button>
+          <button data-toast="正在独立沙箱重放步骤 2... 返回 HTTP 200 OK" class="btn btn-outline"><i data-lucide="play" class="w-3.5 h-3.5"></i>一键重放</button>
+          <button id="btn-copy-curl" class="btn btn-outline"><i data-lucide="terminal" class="w-3.5 h-3.5"></i>复制 curl</button>
+          <button data-toast="更多操作：推送企业微信 / 导出 Markdown / 复制研发只读链接" class="btn btn-outline !px-2"><i data-lucide="more-horizontal" class="w-4 h-4"></i></button>`;
+      }
+
+      const curlBtn = document.getElementById('btn-copy-curl');
+      if (curlBtn) {
+        curlBtn.addEventListener('click', () => {
+          copyText(`curl -s 'https://member-stg.internal/api/orders/90018274' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...'`, '复现 curl 命令');
+        });
+      }
+
+      // 5. Render ③ 关键请求
+      renderReproSection();
+
+      // 6. Render ④ 对照
+      renderContrastSection();
+
+      lucide.createIcons();
+    }
+
+    function renderReproSection() {
+      const el = document.getElementById('detail-repro-section');
+      if (state.detailState === 'no-repro') {
+        el.innerHTML = `
+          <div class="flex items-center justify-between">
+            <h2 class="text-xs font-semibold text-pri">关键请求（最小复现）</h2>
+          </div>
+          <div class="p-6 rounded-md surface-subtle text-center space-y-2.5">
+            <div class="w-9 h-9 rounded-full surface mx-auto flex items-center justify-center text-mut"><i data-lucide="sparkles" class="w-4 h-4"></i></div>
+            <div class="text-xs font-semibold text-pri">AI 尚未提炼出最小复现步骤</div>
+            <p class="text-[11.5px] text-mut max-w-md mx-auto">系统已保存本次任务的 6 条原始 HTTP 证据。你可以点击下方按钮由 AI 自动精简出 1–3 步最小复现链路。</p>
+            <button id="gen-min-repro-btn" class="btn btn-primary btn-sm"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>生成最小复现</button>
+          </div>
+          <div class="space-y-1 text-xs font-mono-code">
+            <div class="text-[11px] font-sans font-medium text-mut mb-1">原始捕获证据（完整列表）</div>
+            <div class="p-2 rounded surface-subtle flex justify-between"><span>1. POST /api/auth/login → 200 OK</span><span class="text-mut">10:23:11</span></div>
+            <div class="p-2 rounded surface-subtle flex justify-between"><span>2. GET /api/orders/90018299 → 200 OK</span><span class="text-mut">10:23:14</span></div>
+            <div class="p-2 rounded surface-subtle flex justify-between text-rose-600 dark:text-rose-400"><span>3. GET /api/orders/90018274 → 200 OK</span><span class="text-mut">10:23:19</span></div>
+          </div>`;
+        document.getElementById('gen-min-repro-btn').addEventListener('click', () => {
+          state.detailState = 'default';
+          document.getElementById('detail-state-select').value = 'default';
+          renderVulnDetail();
+          showToast('AI 已提炼出 2 步最小复现链路');
+        });
+        return;
+      }
+
+      const tokenVal = state.maskSensitive ? 'Bearer ••••••••••••••••••••••••' : 'Bearer eyJhbGciOiJIUzI1NiJ9.dXNlcl9i.9kLm2P';
+      const phoneVal = state.maskSensitive ? '"138****9204"' : '"13812349204"';
+      const addrVal  = state.maskSensitive ? '"上海市浦东新区**********"' : '"上海市浦东新区张江高科技园区科苑路 88 号"';
+      const nameVal  = state.maskSensitive ? '"王**"' : '"王建国"';
+
+      el.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-semibold text-pri">关键请求（最小复现 · 2 步）</h2>
+            <span class="help-tip" tabindex="0">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5"></i>
+              <span class="help-tip-bubble">保留真实 HTTP 请求与响应原文，关键越权与敏感泄露行已高亮标注</span>
+            </span>
+          </div>
+          <label class="inline-flex items-center gap-1.5 text-xs text-sec cursor-pointer select-none">
+            <input type="checkbox" id="mask-sensitive-toggle" ${state.maskSensitive ? 'checked' : ''} class="rounded accent-blue-600" />
+            <span>遮盖敏感值</span>
+          </label>
+        </div>
+
+        <!-- Step 1 (Compact Summary) -->
+        <div class="px-3 py-2 rounded-md surface-subtle flex items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-5 h-5 rounded-full bg-blue-600/15 text-blue-600 font-semibold text-[11px] flex items-center justify-center shrink-0">1</span>
+            <span class="font-medium text-pri truncate">使用普通用户 <code class="font-mono-code">user_b</code> 登录获取 JWT 凭证</span>
+            <span class="font-mono-code text-[11px] text-mut hidden sm:inline">POST /api/auth/login → 200 OK</span>
+          </div>
+          <button data-toast="步骤 1 为前置登录请求，已返回 user_b 的 Bearer Token" class="text-[11px] text-blue-600 hover:underline shrink-0">查看报文</button>
+        </div>
+
+        <!-- Step 2 (Hero Evidence Card) -->
+        <div class="space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-5 h-5 rounded-full bg-rose-600 text-white font-semibold text-[11px] flex items-center justify-center shrink-0">2</span>
+              <span class="text-xs font-semibold text-pri">携带 <code class="font-mono-code">user_b</code> 的 Token，将路径订单 ID 改为他人订单 <code class="font-mono-code text-rose-600 dark:text-rose-400">90018274</code></span>
+            </div>
+            <div class="flex items-center gap-1 text-[11px]">
+              <button id="copy-http-btn" class="btn btn-ghost btn-sm !h-6 !px-2"><i data-lucide="copy" class="w-3 h-3"></i>复制</button>
+              <button data-toast="已生成脱敏高清证据截图（PNG）" class="btn btn-ghost btn-sm !h-6 !px-2"><i data-lucide="camera" class="w-3 h-3"></i>截图</button>
+              <button data-toast="在全量 HTTP 流量日志中定位到报文 #3" class="btn btn-ghost btn-sm !h-6 !px-2"><i data-lucide="external-link" class="w-3 h-3"></i>流量中查看</button>
+            </div>
+          </div>
+
+          <!-- Side-by-Side HTTP Request / Response (Stacks on <=768px) -->
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 mobile-grid-1">
+            <!-- REQUEST -->
+            <div class="http-box flex flex-col">
+              <div class="px-3 py-1.5 border-b border-def flex items-center justify-between text-[11px]" style="background: var(--bg-subtle);">
+                <div class="flex items-center gap-1.5 font-mono-code font-semibold">
+                  <span class="px-1.5 py-0.2 rounded bg-blue-600 text-white text-[10px]">GET</span>
+                  <span class="text-pri">/api/orders/<span class="text-rose-600 dark:text-rose-400 underline">90018274</span></span>
+                </div>
+                <span class="text-mut">Request</span>
+              </div>
+              <div class="py-2 font-mono-code overflow-x-auto flex-1">
+                <div class="http-line hl-danger"><span class="line-num">1</span><span>GET /api/orders/90018274 HTTP/1.1</span></div>
+                <div class="http-line"><span class="line-num">2</span><span>Host: member-stg.internal</span></div>
+                <div class="http-line hl-danger"><span class="line-num">3</span><span>Authorization: ${tokenVal}</span></div>
+                ${state.headersExpanded ? `
+                  <div class="http-line muted"><span class="line-num">4</span><span>User-Agent: SecAI-Verifier/2.4</span></div>
+                  <div class="http-line muted"><span class="line-num">5</span><span>Accept: application/json</span></div>
+                  <div class="http-line muted"><span class="line-num">6</span><span>X-Request-ID: req-99a81b2c</span></div>
+                  <div class="http-line muted"><span class="line-num">7</span><span>X-Client-Channel: web-h5</span></div>
+                ` : ''}
+                <div class="px-3 pt-1.5">
+                  <button id="toggle-headers-btn" class="text-[11px] font-sans text-blue-600 hover:underline">
+                    ${state.headersExpanded ? '收起非关键请求头' : '展开其余 4 个非关键请求头…'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- RESPONSE -->
+            <div class="http-box flex flex-col">
+              <div class="px-3 py-1.5 border-b border-def flex items-center justify-between text-[11px]" style="background: var(--bg-subtle);">
+                <div class="flex items-center gap-1.5 font-mono-code font-semibold">
+                  <span class="px-1.5 py-0.2 rounded ${state.detailState === 'fixed' ? 'bg-emerald-600' : 'bg-rose-600'} text-white text-[10px]">${state.detailState === 'fixed' ? '403 Forbidden' : '200 OK'}</span>
+                  <span class="text-mut font-normal tabular">142ms · 1.2 KB</span>
+                </div>
+                <span class="text-mut">Response</span>
+              </div>
+              <div class="py-2 font-mono-code overflow-x-auto flex-1">
+                ${state.detailState === 'fixed' ? `
+                  <div class="http-line hl-ok"><span class="line-num">1</span><span>HTTP/1.1 403 Forbidden</span></div>
+                  <div class="http-line muted"><span class="line-num">2</span><span>Content-Type: application/json; charset=utf-8</span></div>
+                  <div class="http-line muted"><span class="line-num">3</span><span></span></div>
+                  <div class="http-line hl-ok"><span class="line-num">4</span><span>{"code": "FORBIDDEN", "message": "无权访问该订单"}</span></div>
+                ` : `
+                  <div class="http-line"><span class="line-num">1</span><span>HTTP/1.1 200 OK</span></div>
+                  <div class="http-line muted"><span class="line-num">2</span><span>{ "code": 0, "data": {</span></div>
+                  <div class="http-line muted"><span class="line-num">3</span><span>    "order_id": "90018274",</span></div>
+                  <div class="http-line hl-danger"><span class="line-num">4</span><span>    "owner_id": "u_10042",  // ⚠ 非当前登录用户 u_20088</span></div>
+                  <div class="http-line hl-danger"><span class="line-num">5</span><span>    "receiver_name": ${nameVal},</span></div>
+                  <div class="http-line hl-danger"><span class="line-num">6</span><span>    "phone": ${phoneVal},</span></div>
+                  <div class="http-line hl-danger"><span class="line-num">7</span><span>    "address": ${addrVal},</span></div>
+                  ${state.bodyExpanded ? `
+                    <div class="http-line muted"><span class="line-num">8</span><span>    "total_amount": "1299.00",</span></div>
+                    <div class="http-line muted"><span class="line-num">9</span><span>    "pay_status": "PAID",</span></div>
+                    <div class="http-line muted"><span class="line-num">10</span><span>    "created_at": "2026-11-11T09:14:22Z"</span></div>
+                    <div class="http-line muted"><span class="line-num">11</span><span>  } }</span></div>
+                  ` : ''}
+                  <div class="px-3 pt-1.5">
+                    <button id="toggle-body-btn" class="text-[11px] font-sans text-blue-600 hover:underline">
+                      ${state.bodyExpanded ? '收起响应体其余字段' : '展开全部响应体（还有 18 行）…'}
+                    </button>
+                  </div>
+                `}
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      document.getElementById('mask-sensitive-toggle').addEventListener('change', (e) => {
+        state.maskSensitive = e.target.checked;
+        renderReproSection();
+        lucide.createIcons();
+      });
+      const thBtn = document.getElementById('toggle-headers-btn');
+      if (thBtn) thBtn.addEventListener('click', () => { state.headersExpanded = !state.headersExpanded; renderReproSection(); lucide.createIcons(); });
+      const tbBtn = document.getElementById('toggle-body-btn');
+      if (tbBtn) tbBtn.addEventListener('click', () => { state.bodyExpanded = !state.bodyExpanded; renderReproSection(); lucide.createIcons(); });
+      const cpBtn = document.getElementById('copy-http-btn');
+      if (cpBtn) cpBtn.addEventListener('click', () => copyText('GET /api/orders/90018274 HTTP/1.1\nHost: member-stg.internal', 'HTTP 报文原文'));
+    }
+
+    function renderContrastSection() {
+      const body = document.getElementById('detail-contrast-body');
+      const btnSide = document.getElementById('diff-mode-side');
+      const btnSum = document.getElementById('diff-mode-summary');
+      btnSide.className = `px-2 py-0.5 rounded font-medium ${state.diffMode === 'side' ? 'bg-blue-600 text-white' : 'text-sec'}`;
+      btnSum.className = `px-2 py-0.5 rounded font-medium ${state.diffMode === 'summary' ? 'bg-blue-600 text-white' : 'text-sec'}`;
+
+      if (state.diffMode === 'summary') {
+        body.innerHTML = `
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs border-collapse">
+              <thead><tr class="border-b border-def text-mut"><th class="py-1.5 text-left font-medium">对比项</th><th class="py-1.5 text-left font-medium">正常对照（本人订单）</th><th class="py-1.5 text-left font-medium">越权请求（他人订单）</th></tr></thead>
+              <tbody class="divide-y border-def font-mono-code">
+                <tr><td class="py-1.5 font-sans text-sec">请求路径</td><td class="py-1.5 text-emerald-600 dark:text-emerald-400">GET /api/orders/90018299</td><td class="py-1.5 text-rose-600 dark:text-rose-400">GET /api/orders/90018274</td></tr>
+                <tr><td class="py-1.5 font-sans text-sec">身份 Token</td><td class="py-1.5">user_b (u_20088)</td><td class="py-1.5">user_b (u_20088) — 完全一致</td></tr>
+                <tr><td class="py-1.5 font-sans text-sec">返回状态码</td><td class="py-1.5">200 OK</td><td class="py-1.5 text-rose-600 dark:text-rose-400 font-semibold">200 OK（期望 403）</td></tr>
+                <tr><td class="py-1.5 font-sans text-sec">响应 owner_id</td><td class="py-1.5 text-emerald-600 dark:text-emerald-400">u_20088（匹配）</td><td class="py-1.5 text-rose-600 dark:text-rose-400 font-semibold">u_10042（不匹配，越权成功）</td></tr>
+              </tbody>
+            </table>
+          </div>`;
+      } else {
+        body.innerHTML = `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mobile-grid-1 font-mono-code text-[11.5px]">
+            <div class="http-box">
+              <div class="px-3 py-1 border-b border-def text-[11px] font-sans font-medium text-emerald-600 dark:text-emerald-400" style="background: var(--st-fixed-bg);">正常对照 · 访问本人订单 (90018299)</div>
+              <div class="py-2">
+                <div class="http-line hl-ok"><span class="line-num">1</span><span>GET /api/orders/90018299 → 200 OK</span></div>
+                <div class="http-line hl-ok"><span class="line-num">2</span><span>"owner_id": "u_20088" (本人账号)</span></div>
+              </div>
+            </div>
+            <div class="http-box">
+              <div class="px-3 py-1 border-b border-def text-[11px] font-sans font-medium text-rose-600 dark:text-rose-400" style="background: var(--st-new-bg);">异常越权 · 访问他人订单 (90018274)</div>
+              <div class="py-2">
+                <div class="http-line hl-danger"><span class="line-num">1</span><span>GET /api/orders/90018274 → 200 OK (应为 403)</span></div>
+                <div class="http-line hl-danger"><span class="line-num">2</span><span>"owner_id": "u_10042" (他人账号泄露)</span></div>
+              </div>
+            </div>
+          </div>`;
+      }
+    }
+
+    // ==================== VULN LIST RENDERER ====================
+    function renderVulnList() {
+      const filters = [
+        ['all', '全部', VULNS.length],
+        ['new', '新发现', VULNS.filter(v => v.status === 'new').length],
+        ['persist', '仍存在', VULNS.filter(v => v.status === 'persist').length],
+        ['verify', '待验证', VULNS.filter(v => v.status === 'verify').length],
+        ['overdue', '逾期', VULNS.filter(v => v.slaOverdue).length],
+        ['fixed', '已修复', VULNS.filter(v => v.status === 'fixed').length]
+      ];
+      document.getElementById('list-filter-pills').innerHTML = filters.map(([k, label, cnt]) => {
+        const active = state.listFilter === k;
+        return `<button data-list-filter="${k}" class="px-2.5 py-1 rounded-full text-xs font-medium border transition ${active ? 'bg-blue-600 text-white border-blue-600' : 'surface text-sec hover:text-pri'}">${label} <span class="tabular opacity-80 ml-0.5">${cnt}</span></button>`;
+      }).join('');
+
+      const q = state.listSearch.trim().toLowerCase();
+      const rows = VULNS.filter(v => {
+        if (state.listFilter === 'overdue' && !v.slaOverdue) return false;
+        else if (state.listFilter !== 'all' && state.listFilter !== 'overdue' && v.status !== state.listFilter) return false;
+        if (q && !(v.title.toLowerCase().includes(q) || v.id.toLowerCase().includes(q) || v.asset.toLowerCase().includes(q))) return false;
+        return true;
+      });
+
+      document.getElementById('vuln-list-tbody').innerHTML = rows.length ? rows.map(v => `
+        <tr data-drawer-vuln="${v.id}" class="hover:bg-slate-500/5 cursor-pointer transition ${v.disp === 'fp' ? 'opacity-55' : ''}">
+          <td class="py-2.5 px-3"><span class="st-badge st-${v.status}"><span class="st-dot"></span>${v.statusLabel}</span></td>
+          <td class="py-2.5 px-3"><span class="sev-badge sev-${v.sev}">${v.sevLabel}</span></td>
+          <td class="py-2.5 px-3 max-w-[340px]">
+            <div class="font-medium text-pri truncate">${v.title}</div>
+            <div class="mt-1 flex items-center gap-1.5">
+              <span class="disp-tag disp-${v.disp}">${v.dispLabel}</span>
+              <span class="font-mono-code text-[11px] text-mut">${v.id}</span>
+            </div>
+          </td>
+          <td class="py-2.5 px-3 text-sec whitespace-nowrap">${v.asset}</td>
+          <td class="py-2.5 px-3 text-sec whitespace-nowrap">${v.owner}</td>
+          <td class="py-2.5 px-3 tabular whitespace-nowrap ${v.slaOverdue ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-sec'}">${v.sla}</td>
+          <td class="py-2.5 px-3 font-mono-code text-[11px] text-sec whitespace-nowrap">${v.endpoint}</td>
+          <td class="py-2.5 px-3 text-right tabular text-sec">${v.cands}</td>
+          <td class="py-2.5 px-3 text-right whitespace-nowrap">
+            <button data-open-vuln="${v.id}" class="btn btn-ghost btn-sm !px-2" title="全页打开漏洞卡"><i data-lucide="external-link" class="w-3.5 h-3.5"></i></button>
+          </td>
+        </tr>`).join('') : `<tr><td colspan="9" class="py-10 text-center text-mut">当前筛选条件下暂无匹配漏洞</td></tr>`;
+
+      lucide.createIcons();
+    }
+
+    function openVulnDrawer(vulnId) {
+      const v = VULNS.find(x => x.id === vulnId) || VULNS[0];
+      document.getElementById('drawer-sev').className = `sev-badge sev-${v.sev}`;
+      document.getElementById('drawer-sev').textContent = v.sevLabel;
+      document.getElementById('drawer-id').textContent = v.id;
+      document.getElementById('drawer-body').innerHTML = `
+        <div class="space-y-1.5">
+          <h3 class="text-sm font-semibold text-pri leading-snug">${v.title}</h3>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="st-badge st-${v.status}"><span class="st-dot"></span>${v.statusLabel}</span>
+            <span class="disp-tag disp-${v.disp}">${v.dispLabel}</span>
+            <span class="text-mut">${v.asset} · 负责人 ${v.owner}</span>
+          </div>
+        </div>
+        <div class="p-3 rounded-md surface-subtle space-y-1">
+          <div class="text-[11px] font-semibold text-mut">一句话影响</div>
+          <p class="text-xs text-pri leading-relaxed">${v.impact}</p>
+        </div>
+        <div class="http-box">
+          <div class="px-3 py-1.5 border-b border-def text-[11px] font-mono-code font-semibold" style="background: var(--bg-subtle);">${v.endpoint} → 200 OK</div>
+          <div class="p-2.5 font-mono-code text-[11px] text-sec">
+            <div>Authorization: Bearer eyJhbG... (user_b)</div>
+            <div class="text-rose-600 dark:text-rose-400 mt-1">"owner_id": "u_10042" // 非当前用户资源</div>
+          </div>
+        </div>
+        `;
+      document.getElementById('vuln-drawer-backdrop').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    // ==================== TOKENS RENDERER ====================
+    function renderTokens() {
+      const tokens = [
+        ['--bg-canvas', '页面底层画布', '#F8FAFC', '#09090B'],
+        ['--bg-surface', '卡片 / 侧栏表面', '#FFFFFF', '#111114'],
+        ['--bg-subtle', '次级底色 / 表头', '#F1F5F9', '#18181B'],
+        ['--border-default', '1px 常规分割线', '#E2E8F0', '#27272A'],
+        ['--text-primary', '一级标题与正文', '#0F172A', '#FAFAFA'],
+        ['--text-secondary', '二级说明文案', '#475569', '#A1A1AA'],
+        ['--brand-primary', '主操作按钮 / 链接', '#2563EB', '#3B82F6'],
+        ['--sev-critical-text', '严重等级强调色', '#B91C1C', '#FCA5A5'],
+        ['--sev-high-text', '高危等级强调色', '#C2410C', '#FDBA74'],
+        ['--st-new-dot', '新发现状态红点', '#E11D48', '#FB7185'],
+        ['--st-fixed-dot', '已修复状态绿点', '#059669', '#34D399'],
+        ['--disp-fixing-text', '修复中处置紫', '#6D28D9', '#C4B5FD']
+      ];
+      document.getElementById('token-grid').innerHTML = tokens.map(([name, desc, lightHex, darkHex]) => `
+        <button data-copy-token="var(${name})" class="p-3 rounded-md surface-subtle text-left hover:border-blue-500/60 transition flex items-start gap-2.5">
+          <span class="w-7 h-7 rounded border border-def shrink-0 mt-0.5" style="background: var(${name});"></span>
+          <div class="min-w-0 flex-1">
+            <div class="font-mono-code font-semibold text-pri truncate">${name}</div>
+            <div class="text-[11px] text-mut">${desc}</div>
+            <div class="font-mono-code text-[10.5px] text-sec mt-1">浅 ${lightHex} · 深 ${darkHex}</div>
+          </div>
+        </button>`).join('');
+    }
+
+    // ==================== NAVIGATION & SYNC ====================
+    function setPage(page) {
+      state.page = page;
+      ['overview', 'vuln-detail', 'vuln-list', 'tokens'].forEach(p => {
+        document.getElementById(`page-${p}`).classList.toggle('hidden', p !== page);
+      });
+      document.getElementById('bar-overview-controls').classList.toggle('hidden', page !== 'overview');
+      document.getElementById('bar-detail-controls').classList.toggle('hidden', page !== 'vuln-detail');
+
+      document.querySelectorAll('.page-tab').forEach(btn => {
+        const active = btn.dataset.navPage === page;
+        btn.className = `page-tab px-2.5 py-1 rounded text-xs font-medium transition ${active ? 'bg-blue-600 text-white shadow-sm' : 'text-sec hover:text-pri'}`;
+      });
+      document.querySelectorAll('.side-nav-item[data-nav-page]').forEach(btn => {
+        const active = btn.dataset.navPage === page || (page === 'vuln-detail' && btn.dataset.navPage === 'vuln-list');
+        btn.style.background = active ? 'var(--brand-soft)' : 'transparent';
+        btn.style.color = active ? 'var(--brand-primary)' : 'var(--text-secondary)';
+      });
+
+      if (page === 'overview') renderOverview();
+      if (page === 'vuln-detail') renderVulnDetail();
+      if (page === 'vuln-list') renderVulnList();
+      if (page === 'tokens') renderTokens();
+      lucide.createIcons();
+    }
+
+    function setTheme(theme) {
+      state.theme = theme;
+      document.documentElement.setAttribute('data-theme', theme);
+      document.getElementById('theme-label').textContent = theme === 'dark' ? '浅色' : '深色';
+      document.getElementById('theme-icon').setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
+      if (state.page === 'overview') renderOverview();
+      lucide.createIcons();
+    }
+
+    function setViewport(vp) {
+      state.viewport = vp;
+      const el = document.getElementById('app-viewport');
+      el.classList.remove('viewport-1440', 'viewport-1280', 'viewport-mobile', 'is-mobile-sim');
+      if (vp === '1440') {
+        el.classList.add('viewport-1440');
+        setSidebarCollapsed(false);
+      } else if (vp === '1280') {
+        el.classList.add('viewport-1280');
+        setSidebarCollapsed(true); // Per spec: 1280 auto-collapses sidebar to 56px icon rail
+      } else {
+        el.classList.add('viewport-mobile', 'is-mobile-sim');
+      }
+      document.querySelectorAll('.vp-btn').forEach(btn => {
+        const active = btn.dataset.viewport === vp;
+        btn.className = `vp-btn px-2 py-0.5 rounded text-[11px] font-medium transition ${active ? 'bg-blue-600 text-white' : 'text-sec hover:text-pri'}`;
+      });
+    }
+
+    function setSidebarCollapsed(collapsed) {
+      state.sidebarCollapsed = collapsed;
+      const sb = document.getElementById('app-sidebar');
+      sb.style.width = collapsed ? '56px' : '240px';
+      sb.querySelectorAll('.sidebar-label').forEach(el => el.classList.toggle('hidden', collapsed));
+    }
+
+    // ==================== EVENT WIRING ====================
+    document.addEventListener('click', (e) => {
+      const navBtn = e.target.closest('[data-nav-page]');
+      if (navBtn) { setPage(navBtn.dataset.navPage); return; }
+
+      const vpBtn = e.target.closest('[data-viewport]');
+      if (vpBtn) { setViewport(vpBtn.dataset.viewport); return; }
+
+      const rangeBtn = e.target.closest('[data-range]');
+      if (rangeBtn) { state.overviewRange = Number(rangeBtn.dataset.range); renderOverview(); return; }
+
+      const filterGoto = e.target.closest('[data-goto-filter]');
+      if (filterGoto) { state.listFilter = filterGoto.dataset.gotoFilter; setPage('vuln-list'); return; }
+
+      const openVuln = e.target.closest('[data-open-vuln]');
+      if (openVuln) { e.stopPropagation(); setPage('vuln-detail'); return; }
+
+      const listFilterBtn = e.target.closest('[data-list-filter]');
+      if (listFilterBtn) { state.listFilter = listFilterBtn.dataset.listFilter; renderVulnList(); return; }
+
+      const drawerRow = e.target.closest('[data-drawer-vuln]');
+      if (drawerRow) { openVulnDrawer(drawerRow.dataset.drawerVuln); return; }
+
+      const copyTok = e.target.closest('[data-copy-token]');
+      if (copyTok) { copyText(copyTok.dataset.copyToken, ` CSS 变量 ${copyTok.dataset.copyToken}`); return; }
+
+      const toastBtn = e.target.closest('[data-toast]');
+      if (toastBtn) { showToast(toastBtn.dataset.toast); return; }
+
+      const accTrigger = e.target.closest('.appendix-trigger');
+      if (accTrigger) {
+        const body = accTrigger.nextElementSibling;
+        const chev = accTrigger.querySelector('.appendix-chevron');
+        const opening = body.classList.contains('hidden');
+        body.classList.toggle('hidden', !opening);
+        if (chev) chev.style.transform = opening ? 'rotate(90deg)' : 'rotate(0deg)';
+      }
+    });
+
+    document.getElementById('theme-toggle-btn').addEventListener('click', () => setTheme(state.theme === 'light' ? 'dark' : 'light'));
+    document.getElementById('side-theme-btn').addEventListener('click', () => setTheme(state.theme === 'light' ? 'dark' : 'light'));
+    document.getElementById('sidebar-collapse-btn').addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
+    document.getElementById('model-switch-trigger').addEventListener('click', () => {
+      state.modelIndex = (state.modelIndex + 1) % MODELS.length;
+      document.getElementById('active-model-name').textContent = MODELS[state.modelIndex];
+      showToast(`已切换模型：${MODELS[state.modelIndex]}`);
+    });
+    document.getElementById('pending-approval-btn').addEventListener('click', () => showToast('待审批（2）：1. 会员中心越权批量探测  2. 订单服务退款接口验证'));
+    document.getElementById('overview-refresh-btn').addEventListener('click', () => { renderOverview(); showToast('总览数据已刷新'); });
+    document.getElementById('new-task-btn').addEventListener('click', () => showToast('打开「新建自主测试任务」弹窗'));
+
+    document.getElementById('overview-state-select').addEventListener('change', (e) => { state.overviewState = e.target.value; renderOverview(); });
+    document.getElementById('detail-role-select').addEventListener('change', (e) => { state.detailRole = e.target.value; renderVulnDetail(); });
+    document.getElementById('detail-state-select').addEventListener('change', (e) => { state.detailState = e.target.value; renderVulnDetail(); });
+
+    document.getElementById('diff-mode-side').addEventListener('click', () => { state.diffMode = 'side'; renderContrastSection(); });
+    document.getElementById('diff-mode-summary').addEventListener('click', () => { state.diffMode = 'summary'; renderContrastSection(); });
+    document.getElementById('apply-retest-btn').addEventListener('click', () => showToast('已触发自动复测任务，预计 30 秒内返回最新复测结论'));
+
+    // Triage auto-save & AI adopt
+    ['triage-sev-select', 'triage-disp-select', 'triage-owner-select', 'triage-due-input'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => {
+        const ind = document.getElementById('triage-save-indicator');
+        ind.classList.remove('hidden');
+        if (id === 'triage-sev-select') {
+          const val = document.getElementById(id).value;
+          const map = { critical:'严重', high:'高危', medium:'中危', low:'低危', info:'信息', unrated:'未定级' };
+          const b = document.getElementById('detail-sev-badge');
+          b.className = `sev-badge sev-${val}`;
+          b.textContent = map[val];
+        }
+        setTimeout(() => ind.classList.add('hidden'), 1800);
+      });
+    });
+    document.getElementById('adopt-ai-sev-btn').addEventListener('click', () => {
+      document.getElementById('triage-sev-select').value = 'high';
+      document.getElementById('triage-sev-select').dispatchEvent(new Event('change'));
+      showToast('已采纳 AI 建议等级：高危');
+    });
+
+    document.getElementById('list-search-input').addEventListener('input', (e) => { state.listSearch = e.target.value; renderVulnList(); });
+    document.getElementById('drawer-close-btn').addEventListener('click', () => document.getElementById('vuln-drawer-backdrop').classList.add('hidden'));
+    document.getElementById('vuln-drawer-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'vuln-drawer-backdrop') document.getElementById('vuln-drawer-backdrop').classList.add('hidden');
+    });
+    document.getElementById('drawer-open-full-btn').addEventListener('click', () => {
+      document.getElementById('vuln-drawer-backdrop').classList.add('hidden');
+      setPage('vuln-detail');
+    });
+
+    // Init
+    setViewport('1440');
+    setPage('overview');
+  </script>
+</body>
+</html>
