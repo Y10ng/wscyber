@@ -23,6 +23,7 @@
 | `appendix` | `{verifications[], members[], evidence_count, evidence[], changes[]}`，见下 |
 | `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, suggested_severity, status}`；`suggested_severity` 与 `GET /vulns` 对应条目同源，无建议时为空串；无资产为空 |
 | `nav` | `{prev_key, next_key}`：在 `GET /vulns` 默认排序（无筛选）中的前/后一条，首尾为 null |
+| `replays[]` | 该键最近 5 次已完成的一键重放（K2，见 `native/REPLAY.md`），新到旧：`{replay_id, step, evidence_id, at, status_code, verdict_hint}`；结果未知的尝试不列（只在审计与证据里）；无则 `[]` |
 
 - `suggested_severity` / `severity_reason`：成员中最新一条带建议等级的 supported 验证；列表项 `suggested_severity` 同一规则。它只是 AI 建议，不写处置、不参与 SLA/逾期/计数。
 - `steps[]`：`{title, evidence_id, method, url（去 userinfo）, status_code, request_marks_found[], response_marks_found[], mark_missing}`。marks 在该步证据原件中逐行查找（请求侧：请求行、原始头、正文；响应侧：状态行、原始头、正文；未遮盖；二进制正文不查），找到的按原顺序去重返回，任一找不到则 `mark_missing=true`。
@@ -37,17 +38,18 @@
 | `verification` | 每条已保存判读（结果保存时间；“独立验证：支持/反证/证据不足”，detail 为 summary） | ai |
 | `triage` | 审计 `vuln.triage`（detail 为审计摘要） | 审计 actor（user） |
 | `notify` | 该键的推送终态：sent 用 sent_at，failed 用 `notification.failed` 审计时间（无则登记时间） | system |
+| `replay` | 每次已完成的一键重放（“一键重放：仍可复现/有变化/无法判定”，detail 为 `METHOD /path → 状态码`） | user |
 | `retest` | 每条复测结论（“复测：仍可复现/已修复（范围内）/无法判定”） | ai |
 | `fixed` | 条目派生状态为已修复时，`fixed_at` | system |
 
-同一时刻按 candidate → verification → triage → notify → retest → fixed 排。detail ≤200 字。
+同一时刻按 candidate → verification → triage → notify → replay → retest → fixed 排。detail ≤200 字。
 
 ### appendix
 
 - `verifications[]`：成员全部验证（含未出结果），按结果时间（无结果按创建时间）倒序：`{verification_id, task_id, finding_id, finding_number, session_id, created_at, verdict|null, method, preconditions, summary, limitations, suggested_severity, severity_reason, has_repro, evidence_count, saved_at|null}`。
 - `members[]`：同资产漏洞库成员视图。
 - `evidence[]`：候选当前修订声称的证据（source=candidate）、验证结果证据、关键步骤与对照证据（relation=key_step/contrast）、复测证据（source=retest），按 task+evidence_id 去重，最多列 200 条；`evidence_count` 为去重总数。
-- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked），新到旧，同审计接口项格式。
+- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked/replay），新到旧，同审计接口项格式。
 
 ## `GET /api/webapi/vulns/{key}/card/curl?step=N&mask=0|1`
 
@@ -72,5 +74,5 @@ curl -sS -X METHOD 'URL' \
 ## 未覆盖
 
 - 总览 `recent_supported` 的 `suggested_severity` 未加（本片不改 `overview.go`，留给下一片）。
-- 一键重放（K2）、研发只读视图、工单区不在本片。
-- curl 只从已保存原件生成，不校验目标可达或授权；重放仍须走平台授权范围。
+- 一键重放见 `native/REPLAY.md`（K2）；研发只读视图、工单区不在本片。
+- curl 只从已保存原件生成，不校验目标可达或授权；平台内重放走 `POST /vulns/{key}/card/replay`（授权同 `webapi_http`）。

@@ -170,17 +170,23 @@ func buildHTTPRequest(method, rawURL string, headers map[string]string, body []b
 	}
 	// URL authority 是唯一Host来源；请求头不能改Host或传输跳转策略。
 	for key, value := range headers {
-		canonical := http.CanonicalHeaderKey(key)
-		if strings.EqualFold(key, "Host") || strings.EqualFold(key, "Content-Length") || strings.EqualFold(key, "Transfer-Encoding") || strings.EqualFold(key, "Connection") || strings.EqualFold(key, "Proxy-Authorization") {
-			return nil, fmt.Errorf("header %s 不允许覆盖传输目标/ framing", key)
+		if err := checkRequestHeader(key, value); err != nil {
+			return nil, err
 		}
-		if httpgutsValidHeader(key, value) {
-			req.Header.Set(canonical, value)
-		} else {
-			return nil, fmt.Errorf("header %s 非法", key)
-		}
+		req.Header.Set(http.CanonicalHeaderKey(key), value)
 	}
 	return req, nil
+}
+
+// checkRequestHeader：URL authority 是唯一 Host 来源，请求头不能改 Host、framing 或代理鉴权；名/值须合法。
+func checkRequestHeader(key, value string) error {
+	if strings.EqualFold(key, "Host") || strings.EqualFold(key, "Content-Length") || strings.EqualFold(key, "Transfer-Encoding") || strings.EqualFold(key, "Connection") || strings.EqualFold(key, "Proxy-Authorization") {
+		return fmt.Errorf("header %s 不允许覆盖传输目标/ framing", key)
+	}
+	if !httpgutsValidHeader(key, value) {
+		return fmt.Errorf("header %s 非法", key)
+	}
+	return nil
 }
 
 func escapeRawPath(rawPath string) string {
@@ -279,34 +285,112 @@ func (t *httpTool) Execute(ctx context.Context, arguments string) (*aop.ToolResu
 	if err != nil {
 		return stopTool(err.Error() + "；0发送"), nil
 	}
-	if policy.Scope != ScopeUnrestricted && !originAllowed(req.URL.String(), task.Origins) {
-		return t.recordUnsent(ctx, inv, task.ID, req, body, "denied", "实际origin不在持久授权内（测试策略 scope=origins）")
+	switch decision, reason := httpPolicyDecision(policy, task.Origins, req, args.Headers, body); decision {
+	case "denied":
+		return t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason)
+	case "review_required":
+		// 审批由原生 tool.before 挂起处理；这里只拒绝未经人工批准却需审批的调用（如无审批扩展的装配）。
+		if !t.approvals.isApproved(inv) {
+			return t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason+"；未经人工审批")
+		}
 	}
-	// 审批由原生 tool.before 挂起处理；这里只拒绝未经人工批准却需审批的调用（如无审批扩展的装配）。
-	if reason := httpReviewReason(policy.Approval, req.Method, req.URL.String(), args.Headers, body); reason != "" && !t.approvals.isApproved(inv) {
-		return t.recordUnsent(ctx, inv, task.ID, req, body, "review_required", reason+"；未经人工审批")
+	return httpSendResult(requestRecorder{store: t.store, inv: inv, taskID: task.ID}.send(ctx, req, body)), nil
+}
+
+// httpPolicyDecision 是 webapi_http 与一键重放共用的发送前判定（策略由调用方每次现读）：
+// scope=origins 且 origin 不在任务授权内 → "denied"；httpReviewReason 非空 → "review_required"；否则放行（""）。
+func httpPolicyDecision(policy TaskPolicy, origins []string, req *http.Request, headers map[string]string, body []byte) (string, string) {
+	if policy.Scope != ScopeUnrestricted && !originAllowed(req.URL.String(), origins) {
+		return "denied", "实际origin不在持久授权内（测试策略 scope=origins）"
 	}
-	id := newRequestID()
+	if reason := httpReviewReason(policy.Approval, req.Method, req.URL.String(), headers, body); reason != "" {
+		return "review_required", reason
+	}
+	return "", ""
+}
+
+// httpSendResult 把共用发送路径的结果映射成 webapi_http 工具结果（文案与旧实现一致）。
+func httpSendResult(res sendResult) *aop.ToolResult {
+	switch res.state {
+	case sendClaimFailed:
+		if res.model != nil {
+			return stopTool(formatEvidence(res.model, res.err.Error()))
+		}
+		return stopTool("发送前认领失败，0发送: " + publicStoreError(res.err))
+	case sendExisting:
+		if res.model.Status == requestCompleted {
+			return coretool.TextResult(formatEvidence(res.model, "同调用已完成，返回已保存结果；未再次发送"))
+		}
+		return stopTool(formatEvidence(res.model, "同调用已有未解决结果，不再次发送"))
+	case sendLost:
+		return stopTool("证据ID " + res.model.ID + "：已发送但capture_failed保存也失败；保持未知，不自动重试")
+	case requestCompleted:
+		return coretool.TextResult(formatEvidence(res.model, "HTTP请求完成；仅代表目标响应，不是漏洞结论"))
+	default: // unknown / capture_failed
+		return stopTool(formatEvidence(res.model, res.note))
+	}
+}
+
+// ---- 共用发送与存证（webapi_http 与一键重放 replay.go） ----
+
+const (
+	sendClaimFailed = "claim_failed" // 认领失败，0发送（含同指纹未决 errUnknownReplay）
+	sendExisting    = "existing"     // 同 task/turn/call 已有记录，未再次发送
+	sendLost        = "lost"         // 已发送但 capture_failed 也保存失败，保持认领行
+)
+
+// requestRecorder 是 claim→send→finish 状态机的归属：模型调用经 claim 核对 session→任务；
+// trusted=true（一键重放的合成 session）由调用方先核对任务，认领走 claimRequest。
+type requestRecorder struct {
+	store   *taskStore
+	inv     operation.Invocation
+	taskID  string
+	trusted bool
+}
+
+// sendResult：state 为 sendClaimFailed/sendExisting/sendLost 或最终记录状态（completed/unknown/capture_failed）。
+type sendResult struct {
+	state string
+	model *requestModel
+	note  string
+	err   error
+}
+
+func (r requestRecorder) claim(ctx context.Context, spec requestSpec, status, reason string) (*requestModel, bool, error) {
+	if r.trusted {
+		return r.store.claimRequest(ctx, r.inv, r.taskID, spec, status, reason)
+	}
+	return r.store.claim(ctx, r.inv, r.taskID, spec, status, reason)
+}
+
+func requestSpecFor(id string, req *http.Request, body []byte) (requestSpec, *traffic.Flow) {
 	flow := traffic.FlowFromHTTP(req, nil, body, nil)
 	flow.Id, flow.Timestamp = id, nowTimestamp()
-	spec := requestSpec{method: req.Method, url: req.URL.String(), fingerprint: fingerprintRequest(req, body), body: body, flow: flow}
-	claimed, fresh, err := t.store.claim(ctx, inv, task.ID, spec, "claimed", "发送前已认领")
+	return requestSpec{method: req.Method, url: req.URL.String(), fingerprint: fingerprintRequest(req, body), body: body, flow: flow}, flow
+}
+
+// recordUnsent 留一条发送前即终止的记录（denied/review_*，sent=false）。
+func (r requestRecorder) recordUnsent(ctx context.Context, req *http.Request, body []byte, status, reason string) (*requestModel, bool, error) {
+	spec, _ := requestSpecFor(newRequestID(), req, body)
+	return r.claim(ctx, spec, status, reason)
+}
+
+// send：认领（claimed）→ directClient 发送一次 → 有界捕获 → finish。发送/读取失败记 unknown，
+// 保存失败记 capture_failed；任何情况都不自动重试。
+func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byte) sendResult {
+	id := newRequestID()
+	spec, flow := requestSpecFor(id, req, body)
+	claimed, fresh, err := r.claim(ctx, spec, "claimed", "发送前已认领")
 	if err != nil {
-		if claimed != nil {
-			return stopTool(formatEvidence(claimed, err.Error())), nil
-		}
-		return stopTool("发送前认领失败，0发送: " + publicStoreError(err)), nil
+		return sendResult{state: sendClaimFailed, model: claimed, err: err}
 	}
 	if !fresh {
-		if claimed.Status == requestCompleted {
-			return coretool.TextResult(formatEvidence(claimed, "同调用已完成，返回已保存结果；未再次发送")), nil
-		}
-		return stopTool(formatEvidence(claimed, "同调用已有未解决结果，不再次发送")), nil
+		return sendResult{state: sendExisting, model: claimed}
 	}
 
 	resp, sendErr := directClient.Do(req.WithContext(ctx))
 	if sendErr != nil {
-		return t.finishUnknown(ctx, inv, task.ID, claimed, flow, "发送或接收失败，目标结果未知；不自动重试", nil)
+		return r.finishUnknown(ctx, claimed, flow, "发送或接收失败，目标结果未知；不自动重试", nil)
 	}
 	defer resp.Body.Close()
 	captured, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBytes+1))
@@ -320,14 +404,35 @@ func (t *httpTool) Execute(ctx context.Context, arguments string) (*aop.ToolResu
 	statusCode := resp.StatusCode
 	if readErr != nil {
 		flow.Complete = false
-		return t.finishUnknown(ctx, inv, task.ID, claimed, flow, "响应体读取失败，目标结果未知；不自动重试", &statusCode)
+		return r.finishUnknown(ctx, claimed, flow, "响应体读取失败，目标结果未知；不自动重试", &statusCode)
 	}
 	preview, previewTruncated := responsePreview(captured, resp.Header.Get("Content-Type"))
-	model, err := t.store.finish(ctx, claimed.ID, requestCompleted, "已收到并保存有界响应", preview, previewTruncated, captureTruncated, &statusCode, flow)
+	model, err := r.store.finish(ctx, claimed.ID, requestCompleted, "已收到并保存有界响应", preview, previewTruncated, captureTruncated, &statusCode, flow)
 	if err != nil {
-		return t.saveFailure(ctx, claimed, flow, &statusCode, preview, previewTruncated, captureTruncated)
+		return r.saveFailure(ctx, claimed, flow, &statusCode, preview, previewTruncated, captureTruncated)
 	}
-	return coretool.TextResult(formatEvidence(model, "HTTP请求完成；仅代表目标响应，不是漏洞结论")), nil
+	return sendResult{state: requestCompleted, model: model}
+}
+
+func (r requestRecorder) finishUnknown(ctx context.Context, claimed *requestModel, flow *traffic.Flow, reason string, statusCode *int) sendResult {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	model, err := r.store.finish(cleanup, claimed.ID, requestUnknown, reason, []byte("目标响应未知"), false, false, statusCode, flow)
+	if err != nil {
+		return r.saveFailure(ctx, claimed, flow, statusCode, nil, false, false)
+	}
+	return sendResult{state: requestUnknown, model: model, note: reason}
+}
+
+func (r requestRecorder) saveFailure(ctx context.Context, claimed *requestModel, flow *traffic.Flow, statusCode *int, preview []byte, previewTruncated, captureTruncated bool) sendResult {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	const note = "已发送但结果保存失败；不自动重试"
+	model, err := r.store.finish(cleanup, claimed.ID, requestCaptureFailed, note, preview, previewTruncated, captureTruncated, statusCode, flow)
+	if err != nil {
+		return sendResult{state: sendLost, model: claimed, note: "已发送但capture_failed保存也失败；保持未知，不自动重试"}
+	}
+	return sendResult{state: requestCaptureFailed, model: model, note: note}
 }
 
 func responsePreview(captured []byte, contentType string) ([]byte, bool) {
@@ -372,10 +477,7 @@ func publicStoreError(err error) string {
 }
 
 func (t *httpTool) recordUnsent(ctx context.Context, inv operation.Invocation, taskID string, req *http.Request, body []byte, status, reason string) (*aop.ToolResult, error) {
-	id := newRequestID()
-	flow := traffic.FlowFromHTTP(req, nil, body, nil)
-	flow.Id, flow.Timestamp = id, nowTimestamp()
-	model, fresh, err := t.store.claim(ctx, inv, taskID, requestSpec{method: req.Method, url: req.URL.String(), fingerprint: fingerprintRequest(req, body), body: body, flow: flow}, status, reason)
+	model, fresh, err := requestRecorder{store: t.store, inv: inv, taskID: taskID}.recordUnsent(ctx, req, body, status, reason)
 	if err != nil && model == nil {
 		return stopTool("保存拒绝/待审记录失败；0发送"), nil
 	}
@@ -385,31 +487,11 @@ func (t *httpTool) recordUnsent(ctx context.Context, inv operation.Invocation, t
 	return stopTool(formatEvidence(model, reason+"；0发送")), nil
 }
 
-func (t *httpTool) finishUnknown(ctx context.Context, inv operation.Invocation, taskID string, claimed *requestModel, flow *traffic.Flow, reason string, statusCode *int) (*aop.ToolResult, error) {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	model, err := t.store.finish(cleanup, claimed.ID, requestUnknown, reason, []byte("目标响应未知"), false, false, statusCode, flow)
-	if err != nil {
-		return t.saveFailure(ctx, claimed, flow, statusCode, nil, false, false)
-	}
-	return stopTool(formatEvidence(model, reason)), nil
-}
-
 func valueOrZero(value *int) int {
 	if value == nil {
 		return 0
 	}
 	return *value
-}
-
-func (t *httpTool) saveFailure(ctx context.Context, claimed *requestModel, flow *traffic.Flow, statusCode *int, preview []byte, previewTruncated, captureTruncated bool) (*aop.ToolResult, error) {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	model, err := t.store.finish(cleanup, claimed.ID, requestCaptureFailed, "已发送但结果保存失败；不自动重试", preview, previewTruncated, captureTruncated, statusCode, flow)
-	if err != nil {
-		return stopTool("证据ID " + claimed.ID + "：已发送但capture_failed保存也失败；保持未知，不自动重试"), nil
-	}
-	return stopTool(formatEvidence(model, "已发送但结果保存失败；不自动重试")), nil
 }
 
 func formatEvidence(model *requestModel, note string) string {
@@ -454,6 +536,8 @@ type Evidence struct {
 	CaptureTruncated bool   `json:"capture_truncated"`
 	CreatedAt        string `json:"created_at"`
 	CompletedAt      string `json:"completed_at,omitempty"`
+	// Source 只对一键重放记录为 "replay"（session_id 为合成值 replaySessionID，见 replay.go）；模型调用省略。
+	Source string `json:"source,omitempty"`
 }
 
 func evidenceMetadata(model requestModel) Evidence {
@@ -462,6 +546,9 @@ func evidenceMetadata(model requestModel) Evidence {
 		Sent: nullableBool(model.Sent), PreviewTruncated: model.PreviewTruncated, CaptureTruncated: model.CaptureTruncated, CreatedAt: model.CreatedAt, CompletedAt: model.CompletedAt.String}
 	if model.StatusCode.Valid {
 		e.HTTPStatus = &model.StatusCode.Int64
+	}
+	if model.SessionID == replaySessionID {
+		e.Source = evidenceSourceReplay
 	}
 	return e
 }

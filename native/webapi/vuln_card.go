@@ -37,7 +37,7 @@ const (
 var (
 	conclusionLabels = map[string]string{"reproducible": "仍可复现", "fixed_in_scope": "已修复（范围内）", "inconclusive": "无法判定"}
 	// lifecycleKindOrder：同一时刻的事件按业务先后排列。
-	lifecycleKindOrder = map[string]int{"candidate": 0, "verification": 1, "triage": 2, "notify": 3, "retest": 4, "fixed": 5}
+	lifecycleKindOrder = map[string]int{"candidate": 0, "verification": 1, "triage": 2, "notify": 3, "replay": 4, "retest": 5, "fixed": 6}
 )
 
 // vulnCode 是平台短编号：V- + 条目 id 去前缀（finding:、wf_）与非字母数字后的前 8 位大写；稳定、只由 id 决定。
@@ -240,6 +240,7 @@ type VulnCard struct {
 	Appendix           VulnCardAppendix  `json:"appendix"`
 	Related            []VulnCardRelated `json:"related"`
 	Nav                VulnCardNav       `json:"nav"`
+	Replays            []VulnCardReplay  `json:"replays"`
 }
 
 // ---- 定位 ----
@@ -789,6 +790,12 @@ func (c *Capability) buildVulnCard(ctx context.Context, key string) (*VulnCard, 
 		return nil, err
 	}
 	card.Lifecycle = append(card.Lifecycle, notifyEvents...)
+	replays, replayEvents, err := c.cardReplays(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	card.Replays = replays
+	card.Lifecycle = append(card.Lifecycle, replayEvents...)
 	if item.FixedAt != nil {
 		card.Lifecycle = append(card.Lifecycle, VulnCardEvent{At: *item.FixedAt, Kind: "fixed", Title: "已修复", Detail: "复测结论为范围内已修复", Actor: auditActorSystem})
 	}
@@ -904,47 +911,15 @@ func (c *Capability) handleVulnCardCurl(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ctx := r.Context()
-	item, _, err := c.cardTarget(ctx, key)
-	if errors.Is(err, errTriageNotFound) {
-		writeError(w, http.StatusNotFound, err.Error())
+	target, code, message := c.locateReproStep(ctx, key, step)
+	if target == nil {
+		writeError(w, code, message)
 		return
 	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "读取漏洞条目失败")
-		return
-	}
-	verifications, err := c.store.cardVerifications(ctx, memberFindingIDs(item))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "读取验证结果失败")
-		return
-	}
-	chosen, _ := pickRepro(verifications)
-	if chosen == nil {
-		writeError(w, http.StatusNotFound, "该漏洞尚无最小复现")
-		return
-	}
-	steps := chosen.stored.Payload.KeySteps
-	if step > len(steps) {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("step 超出范围：最小复现共 %d 步", len(steps)))
-		return
-	}
-	keyStep := steps[step-1]
-	model, err := c.store.evidenceByID(ctx, chosen.model.TaskID, keyStep.EvidenceID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "读取证据失败")
-		return
-	}
-	if model == nil {
-		writeError(w, http.StatusNotFound, "关键步骤证据不存在")
-		return
-	}
-	flow, err := decodeEvidenceFlow(model)
-	if err != nil || flow.GetRequest() == nil {
-		writeError(w, http.StatusUnprocessableEntity, "证据原件无法解析")
-		return
-	}
+	item, chosen, keyStep, flow := target.item, target.chosen, target.keyStep, target.flow
 	var secrets []string
 	if mask {
+		var err error
 		if _, secrets, err = c.notifyAssetContext(ctx, chosen.model.TaskID); err != nil {
 			writeError(w, http.StatusInternalServerError, "读取测试账号失败，无法遮盖")
 			return
@@ -960,6 +935,51 @@ func (c *Capability) handleVulnCardCurl(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(text))
+}
+
+// reproStepTarget 是 repro 第 N 步证据原件（card/curl 与 card/replay 共用定位）。
+type reproStepTarget struct {
+	item    *GlobalVuln
+	chosen  *cardVerification
+	keyStep verificationKeyStep
+	model   *requestModel
+	flow    *traffic.Flow
+}
+
+// locateReproStep：条目不存在、无最小复现、证据不存在 → 404；step 超出步数 → 400；原件无法解析 → 422；其余 500。
+func (c *Capability) locateReproStep(ctx context.Context, key string, step int) (*reproStepTarget, int, string) {
+	item, _, err := c.cardTarget(ctx, key)
+	if errors.Is(err, errTriageNotFound) {
+		return nil, http.StatusNotFound, err.Error()
+	}
+	if err != nil {
+		return nil, http.StatusInternalServerError, "读取漏洞条目失败"
+	}
+	verifications, err := c.store.cardVerifications(ctx, memberFindingIDs(item))
+	if err != nil {
+		return nil, http.StatusInternalServerError, "读取验证结果失败"
+	}
+	chosen, _ := pickRepro(verifications)
+	if chosen == nil {
+		return nil, http.StatusNotFound, "该漏洞尚无最小复现"
+	}
+	steps := chosen.stored.Payload.KeySteps
+	if step > len(steps) {
+		return nil, http.StatusBadRequest, fmt.Sprintf("step 超出范围：最小复现共 %d 步", len(steps))
+	}
+	keyStep := steps[step-1]
+	model, err := c.store.evidenceByID(ctx, chosen.model.TaskID, keyStep.EvidenceID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "读取证据失败"
+	}
+	if model == nil {
+		return nil, http.StatusNotFound, "关键步骤证据不存在"
+	}
+	flow, err := decodeEvidenceFlow(model)
+	if err != nil || flow.GetRequest() == nil {
+		return nil, http.StatusUnprocessableEntity, "证据原件无法解析"
+	}
+	return &reproStepTarget{item: item, chosen: chosen, keyStep: keyStep, model: model, flow: flow}, 0, ""
 }
 
 // ---- curl ----

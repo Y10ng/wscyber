@@ -71,6 +71,12 @@ func (s *taskStore) claim(ctx context.Context, inv operation.Invocation, taskID 
 	if authorized == nil || authorized.ID != taskID {
 		return nil, false, errUnknownSession
 	}
+	return s.claimRequest(ctx, inv, taskID, spec, status, reason)
+}
+
+// claimRequest 是 claim 去掉 session→任务核对后的认领事务；一键重放（合成 session，见 replay.go）在
+// HTTP handler 里先核对任务与授权后直接调用。同 call 回读、同指纹未决保护与 claim 完全相同。
+func (s *taskStore) claimRequest(ctx context.Context, inv operation.Invocation, taskID string, spec requestSpec, status, reason string) (*requestModel, bool, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	flowPB, err := proto.Marshal(spec.flow)
 	if err != nil {

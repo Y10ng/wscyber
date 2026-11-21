@@ -314,6 +314,8 @@ type Capability struct {
 	egressCADir string
 	// notify 是企业微信推送 goroutine（Routes 拿到原生管理 API 时启动，Close 停止）与发送频率窗口。
 	notify notifyRuntime
+	// replays 是一键重放的进行中占位与按条目限频（进程内存，见 replay.go）。
+	replays replayRuntime
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -389,6 +391,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "PUT /api/webapi/vulns/{key}/triage", Handler: http.HandlerFunc(c.handleVulnTriagePut)},
 		{Pattern: "GET /api/webapi/vulns/{key}/card", Handler: http.HandlerFunc(c.handleVulnCard)},
 		{Pattern: "GET /api/webapi/vulns/{key}/card/curl", Handler: http.HandlerFunc(c.handleVulnCardCurl)},
+		{Pattern: "POST /api/webapi/vulns/{key}/card/replay", Handler: http.HandlerFunc(c.handleVulnCardReplay)},
 		{Pattern: "GET /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAGet)},
 		{Pattern: "PUT /api/webapi/vuln-sla", Handler: http.HandlerFunc(c.handleVulnSLAPut)},
 		{Pattern: "GET /api/webapi/report-list", Handler: http.HandlerFunc(c.handleGlobalReportList)},

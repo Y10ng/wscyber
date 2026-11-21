@@ -40,6 +40,7 @@
 | `vuln.triage` | `PUT /vulns/{key}/triage` 保存成功且有变化（`triage.go`） | user | `vuln_key`、`title`、`changes`（变化字段 severity/owner/due_date/disposition 的 `{from,to}`）、`note_changed`（不含备注正文）；target_kind = `vuln`，target_id = key，关联 asset_id |
 | `vuln.sla` | `PUT /vuln-sla` 配置保存成功且有变化（`triage.go`） | user | `from`/`to` `{critical_days,high_days,medium_days,low_days}`；target_kind = `vuln_sla`，target_id = `default` |
 | `vuln.curl_unmasked` | `GET /vulns/{key}/card/curl?mask=0` 成功生成未遮盖 curl（`vuln_card.go`） | user | `vuln_key`、`step`、`evidence_id`、`verification_id`（不含请求内容）；target_kind = `vuln`，target_id = key，关联验证 task_id 与条目 asset_id |
+| `vuln.replay` | `POST /vulns/{key}/card/replay` 实际发送了一次请求（`replay.go`；收到响应或结果未知均登记；denied/review_required/归档/限频/进行中/同请求未决 unknown 未发送，不登记） | user | `vuln_key`、`step`、`evidence_id`（新证据）、`original_evidence_id`、`status_code`（结果未知为 null）、`verdict_hint`（结果未知为空串，另带 `outcome`: unknown/capture_failed/lost）；不含请求/响应内容；target_kind = `vuln`，target_id = key，关联证据任务与条目资产 |
 | `notify.settings` | 企业微信配置保存且有变化 | user | `from`/`to` `{enabled, require_confirm, base_url}`、`webhook_changed`（提交了与原值不同的 webhook）、`webhook_cleared`（`"-"` 清除了已有 webhook） |
 | `notify.test` | 测试推送实际发出（未配置 409、限频 429 不登记） | user | `ok`、`errcode`（网络错误为 -1） |
 | `notification.confirm` / `.dismiss` / `.retry` | 人工处理成功（409/404 不登记） | user | `notification_id`、`title` |
@@ -58,6 +59,8 @@
 - 响应 `{items:[{id,at,actor,action,target_kind,target_id,task_id,asset_id,summary,detail}], has_more, next_cursor}`；`detail` 为对象，末页 `next_cursor` 为 null。
 
 ## 旧库
+
+持续探索阶段（三十七表）旧库补 K2 的 `webapi_replays` 表与索引（见 `native/REPLAY.md`）。
 
 `PrepareWebAPISchema` 已知阶段新增 D2（二十五表、二十五索引）一档；B2/U2a/D1（二十三表）及更早阶段照旧单事务补到完整结构（含本表与 4 个索引），不 DROP/ALTER。
 
