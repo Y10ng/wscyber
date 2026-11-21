@@ -504,7 +504,7 @@ func TestNotifyDeliveryMarkdownAndImage(t *testing.T) {
 		"1. 以 demo-user / ****** 登录演示环境\n" +
 		"2. 请求 GET /orders/1002（属于其他用户的订单）\n" +
 		"3. 响应 200 并返回 他人订单的收货信息\n" +
-		"[在平台查看](https://wscyber.example.test/sessions/" + v.SessionID + ")"
+		"[在平台查看](https://wscyber.example.test/?page=vulns&vuln=" + vulnOf(f.vulns("a1", ""), fid).ID + ")"
 	markdown := got[0]["markdown"].(map[string]any)["content"].(string)
 	if markdown != want {
 		t.Fatalf("markdown =\n%s\nwant\n%s", markdown, want)
@@ -828,5 +828,294 @@ func TestNotifySchemaUpgradeFromD1Stage(t *testing.T) {
 	}
 	if err := PrepareWebAPISchema(database); err != nil {
 		t.Fatalf("prepare complete schema again: %v", err)
+	}
+}
+
+// ---- K2：推送以漏洞卡为准、漏洞卡人工推送 ----
+
+func (f *notifyFixture) cardNotify(key, body string) (int, map[string]any, string) {
+	f.t.Helper()
+	return f.do("POST", "/api/webapi/vulns/"+key+"/card/notify", body)
+}
+
+func (f *notifyFixture) notifyPreview(key string) (int, NotifyPreview, string) {
+	f.t.Helper()
+	status, _, raw := f.do("GET", "/api/webapi/vulns/"+key+"/card/notify/preview", "")
+	var preview NotifyPreview
+	_ = json.Unmarshal([]byte(raw), &preview)
+	return status, preview, raw
+}
+
+func vulnNotifyAudits(t *testing.T, f *notifyFixture) []auditEventModel {
+	return auditByAction(auditRows(t, f.capability), "vuln.notify")
+}
+
+// 自动推送：标题取漏洞卡 header.title（人工改名优先），链接为漏洞卡 URL（finding: 键经 QueryEscape）。
+func TestNotifyUsesCardTitleAndLink(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createAsset("a1")
+	f.launchManual("a1", "t1")
+	f.enable(false, "https://wscyber.example.test/")
+	flow := notifyFlow("GET", "https://api.example.test/orders/1002", "", `{"order":"1002"}`)
+	fid, frev := f.addFinding("t1", "订单接口越权读取", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	f.verify("t1", fid, frev, "supported", flow)
+	vid := vulnOf(f.vulns("a1", ""), fid).ID
+	if status, _, raw := f.do("PUT", "/api/webapi/assets/a1/vulns/"+vid, `{"title":"人工命名：订单越权"}`); status != 200 {
+		t.Fatalf("rename = %d %s", status, raw)
+	}
+	f.deliver()
+	got := f.wecom.received()
+	if len(got) == 0 {
+		t.Fatal("nothing sent")
+	}
+	lines := strings.Split(got[0]["markdown"].(map[string]any)["content"].(string), "\n")
+	if lines[0] != "**【新确认漏洞】人工命名：订单越权**" {
+		t.Fatalf("title line = %q", lines[0])
+	}
+	if want := "[在平台查看](https://wscyber.example.test/?page=vulns&vuln=" + vid + ")"; lines[len(lines)-1] != want {
+		t.Fatalf("link line = %q want %q", lines[len(lines)-1], want)
+	}
+	// 无资产：键 finding:<id>，链接转义冒号；无改名时用最新成员修订标题。
+	f.wecom.reset()
+	f.plainTask("plain-1")
+	p1, p1rev := f.addFinding("plain-1", "无资产候选", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	f.verify("plain-1", p1, p1rev, "supported", flow)
+	f.deliver()
+	got = f.wecom.received()
+	lines = strings.Split(got[0]["markdown"].(map[string]any)["content"].(string), "\n")
+	if lines[0] != "**【新确认漏洞】无资产候选**" || lines[len(lines)-1] != "[在平台查看](https://wscyber.example.test/?page=vulns&vuln=finding%3A"+p1+")" {
+		t.Fatalf("plain lines = %q", lines)
+	}
+	// 漏洞卡取不到标题（键不存在）时退回修订标题。
+	if title := f.capability.notifyVulnTitle(t.Context(), "no-such-key"); title != "" {
+		t.Fatalf("missing key title = %q", title)
+	}
+}
+
+func TestVulnCardManualNotify(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createAsset("a1")
+	if status, _, raw := f.do("PUT", "/api/webapi/assets/a1/credentials/c1", `{"label":"普通用户","username":"demo-user","secret":"Fixture-Pass-9"}`); status != 200 {
+		t.Fatalf("credential = %d %s", status, raw)
+	}
+	f.launchManual("a1", "t1")
+	fid, frev := f.addFinding("t1", "订单接口越权读取", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	v := f.newVerification("t1", fid, frev)
+	step := f.addEvidence("t1", v.SessionID, cardFlow("https://api.example.test/orders/1002", "sid=fixture-session-abcdef", `{"owner":"user-42"}`))
+	payload := reproPayload(step.ID)
+	payload["key_steps"] = []map[string]any{{"title": "读取他人订单", "evidence_id": step.ID, "response_marks": []string{`"owner":"user-42"`}}}
+	if result, message := f.callVerification(v, payload); result == nil {
+		t.Fatalf("verification rejected: %s", message)
+	}
+	// 更新的旧 supported（无 key_steps）：人工推送仍选与卡片 repro 同一条。
+	f.legacyVerify("t1", fid, frev)
+	vid := vulnOf(f.vulns("a1", ""), fid).ID
+	if card := f.card(vid); card.Repro == nil || card.Repro.VerificationID != v.VerificationID || card.Notify.Configured || len(card.Notify.Items) != 0 {
+		t.Fatalf("card before = %+v", card.Notify)
+	}
+
+	// 未配置：推送 409 not_configured；预览照常（无 base_url 不带链接）。
+	if status, value, raw := f.cardNotify(vid, ""); status != 409 || value["code"] != "not_configured" {
+		t.Fatalf("unconfigured = %d %s", status, raw)
+	}
+	status, preview, raw := f.notifyPreview(vid)
+	if status != 200 || preview.VerificationID != v.VerificationID || !strings.HasPrefix(preview.Markdown, "**【漏洞通报】订单接口越权读取**") ||
+		strings.Contains(preview.Markdown, "在平台查看") || preview.Image == nil || preview.Image.EvidenceID != step.ID || preview.Image.TaskID != "t1" ||
+		len(preview.Image.Marks) != 1 || preview.Image.Marks[0] != `"owner":"user-42"` || preview.ImageNote != "" {
+		t.Fatalf("preview = %d %s", status, raw)
+	}
+
+	// 启用且要求确认：人工推送仍直接 queued、立即到期。
+	f.enable(true, "https://wscyber.example.test")
+	_, preview, _ = f.notifyPreview(vid)
+	status, value, raw := f.cardNotify(vid, "{}")
+	if status != 201 || value["kind"] != NotifyKindManual || value["status"] != NotifyQueued || value["dedupe_key"] != vid || value["verification_id"] != v.VerificationID {
+		t.Fatalf("manual = %d %s", status, raw)
+	}
+	first := value["id"].(string)
+	if item := f.notificationByID(first); !item.NextAttemptAt.Valid || item.NextAttemptAt.String != notifyTime(f.now) || item.VulnID != vid {
+		t.Fatalf("manual row = %+v", item)
+	}
+	// 进行中：409 in_flight 并带 notification_id；不登记审计。
+	if status, value, raw := f.cardNotify(vid, ""); status != 409 || value["code"] != "in_flight" || value["notification_id"] != first {
+		t.Fatalf("in flight = %d %s", status, raw)
+	}
+	if audits := vulnNotifyAudits(t, f); len(audits) != 1 || audits[0].TargetKind != "vuln" || audits[0].TargetID != vid || audits[0].Actor != auditActorUser ||
+		!strings.Contains(audits[0].DetailJSON, `"notification_id":"`+first+`"`) || !strings.Contains(audits[0].DetailJSON, `"kind":"manual"`) ||
+		!strings.Contains(audits[0].DetailJSON, `"verification_id":"`+v.VerificationID+`"`) || !strings.Contains(audits[0].DetailJSON, `"vuln_key":"`+vid+`"`) {
+		t.Fatalf("audits = %+v", audits)
+	}
+	// 投递：发送内容与预览逐字一致。
+	f.deliver()
+	got := f.wecom.received()
+	if len(got) != 2 || got[1]["msgtype"] != "image" {
+		t.Fatalf("sent = %+v", got)
+	}
+	if sent := got[0]["markdown"].(map[string]any)["content"].(string); sent != preview.Markdown || !strings.Contains(sent, "[在平台查看](https://wscyber.example.test/?page=vulns&vuln="+vid+")") {
+		t.Fatalf("sent markdown =\n%s\npreview\n%s", sent, preview.Markdown)
+	}
+	if item := f.notificationByID(first); item.Status != NotifySent {
+		t.Fatalf("after deliver = %+v", item)
+	}
+	// 终态后可再推：复用同一行重新入队并再次发送。
+	f.advance(time.Minute)
+	status, value, raw = f.cardNotify(vid, "")
+	if status != 201 || value["id"] != first || value["status"] != NotifyQueued || value["sent_at"] != nil || value["attempts"].(float64) != 0 {
+		t.Fatalf("again = %d %s", status, raw)
+	}
+	f.wecom.reset()
+	f.deliver()
+	if len(f.wecom.received()) != 2 || f.notificationByID(first).Status != NotifySent {
+		t.Fatalf("second delivery = %+v", f.wecom.received())
+	}
+	if audits := vulnNotifyAudits(t, f); len(audits) != 2 {
+		t.Fatalf("audits after re-push = %d", len(audits))
+	}
+	card := f.card(vid)
+	if !card.Notify.Configured || !card.Notify.RequireConfirm || len(card.Notify.Items) != 1 || card.Notify.Items[0].ID != first || card.Notify.Items[0].Kind != NotifyKindManual {
+		t.Fatalf("card notify = %+v", card.Notify)
+	}
+	manualEvents := 0
+	for _, event := range card.Lifecycle {
+		if event.Kind == "notify" && event.Title == "企业微信人工推送成功" {
+			manualEvents++
+		}
+	}
+	if manualEvents != 2 {
+		t.Fatalf("lifecycle manual events = %d: %+v", manualEvents, card.Lifecycle)
+	}
+	// 未知字段 400；键非法 400；不存在 404。
+	if status, _, _ := f.cardNotify(vid, `{"force":true}`); status != 400 {
+		t.Fatalf("unknown field = %d", status)
+	}
+	if status, _, _ := f.cardNotify("a%25b", ""); status != 400 {
+		t.Fatalf("bad key = %d", status)
+	}
+	if status, _, _ := f.cardNotify("no-such", ""); status != 404 {
+		t.Fatalf("missing = %d", status)
+	}
+	if status, _, _ := f.notifyPreview("no-such"); status != 404 {
+		t.Fatalf("preview missing = %d", status)
+	}
+
+	// 自动通知待确认（pending_confirm）也算进行中；忽略后可人工推送。
+	f2, f2rev := f.addFinding("t1", "导出接口未鉴权", notifyContent(), evidenceAt("GET", "https://api.example.test/export"))
+	f.verify("t1", f2, f2rev, "supported", notifyFlow("GET", "https://api.example.test/export", "", "{}"))
+	key2 := vulnOf(f.vulns("a1", ""), f2).ID
+	var pending string
+	for _, item := range f.notifications() {
+		if item.DedupeKey == key2 {
+			pending = item.ID
+		}
+	}
+	if status, value, raw := f.cardNotify(key2, ""); status != 409 || value["code"] != "in_flight" || value["notification_id"] != pending || pending == "" {
+		t.Fatalf("pending in flight = %d %s", status, raw)
+	}
+	if status, _, raw := f.do("POST", "/api/webapi/notifications/"+pending+"/dismiss", ""); status != 200 {
+		t.Fatalf("dismiss = %d %s", status, raw)
+	}
+	if status, _, raw := f.cardNotify(key2, ""); status != 201 {
+		t.Fatalf("after dismiss = %d %s", status, raw)
+	}
+	// 误报：409 false_positive。
+	if status, _, raw := f.do("PUT", "/api/webapi/vulns/"+vid+"/triage", `{"disposition":"false_positive"}`); status != 200 {
+		t.Fatalf("triage = %d %s", status, raw)
+	}
+	if status, value, raw := f.cardNotify(vid, ""); status != 409 || value["code"] != "false_positive" {
+		t.Fatalf("false positive = %d %s", status, raw)
+	}
+	// 无 supported：推送与预览都 409 no_supported。
+	f3, f3rev := f.addFinding("t1", "搜索接口注入", notifyContent(), evidenceAt("GET", "https://api.example.test/search"))
+	f.verify("t1", f3, f3rev, "counterevidence", notifyFlow("GET", "https://api.example.test/search", "", "{}"))
+	key3 := vulnOf(f.vulns("a1", ""), f3).ID
+	if status, value, raw := f.cardNotify(key3, ""); status != 409 || value["code"] != "no_supported" {
+		t.Fatalf("no supported = %d %s", status, raw)
+	}
+	if status, _, raw := f.notifyPreview(key3); status != 409 || !strings.Contains(raw, `"code":"no_supported"`) {
+		t.Fatalf("preview no supported = %d %s", status, raw)
+	}
+	// 拒绝不登记审计：只有 3 次成功。
+	if audits := vulnNotifyAudits(t, f); len(audits) != 3 {
+		t.Fatalf("vuln.notify audits = %d", len(audits))
+	}
+	// 未启用：not_configured。
+	f.configure(fmt.Sprintf(`{"webhook":%q,"enabled":false}`, f.wecom.webhook()))
+	if status, value, _ := f.cardNotify(key2, ""); status != 409 || value["code"] != "not_configured" {
+		t.Fatalf("disabled = %d %+v", status, value)
+	}
+}
+
+// 人工推送不破坏 new/regression 去重：manual 行不占 (dedupe_key, new|regression, verification_id)；fixed 后 supported 照常登记 regression。
+func TestVulnCardManualNotifyKeepsDedupe(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createAsset("a1")
+	f.launchManual("a1", "t1")
+	f.enable(false, "")
+	flow := notifyFlow("GET", "https://api.example.test/orders/1002", "", `{"order":"1002"}`)
+	fid, frev := f.addFinding("t1", "订单接口越权读取", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	v1 := f.verify("t1", fid, frev, "supported", flow)
+	vid := vulnOf(f.vulns("a1", ""), fid).ID
+	f.deliver()
+	if status, value, raw := f.cardNotify(vid, ""); status != 201 || value["verification_id"] != v1.VerificationID {
+		t.Fatalf("manual = %d %s", status, raw)
+	}
+	f.deliver()
+	// 同一验证再次触发登记：new 不重复（已有通知）。
+	if err := f.capability.registerVerificationNotification(t.Context(), v1.VerificationID); err != nil {
+		t.Fatal(err)
+	}
+	f.addRetest("t1", fid, frev, "fixed_in_scope")
+	time.Sleep(2 * time.Millisecond)
+	vr := f.verify("t1", fid, frev, "supported", flow)
+	kinds := map[string]int{}
+	for _, item := range f.notifications() {
+		kinds[item.Kind]++
+		if item.Kind == NotifyKindRegression && item.VerificationID != vr.VerificationID {
+			t.Fatalf("regression = %+v", item)
+		}
+	}
+	if kinds[NotifyKindNew] != 1 || kinds[NotifyKindManual] != 1 || kinds[NotifyKindRegression] != 1 {
+		t.Fatalf("kinds = %+v", kinds)
+	}
+	f.deliver()
+	// regression 消息的标题前缀不变。
+	last := ""
+	for _, body := range f.wecom.received() {
+		if body["msgtype"] == "markdown" {
+			last = body["markdown"].(map[string]any)["content"].(string)
+		}
+	}
+	if !strings.HasPrefix(last, "**【漏洞复现】") {
+		t.Fatalf("regression markdown = %s", last)
+	}
+}
+
+// 卡片 notify 段：该键最近 5 条（任何 kind/状态），新到旧。
+func TestVulnCardNotifySectionLatestFive(t *testing.T) {
+	f := newNotifyFixture(t)
+	f.createAsset("a1")
+	f.launchManual("a1", "t1")
+	fid, frev := f.addFinding("t1", "订单接口越权读取", notifyContent(), evidenceAt("GET", "https://api.example.test/orders/1002"))
+	v := f.verify("t1", fid, frev, "supported", notifyFlow("GET", "https://api.example.test/orders/1002", "", "{}"))
+	vid := vulnOf(f.vulns("a1", ""), fid).ID
+	ids := []string{}
+	statuses := []string{NotifySent, NotifyFailed, NotifyDismissed, NotifyPendingConfirm, NotifySent, NotifyQueued}
+	for index, status := range statuses {
+		kind := []string{NotifyKindNew, NotifyKindManual, NotifyKindRegression}[index%3]
+		model := notificationModel{ID: fmt.Sprintf("wn_fixture_%d", index), DedupeKey: vid, Kind: kind, TaskID: "t1", FindingID: fid, VerificationID: fmt.Sprintf("%s-%d", v.VerificationID, index),
+			VulnID: vid, Status: status, CreatedAt: notifyTime(f.now.Add(time.Duration(index) * time.Minute))}
+		if _, err := f.capability.store.orm.NewInsert().Model(&model).Exec(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, model.ID)
+	}
+	card := f.card(vid)
+	if len(card.Notify.Items) != 5 {
+		t.Fatalf("items = %d", len(card.Notify.Items))
+	}
+	for index, item := range card.Notify.Items {
+		if item.ID != ids[len(ids)-1-index] {
+			t.Fatalf("order[%d] = %s want %s", index, item.ID, ids[len(ids)-1-index])
+		}
 	}
 }

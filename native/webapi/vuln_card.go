@@ -241,6 +241,7 @@ type VulnCard struct {
 	Related            []VulnCardRelated `json:"related"`
 	Nav                VulnCardNav       `json:"nav"`
 	Replays            []VulnCardReplay  `json:"replays"`
+	Notify             VulnCardNotify    `json:"notify"`
 }
 
 // ---- 定位 ----
@@ -248,18 +249,37 @@ type VulnCard struct {
 // cardTarget 找到条目视图（含处置）与全局默认排序列表（未归档资产条目 + 无资产候选）；
 // 归档资产条目也可打开，但不在排序列表中（nav 为空）。不存在返回 errTriageNotFound。
 func (c *Capability) cardTarget(ctx context.Context, key string) (*GlobalVuln, []*GlobalVuln, error) {
-	all, err := c.globalVulns(ctx, "")
+	index, err := c.loadCardIndex(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	return c.cardTargetIn(ctx, index, key)
+}
+
+// cardIndex 是全局默认排序列表（含处置视图）；批量导出复用同一份，避免每键重算。
+type cardIndex struct {
+	all    []*GlobalVuln
+	triage *triageContext
+}
+
+func (c *Capability) loadCardIndex(ctx context.Context) (*cardIndex, error) {
+	all, err := c.globalVulns(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	triage, err := c.loadTriageContext(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, item := range all {
 		item.Triage = triage.view(item.ID, item.assetID, item.Status, item.firstConfirmed)
 	}
 	sortGlobalVulns(all)
+	return &cardIndex{all: all, triage: triage}, nil
+}
+
+func (c *Capability) cardTargetIn(ctx context.Context, index *cardIndex, key string) (*GlobalVuln, []*GlobalVuln, error) {
+	all, triage := index.all, index.triage
 	for _, item := range all {
 		if item.ID == key {
 			return item, all, nil
@@ -592,14 +612,23 @@ func (s *taskStore) vulnChanges(ctx context.Context, key string) ([]AuditEvent, 
 	return items, err
 }
 
-// vulnNotifyEvents：该条目（去重键）的推送终态：sent 用 sent_at，failed 用审计时间（无则登记时间）。
+// vulnNotifyEvents：该条目（去重键）的推送终态：sent 用 sent_at，failed 用审计时间（无则登记时间）；
+// 人工推送（manual）见 manualNotifyEvents。
 func (s *taskStore) vulnNotifyEvents(ctx context.Context, key string) ([]VulnCardEvent, error) {
 	var items []notificationModel
-	if err := s.orm.NewSelect().Model(&items).Where("dedupe_key = ? AND status IN (?)", key, bun.In([]string{NotifySent, NotifyFailed})).Scan(ctx); err != nil {
+	if err := s.orm.NewSelect().Model(&items).Where("dedupe_key = ? AND (status IN (?) OR kind = ?)", key, bun.In([]string{NotifySent, NotifyFailed}), NotifyKindManual).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := []VulnCardEvent{}
 	for _, item := range items {
+		if item.Kind == NotifyKindManual {
+			events, err := s.manualNotifyEvents(ctx, item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, events...)
+			continue
+		}
 		label := map[string]string{NotifyKindNew: "新确认漏洞", NotifyKindRegression: "漏洞复现"}[item.Kind]
 		event := VulnCardEvent{Kind: "notify", Actor: auditActorSystem}
 		if item.Status == NotifySent {
@@ -613,6 +642,45 @@ func (s *taskStore) vulnNotifyEvents(ctx context.Context, key string) ([]VulnCar
 		}
 		if event.At == "" {
 			event.At = item.CreatedAt
+		}
+		out = append(out, event)
+	}
+	return out, nil
+}
+
+// manualNotifyEvents：人工推送行在终态后可重新入队（复用同一行），故每次终态取投递审计
+// notification.sent / notification.failed；没有审计时退回该行当前终态。
+func (s *taskStore) manualNotifyEvents(ctx context.Context, item notificationModel) ([]VulnCardEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+auditColumns+` FROM webapi_audit_events
+		WHERE target_kind = 'notification' AND target_id = ? AND action IN ('notification.sent', 'notification.failed') ORDER BY at ASC, id ASC`, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	audits, err := scanAuditRows(rows)
+	if closeErr := closeRows(rows); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []VulnCardEvent{}
+	for _, audit := range audits {
+		event := VulnCardEvent{At: audit.At, Kind: "notify", Actor: auditActorSystem, Title: "企业微信人工推送成功", Detail: "漏洞通报"}
+		if audit.Action == "notification.failed" {
+			var detail struct {
+				LastError string `json:"last_error"`
+			}
+			_ = json.Unmarshal(audit.Detail, &detail)
+			event.Title, event.Detail = "企业微信人工推送失败", capRunes(oneLine(detail.LastError), vulnCardDetailRunes)
+		}
+		out = append(out, event)
+	}
+	if len(out) == 0 && (item.Status == NotifySent || item.Status == NotifyFailed) {
+		event := VulnCardEvent{At: item.CreatedAt, Kind: "notify", Actor: auditActorSystem, Title: "企业微信人工推送成功", Detail: "漏洞通报"}
+		if item.Status == NotifySent && item.SentAt.Valid {
+			event.At = item.SentAt.String
+		} else if item.Status == NotifyFailed {
+			event.Title, event.Detail = "企业微信人工推送失败", capRunes(oneLine(item.LastError), vulnCardDetailRunes)
 		}
 		out = append(out, event)
 	}
@@ -701,6 +769,10 @@ func (c *Capability) buildVulnCard(ctx context.Context, key string) (*VulnCard, 
 	if err != nil {
 		return nil, err
 	}
+	return c.buildVulnCardFor(ctx, item, ordered)
+}
+
+func (c *Capability) buildVulnCardFor(ctx context.Context, item *GlobalVuln, ordered []*GlobalVuln) (*VulnCard, error) {
 	findingIDs := memberFindingIDs(item)
 	verifications, err := c.store.cardVerifications(ctx, findingIDs)
 	if err != nil {
@@ -796,6 +868,9 @@ func (c *Capability) buildVulnCard(ctx context.Context, key string) (*VulnCard, 
 	}
 	card.Replays = replays
 	card.Lifecycle = append(card.Lifecycle, replayEvents...)
+	if card.Notify, err = c.cardNotify(ctx, item.ID); err != nil {
+		return nil, err
+	}
 	if item.FixedAt != nil {
 		card.Lifecycle = append(card.Lifecycle, VulnCardEvent{At: *item.FixedAt, Kind: "fixed", Title: "已修复", Detail: "复测结论为范围内已修复", Actor: auditActorSystem})
 	}

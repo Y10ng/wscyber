@@ -680,7 +680,7 @@ func (c *Capability) auditNotification(ctx context.Context, actor, action, id st
 		detail[key] = value
 	}
 	title, taskID, assetID := "", "", ""
-	if views, err := c.store.notificationViews(ctx, "", id, 1, 0); err == nil && len(views) > 0 {
+	if views, err := c.store.notificationViews(ctx, notificationFilter{ID: id}, 1, 0); err == nil && len(views) > 0 {
 		title, taskID = views[0].Title, views[0].TaskID
 		if views[0].Asset != nil {
 			assetID = views[0].Asset.ID

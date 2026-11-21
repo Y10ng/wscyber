@@ -669,7 +669,7 @@ func TestVulnCardNotifyUsesRepro(t *testing.T) {
 		"关键复现：\n" +
 		"1. 以 demo-user 请求他人订单 1002\n" +
 		"2. 对照：请求本人订单 1001\n" +
-		"[在平台查看](https://wscyber.example.test/sessions/" + v.SessionID + ")"
+		"[在平台查看](https://wscyber.example.test/?page=vulns&vuln=" + vulnOf(f.vulns("a1", ""), fid).ID + ")"
 	if markdown := got[0]["markdown"].(map[string]any)["content"].(string); markdown != want {
 		t.Fatalf("markdown =\n%s\nwant\n%s", markdown, want)
 	}

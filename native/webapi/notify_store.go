@@ -16,6 +16,8 @@ const (
 
 	NotifyKindNew        = "new"
 	NotifyKindRegression = "regression"
+	// NotifyKindManual：漏洞卡上人工推送（K2）；每个 (去重键, 验证) 一行，终态后再推复用该行重新入队。
+	NotifyKindManual = "manual"
 
 	NotifyPendingConfirm = "pending_confirm"
 	NotifyQueued         = "queued"
@@ -249,9 +251,15 @@ const notificationViewSQL = `SELECT n.id, n.kind, n.status, n.dedupe_key, n.task
 	LEFT JOIN webapi_asset_tasks l ON l.task_id = n.task_id
 	LEFT JOIN webapi_assets a ON a.id = l.asset_id`
 
-// notificationViews 按 created_at 倒序；status 空为全部。返回 limit+1 条以判断 has_more。
-func (s *taskStore) notificationViews(ctx context.Context, status, id string, limit, offset int) ([]NotificationView, error) {
-	where, args := ` WHERE (? = '' OR n.status = ?) AND (? = '' OR n.id = ?)`, []any{status, status, id, id}
+// notificationFilter 是 notificationViews 的筛选；空字段不过滤。
+type notificationFilter struct {
+	Status, ID, DedupeKey string
+}
+
+// notificationViews 按 created_at 倒序。调用方按需多取一条以判断 has_more。
+func (s *taskStore) notificationViews(ctx context.Context, filter notificationFilter, limit, offset int) ([]NotificationView, error) {
+	where := ` WHERE (? = '' OR n.status = ?) AND (? = '' OR n.id = ?) AND (? = '' OR n.dedupe_key = ?)`
+	args := []any{filter.Status, filter.Status, filter.ID, filter.ID, filter.DedupeKey, filter.DedupeKey}
 	rows, err := s.db.QueryContext(ctx, notificationViewSQL+where+` ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, err
@@ -285,4 +293,41 @@ func (s *taskStore) notificationViews(ctx context.Context, status, id string, li
 		out = append(out, view)
 	}
 	return out, rows.Err()
+}
+
+// notifyInFlightStatuses：尚未到终态的通知（人工推送遇到即 409 in_flight）。
+var notifyInFlightStatuses = []string{NotifyPendingConfirm, NotifyQueued, NotifySending}
+
+// enqueueManualNotification 单事务登记一次人工推送（kind=manual，直接 queued、立即到期）：
+// 该键有任一未到终态的通知 → 返回其 id（inFlight）不登记；同 (键, manual, 验证) 已有终态行 → 复用该行重新入队
+// （attempts/last_error/sent_at 清空，created_at 更新为本次）；否则插入新行。不影响 new/regression 的去重。
+func (s *taskStore) enqueueManualNotification(ctx context.Context, model *notificationModel) (id string, inFlight string, err error) {
+	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		var busy []notificationModel
+		if err := tx.NewSelect().Model(&busy).Where("dedupe_key = ? AND status IN (?)", model.DedupeKey, bun.In(notifyInFlightStatuses)).
+			OrderExpr("created_at DESC, id DESC").Limit(1).Scan(ctx); err != nil {
+			return err
+		}
+		if len(busy) > 0 {
+			inFlight = busy[0].ID
+			return nil
+		}
+		var existing []notificationModel
+		if err := tx.NewSelect().Model(&existing).Where("dedupe_key = ? AND kind = ? AND verification_id = ?", model.DedupeKey, NotifyKindManual, model.VerificationID).
+			Limit(1).Scan(ctx); err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			id = existing[0].ID
+			_, err := tx.NewUpdate().Model((*notificationModel)(nil)).
+				Set("status = ?", NotifyQueued).Set("attempts = 0").Set("next_attempt_at = ?", model.NextAttemptAt).
+				Set("last_error = ''").Set("sent_at = NULL").Set("created_at = ?", model.CreatedAt).
+				Where("id = ?", id).Exec(ctx)
+			return err
+		}
+		id = model.ID
+		_, err := tx.NewInsert().Model(model).Exec(ctx)
+		return err
+	})
+	return id, inFlight, err
 }

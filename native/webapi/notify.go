@@ -505,11 +505,15 @@ func (c *Capability) failNotification(ctx context.Context, item notificationMode
 type notifyMessage struct {
 	markdown string
 	image    []byte
+	// imageSource：图片渲染所用证据与高亮（人工推送预览用）；无图片时为 nil。
+	imageSource *NotifyPreviewImage
+	note        string // 附在 markdown 末行的图片说明（无则空串）
 }
 
 // notifyFields 是 markdown 的全部字段（只来自已保存的候选与验证文字）。
 type notifyFields struct {
 	Regression bool
+	Manual     bool   // 漏洞卡人工推送（K2）：标题前缀【漏洞通报】
 	Severity   string // 处置严重度中文等级（严重/高危/…）；未定级时为 AI 建议等级“AI 建议·高危”（K1），都没有为空
 	Title      string
 	Asset      string
@@ -554,11 +558,15 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	}
 	fields := notifyFields{
 		Regression: item.Kind == NotifyKindRegression,
-		Title:      revision.Title,
+		Manual:     item.Kind == NotifyKindManual,
+		Title:      c.notifyVulnTitle(ctx, item.DedupeKey),
 		Asset:      assetName,
 		Location:   "未记录",
 		VerifiedAt: c.notifyLocalTime(resultModel.CreatedAt),
 		Danger:     capRunes(oneLine(firstSentence(source.Content.Description)), notifyDangerRunes),
+	}
+	if fields.Title == "" { // 漏洞卡标题取不到（条目已并入/移空等）时退回验证固定修订标题。
+		fields.Title = revision.Title
 	}
 	if fields.Title == "" {
 		fields.Title = source.Content.Title
@@ -590,7 +598,7 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 		}
 	}
 	if baseURL != "" {
-		fields.Link = baseURL + "/sessions/" + verification.SessionID
+		fields.Link = notifyCardLink(baseURL, item.DedupeKey)
 	}
 	message := &notifyMessage{}
 	if step, marks := c.notifyReproEvidence(ctx, verification.TaskID, result.Payload); step != nil {
@@ -598,6 +606,9 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 		fields.Location = strings.TrimSpace(strings.ToUpper(step.Method) + " " + stripURLUserinfo(step.URL))
 		image, note := c.notifyEvidenceImage(*step, secrets, marks)
 		message.image, fields.Note = image, note
+		if image != nil {
+			message.imageSource = &NotifyPreviewImage{TaskID: step.TaskID, EvidenceID: step.ID, Marks: marks}
+		}
 	} else {
 		evidence, model := c.notifyEvidence(ctx, verification.TaskID, result.Evidence, source.Evidence)
 		if evidence != nil {
@@ -607,13 +618,31 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 		case model != nil:
 			image, note := c.notifyEvidenceImage(*model, secrets, nil)
 			message.image, fields.Note = image, note
+			if image != nil {
+				message.imageSource = &NotifyPreviewImage{TaskID: model.TaskID, EvidenceID: model.ID, Marks: []string{}}
+			}
 		case evidence != nil: // 引用的证据行读不到
 			fields.Note = notifyImageFailed
 		}
 	}
 	fields = scrubNotifyFields(fields, secrets)
-	message.markdown = composeNotifyMarkdown(fields)
+	message.markdown, message.note = composeNotifyMarkdown(fields), fields.Note
 	return message, nil
+}
+
+// notifyCardLink 是消息里的平台链接：漏洞卡页（前端支持 ?page=vulns&vuln=<key> 直接打开）。
+func notifyCardLink(baseURL, key string) string {
+	return baseURL + "/?page=vulns&vuln=" + url.QueryEscape(key)
+}
+
+// notifyVulnTitle 返回漏洞卡 header.title（人工改名优先，否则最新成员修订标题）；取不到返回 ""。
+func (c *Capability) notifyVulnTitle(ctx context.Context, key string) string {
+	target, unlock, err := c.resolveVulnKey(ctx, key)
+	if err != nil {
+		return ""
+	}
+	unlock()
+	return target.title
 }
 
 // notifyAssetContext 返回资产名（无关联为空）与该资产测试账号的 secret 明文（用于从消息与图片中遮盖）。
@@ -626,9 +655,18 @@ func (c *Capability) notifyAssetContext(ctx context.Context, taskID string) (str
 	if err != nil || asset == nil {
 		return "", nil, err
 	}
-	credentials, err := c.store.assetCredentials(ctx, assetID)
+	secrets, err := c.assetSecrets(ctx, assetID)
 	if err != nil {
 		return "", nil, err
+	}
+	return asset.Name, secrets, nil
+}
+
+// assetSecrets 返回资产测试账号 secret 明文（≥4 字，用于遮盖）。
+func (c *Capability) assetSecrets(ctx context.Context, assetID string) ([]string, error) {
+	credentials, err := c.store.assetCredentials(ctx, assetID)
+	if err != nil {
+		return nil, err
 	}
 	secrets := []string{}
 	for _, item := range credentials[assetID] {
@@ -637,17 +675,17 @@ func (c *Capability) notifyAssetContext(ctx context.Context, taskID string) (str
 		}
 		aead, err := c.secrets.load(false)
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
 		secret, err := openSecret(aead, assetID, item.ID, item.SecretCipher)
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
 		if utf8.RuneCountInString(secret) >= notifyMinSecretRunes {
 			secrets = append(secrets, secret)
 		}
 	}
-	return asset.Name, secrets, nil
+	return secrets, nil
 }
 
 // notifyEvidence：验证结果第一条 supporting 证据，没有则候选（验证固定的修订）第一条 supporting 证据。
@@ -843,7 +881,10 @@ func composeNotifyMarkdown(fields notifyFields) string {
 
 func renderNotifyMarkdown(fields notifyFields, limit int) string {
 	label := "【新确认漏洞】"
-	if fields.Regression {
+	switch {
+	case fields.Manual:
+		label = "【漏洞通报】"
+	case fields.Regression:
 		label = "【漏洞复现】"
 	}
 	if fields.Severity != "" {

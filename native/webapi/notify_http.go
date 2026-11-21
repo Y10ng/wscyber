@@ -160,7 +160,7 @@ func (c *Capability) handleNotificationList(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	items, err := c.store.notificationViews(r.Context(), status, "", limit+1, offset)
+	items, err := c.store.notificationViews(r.Context(), notificationFilter{Status: status}, limit+1, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取推送记录失败")
 		return
@@ -195,7 +195,7 @@ func (c *Capability) notificationAction(action string, from []string, conflict s
 }
 
 func (c *Capability) writeNotification(ctx context.Context, w http.ResponseWriter, id string) {
-	views, err := c.store.notificationViews(ctx, "", id, 1, 0)
+	views, err := c.store.notificationViews(ctx, notificationFilter{ID: id}, 1, 0)
 	if err != nil || len(views) == 0 {
 		writeError(w, http.StatusInternalServerError, "读取推送记录失败")
 		return

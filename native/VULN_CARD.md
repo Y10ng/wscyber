@@ -23,6 +23,7 @@
 | `appendix` | `{verifications[], members[], evidence_count, evidence[], changes[]}`，见下 |
 | `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, suggested_severity, status}`；`suggested_severity` 与 `GET /vulns` 对应条目同源，无建议时为空串；无资产为空 |
 | `nav` | `{prev_key, next_key}`：在 `GET /vulns` 默认排序（无筛选）中的前/后一条，首尾为 null |
+| `notify` | K2：`{configured, require_confirm, items: NotificationView[]}`，该键最近 5 条推送（任何 kind/状态，新到旧）；见 `native/NOTIFY.md`「漏洞卡人工推送」 |
 | `replays[]` | 该键最近 5 次已完成的一键重放（K2，见 `native/REPLAY.md`），新到旧：`{replay_id, step, task_id, evidence_id, at, status_code, verdict_hint}`；结果未知的尝试不列（只在审计与证据里）；无则 `[]` |
 
 - `suggested_severity` / `severity_reason`：成员中最新一条带建议等级的 supported 验证；列表项 `suggested_severity` 同一规则。它只是 AI 建议，不写处置、不参与 SLA/逾期/计数。
@@ -37,7 +38,7 @@
 | `candidate` | 每个成员候选创建（“AI 发现候选 WSC-…”，detail 为标题） | ai |
 | `verification` | 每条已保存判读（结果保存时间；“独立验证：支持/反证/证据不足”，detail 为 summary） | ai |
 | `triage` | 审计 `vuln.triage`（detail 为审计摘要） | 审计 actor（user） |
-| `notify` | 该键的推送终态：sent 用 sent_at，failed 用 `notification.failed` 审计时间（无则登记时间） | system |
+| `notify` | 该键的推送终态：sent 用 sent_at，failed 用 `notification.failed` 审计时间（无则登记时间）；人工推送（manual）每次投递终态各一条（“企业微信人工推送成功/失败”，取 `notification.sent/failed` 审计时间） | system |
 | `replay` | 每次已完成的一键重放（“一键重放：仍可复现/有变化/无法判定”，detail 为 `METHOD /path → 状态码`） | user |
 | `retest` | 每条复测结论（“复测：仍可复现/已修复（范围内）/无法判定”） | ai |
 | `fixed` | 条目派生状态为已修复时，`fixed_at` | system |
@@ -49,7 +50,7 @@
 - `verifications[]`：成员全部验证（含未出结果），按结果时间（无结果按创建时间）倒序：`{verification_id, task_id, finding_id, finding_number, session_id, created_at, verdict|null, method, preconditions, summary, limitations, suggested_severity, severity_reason, has_repro, evidence_count, saved_at|null}`。
 - `members[]`：同资产漏洞库成员视图。
 - `evidence[]`：候选当前修订声称的证据（source=candidate）、验证结果证据、关键步骤与对照证据（relation=key_step/contrast）、复测证据（source=retest），按 task+evidence_id 去重，最多列 200 条；`evidence_count` 为去重总数。
-- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked/replay），新到旧，同审计接口项格式。
+- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked/replay/notify），新到旧，同审计接口项格式。
 
 ## `GET /api/webapi/vulns/{key}/card/curl?step=N&mask=0|1`
 
@@ -69,7 +70,43 @@ curl -sS -X METHOD 'URL' \
 
 ## 推送联动（见 `native/NOTIFY.md`）
 
-处置未定级时等级标签用 AI 建议（`【AI 建议·高危】`）；结果带最小复现时“影响”取 impact、“关键复现”取 step 标题，位置与图片取第 1 步证据并按其 marks 高亮。
+处置未定级时等级标签用 AI 建议（`【AI 建议·高危】`）；结果带最小复现时“影响”取 impact、“关键复现”取 step 标题，位置与图片取第 1 步证据并按其 marks 高亮。K2：标题行用 `header.title`，链接为 `<base_url>/?page=vulns&vuln=<键>`；卡上人工推送 `POST /vulns/{key}/card/notify` 与预览 `GET /vulns/{key}/card/notify/preview`。
+
+## 漏洞报告导出（K2）
+
+由漏洞卡确定性生成，不调用模型；只读、不登记审计；只导出遮盖版（不提供 `mask=0`）。实现 `native/webapi/vuln_export.go`。
+
+- 单条 `GET /api/webapi/vulns/{key}/card/export?format=markdown|json`：键非法或 format 缺失/非法 400，条目不存在 404。
+- 多条 `POST /api/webapi/vulns/export` `{keys:[…], format}`：1–50 个、不重复、每个符合路径 id 规则，未知字段 400；任一键不存在 404，`error` 为“漏洞条目不存在：<键>”；按请求顺序输出；归档资产条目可导出。
+- 响应头：Markdown `text/markdown; charset=utf-8`，JSON `application/json`；`Cache-Control: no-store`；`Content-Disposition: attachment; filename="vuln-<code>.md|json"`（单条）/ `"vulns-report.md|json"`（多条）。不含生成时间等易变字段，同输入字节一致。
+- 遮盖：敏感头（同 curl：Authorization、Proxy-Authorization、Cookie、Set-Cookie、X-API-Key、X-Auth-Token）值整体为 `******`（请求与响应都遮）；条目所属资产测试账号 secret（≥4 字）在所有文字字段、URL、原文、curl、高亮片段中替换为 `******`；高亮片段与敏感头值互相包含时整体为 `******`；URL 去 userinfo。curl 为 `card/curl` 默认遮盖版。
+
+### Markdown
+
+```
+> 由 WScyber 依据漏洞卡生成；AI 判读与建议等级不等于人工确认；原文已遮盖敏感头与测试账号口令
+## 汇总（N 条）                                   （仅多条）
+| 编号 | 标题 | 资产 | 等级 | 状态 | 处置 | 期限 |
+## V-XXXX <title_template>
+- 资产 / 位置（端点键，无则“未记录”）/ 等级 / 状态 / 处置 / 负责人（owner_effective，无则“未指定”）/ 修复期限（due_effective，逾期加“（已逾期）”，无则“无”）/ 首次发现（Hub 本地时区 YYYY-MM-DD HH:MM）
+### 影响 / ### 前置条件 / ### 复现步骤（#### 第 N 步：标题）/ ### 正常对照 / ### 修复建议 / ### 复测方法
+### 最近复测结论 / ### 最近重放（≤5）/ ### 验证记录
+```
+
+- 等级：人工严重度中文名；未定级时“未定级（AI 建议：高危）”或“未定级”。状态：新发现/仍存在/待验证/未支持/已修复；处置：待处理/修复中/接受风险/误报。
+- 每步：`` `METHOD URL` → 状态码（证据 id）``；关键片段列表（请求/响应各自 `*_marks_found`，`mark_missing` 时加“部分片段在原件中未找到”）；请求原文、响应原文各一个 `http` 代码块（首行、原始头、空行、正文），围栏为 max(3, 原文最长连续反引号 + 1) 个反引号；遮盖版 curl 一个 `bash` 代码块。如实标注：`capture_truncated`（“原件捕获已截断：响应正文只保存了前 N 字节”）、正文（遮盖后）超过 16 KiB 截到 16 KiB（UTF-8 边界）并写“已截断（原 N 字节）”、二进制正文不内联（“为二进制（N 字节），未内联”）、证据行不存在/原件无法解析（不出原文）。
+- 正常对照：note，再 `正常/异常：`METHOD URL` → 状态码`；无对照写“未提供”。
+- 无最小复现：不出影响至复测方法各段，写“最小复现：未提供（原因）”，原因：`no_verification` 还没有独立验证判读 / `no_supported` 独立验证未得出“支持”判读 / `no_key_steps` 该判读产生于最小复现功能之前；复测、重放、验证记录照常。
+- 验证记录：附录中已出结果的判读（新到旧）：`候选编号 · 判读（时间）：summary`，下列方法、局限。
+
+### JSON `wscyber.vuln_report.v1`
+
+`{schema, items:[Item]}`，缩进 2 空格、不转义 HTML、末尾换行。
+
+- Item：`key, code, title, title_template, asset{id,name,env,owner}|null, endpoint_key, location, severity, suggested_severity, severity_reason, status, disposition, owner（owner_effective）, due_effective|null, overdue, first_seen_at, repro|null, repro_missing_reason|null, retest|null, replays[], verifications[]`。
+- repro：`verification_id, task_id, impact, preconditions, steps[], contrast|null, remediation[], retest_method, saved_at`。
+- step：`index, title, evidence_id, evidence_status（ok|missing|unparsable）, method, url, status_code|null, request_marks_found[], response_marks_found[], mark_missing, request_raw, request_body_bytes, request_body_binary, request_body_truncated, response_raw, response_body_bytes, response_body_binary, response_body_truncated, capture_truncated, curl`（`*_raw` 为遮盖后原文，二进制时只到头部，`*_body_bytes` 为原件正文字节数；无响应时 `response_raw` 为空串；非 ok 时原文与 curl 为空串）。
+- contrast：`note, normal{evidence_id,method,url,status_code}, abnormal{…}`；retest：`retest_id, conclusion, summary, at`；replays：`replay_id, step, evidence_id, at, status_code, verdict_hint`；verifications：`verification_id, finding_number, verdict, method, summary, limitations, suggested_severity, saved_at`。
 
 ## 未覆盖
 
