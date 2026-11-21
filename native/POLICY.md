@@ -6,7 +6,7 @@
 - `approval`：`off` | `high_risk`（默认）| `all`。
   - high_risk：`webapi_http` 命中 `policy.go requestReview`（DELETE、路径/查询/方法覆盖头/正文破坏性信号）；`bash` 命令命中 `webapi/command_rules.go` 规则表：rm -r/-f、mkfs/wipefs/shred/mkswap、dd of=/dev/…、重定向写块设备、shutdown/reboot/halt/poweroff/init 0|6/systemctl reboot…、SQL DROP/TRUNCATE/DELETE FROM、curl/wget DELETE 或破坏性信号、find -delete；穿透 sudo/env/xargs/timeout 等包装、find -exec、sh/bash -c、eval、tmux send-keys。命令名为动态展开、或高危类程序参数含动态展开（无法静态核对）也要求审批。
   - all：以上 + `webapi_http` 全部非 GET/HEAD/OPTIONS + 全部 `bash` + `write`。
-  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）；`subagent`、tmux 在模型节点本就拒绝。
+  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）；`subagent` 在两种模型节点均被拒绝（平台钩子 `wscyber-webapi-subagent`；子会话尚无任务归属，开放前须先实现子会话→任务映射，见 roadmap M5）；tmux 在模型节点本就拒绝。
 
 ## 审批机制
 

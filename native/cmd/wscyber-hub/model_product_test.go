@@ -3,17 +3,20 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/chainreactors/cyber/agent/provider"
 	agentsession "github.com/chainreactors/cyber/agent/session"
+	coretool "github.com/chainreactors/cyber/core/tool"
 	"github.com/chainreactors/cyber/core/types"
 	"github.com/chainreactors/cyber/pkg/profile"
 	"github.com/chainreactors/cyber/pkg/rpc"
@@ -130,6 +133,42 @@ func TestProductModelNativeEntryAndReopen(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProductModelSubagentDenied(t *testing.T) {
+	var requests atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unexpected model request", http.StatusInternalServerError)
+	}))
+	defer endpoint.Close()
+	capability, err := webapi.NewCapability(t.TempDir() + "/hub.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capability.Close(context.Background())
+	p, err := newProductModelProfile(profile.Request{ProviderMode: provider.StartupDisabled, Session: &agentsession.Config{}}, t.TempDir(), capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close(context.Background())
+	if err := p.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ReloadProvider(t.Context(), provider.ProviderConfig{Provider: "openai", BaseURL: endpoint.URL + "/v1", APIKey: "not-a-credential", Model: "synthetic-model", Timeout: 2}); err != nil {
+		t.Fatal(err)
+	}
+	tools, err := p.Tools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, toolErr := tools.ExecuteTool(t.Context(), "subagent", `{"prompt":"not executed"}`)
+	if !strings.Contains(coretool.ResultText(result)+fmt.Sprint(toolErr), "已拒绝 subagent") {
+		t.Fatalf("product subagent was not denied: result=%v err=%v", result, toolErr)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("subagent admission sent %d model requests", requests.Load())
 	}
 }
 

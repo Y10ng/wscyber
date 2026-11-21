@@ -11,4 +11,4 @@
 - U = `input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, calls`；total 缺失（0）时用 input+output；cache 取 `detail["cache_read"/"cache_write"]`；calls = Usage 事件数。
 - 排序：`by_day` 升序；`by_model/by_task/by_session` 按 total 降序，同值按键升序。数组无数据时为 `[]`。
 - 不做费用（上游无价格配置）。
-- 未计入：上下文压缩摘要调用、recap 扩展、JEV（声明/编译/反射）模型调用均不发 `Event_Usage`；子代理（subagent）在独立 session 中运行，不属于任何任务会话，任务视图不含、全局视图归入 `""`。
+- 未计入：上下文压缩摘要调用、recap 扩展、JEV（声明/编译/反射）模型调用均不发 `Event_Usage`；子代理（subagent）在独立 session 中运行，不属于任何任务会话，任务视图不含、全局视图归入 `""`。当前已拒绝调用。

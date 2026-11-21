@@ -256,6 +256,12 @@ func (c *Capability) ApprovalExtension() extension.Extension {
 			}
 			lifetime := scope.Lifetime()
 			subscriptions = append(subscriptions,
+				toolhooks.Before.On(registry, "wscyber-webapi-subagent", func(_ context.Context, event toolhooks.CallEvent) (toolhooks.Admission, error) {
+					if event.Call.GetName() == "subagent" {
+						return toolhooks.Admission{Deny: errors.New("平台尚未接入子 Agent 的任务归属、出口与预算，已拒绝 subagent")}, nil
+					}
+					return toolhooks.Admission{}, nil
+				}),
 				toolhooks.Before.On(registry, "wscyber-webapi-approval", func(ctx context.Context, event toolhooks.CallEvent) (toolhooks.Admission, error) {
 					return c.admitTool(ctx, lifetime, stream, event)
 				}),
