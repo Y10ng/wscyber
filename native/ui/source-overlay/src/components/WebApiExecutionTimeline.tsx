@@ -624,6 +624,11 @@ function PendingApprovalCard({ approval, onResolve, busy }: {
         <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
         <span className="shrink-0 font-medium text-warning">{t('webapi.execApprovalPendingCard')}</span>
         <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-muted-foreground">{approval.toolName}</span>
+        {approval.reason?.includes('子 Agent oracle_explorer 会话') && (
+          <span className="ws-st-badge shrink-0 bg-slate-100 text-[10.5px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {t('webapi.execSubagentBadge')}
+          </span>
+        )}
         {approval.expiresAt !== undefined && <ApprovalRemaining expiresAt={approval.expiresAt} />}
       </div>
       <p className="mt-1 break-all font-mono text-[12px] text-foreground" title={approval.summary}>{approval.summary}</p>

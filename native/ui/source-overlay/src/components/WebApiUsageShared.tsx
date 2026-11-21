@@ -17,6 +17,7 @@ const ROLE_LABEL_KEYS: Record<string, string> = {
   verification: 'webapi.usageRoleVerification',
   report: 'webapi.usageRoleReport',
   retest: 'webapi.usageRoleRetest',
+  subagent: 'webapi.usageRoleSubagent',
 }
 
 export function usageRoleLabelKey(role: string): string {
@@ -29,6 +30,7 @@ export function usageRoleTone(role: string): string {
   if (role === 'verification') return 'text-emerald-600 dark:text-emerald-400'
   if (role === 'report') return 'text-amber-600 dark:text-amber-400'
   if (role === 'retest') return 'text-purple-600 dark:text-purple-400'
+  if (role === 'subagent') return 'text-cyan-600 dark:text-cyan-400'
   return 'text-muted-foreground'
 }
 

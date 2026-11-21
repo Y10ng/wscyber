@@ -26,6 +26,7 @@ import {
   listWebApiBoardEndpoints,
   listWebApiBoardFacts,
   listWebApiBoardOracles,
+  listWebApiSubsessions,
   getWebApiBoard,
   updateWebApiBoardOracle,
   type WebApiBoardCategory,
@@ -36,11 +37,13 @@ import {
   type WebApiBoardOracle,
   type WebApiBoardOracleStatus,
   type WebApiBoardPriority,
+  type WebApiSubsession,
   type WebApiTask,
 } from '../api'
 import { usePolling } from '../hooks/usePolling'
 import { FilterPills, type FilterPillItem } from './PageFrame'
 import { formatTime } from './WebApiEvidenceReference'
+import { formatShortDateTime } from '../lib/time'
 import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 import './WebApiBoardPanel.css'
 
@@ -144,6 +147,38 @@ function mergeFacts(current: WebApiBoardFact[], page: WebApiBoardFact[]): WebApi
   return [...page, ...current.filter((item) => !pageIds.has(item.id))]
 }
 
+// 子 Agent 状态徽标：运行中品牌蓝（呼吸圆点）/ 已结束中性灰 / 其它已中断琥珀。
+// 中断的 Tooltip 展示上游 stop_reason 与 error，便于人工排查。
+function SubagentStatusBadge({ sub }: { sub: WebApiSubsession }) {
+  const { t } = useTranslation('chat')
+  if (sub.status === 'running') {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+        <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+        {t('board.subagentRunning')}
+      </span>
+    )
+  }
+  if (sub.stop_reason === 'completed') {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+        {t('board.subagentEnded')}
+      </span>
+    )
+  }
+  const detail = [sub.stop_reason, sub.error].filter(Boolean).join('：')
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 cursor-help items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          {t('board.subagentInterrupted')}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{detail || t('board.subagentInterrupted')}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 interface Props {
   task: WebApiTask
   onViewFinding: (findingId: string) => void
@@ -200,6 +235,11 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
   const [factHasMore, setFactHasMore] = useState(false)
   const [factNextCursor, setFactNextCursor] = useState<string | null>(null)
 
+  // 子 Agent 区：Oracle 页签顶部的并行探索可见性（GET /subsessions）。
+  const [subsessions, setSubsessions] = useState<WebApiSubsession[]>([])
+  const [clock, setClock] = useState(() => Date.now())
+  const subsessionSeq = useRef(0)
+
   const boardSeq = useRef(0)
   const oracleSeq = useRef(0)
   const endpointSeq = useRef(0)
@@ -218,6 +258,17 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
       if (!silent) setBoardError(err instanceof Error ? err.message : String(err))
     } finally {
       if (seq === boardSeq.current && !silent) setBoardLoading(false)
+    }
+  }, [task.id])
+
+  const loadSubsessions = useCallback(async () => {
+    const seq = ++subsessionSeq.current
+    try {
+      const result = await listWebApiSubsessions(task.id)
+      if (seq !== subsessionSeq.current) return
+      setSubsessions(result.items)
+    } catch {
+      // 子 Agent 区是增量信息：失败保留上次结果，不打断黑板主流程。
     }
   }, [task.id])
 
@@ -349,7 +400,10 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
     setFactsError('')
     setFactHasMore(false)
     setFactNextCursor(null)
+    subsessionSeq.current++
+    setSubsessions([])
     void loadBoard()
+    void loadSubsessions()
     // Oracle 首屏由 loadOracles 的筛选 effect 触发；这里不重复发请求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id])
@@ -371,6 +425,32 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
     else void loadFacts(undefined, true)
   }, 10000)
 
+  const runningSubagentCount = subsessions.reduce((total, item) => total + (item.status === 'running' ? 1 : 0), 0)
+  const subsessionBySession = useMemo(() => new Map(subsessions.map((item) => [item.session_id, item])), [subsessions])
+  const runningClaimedSessions = useMemo(
+    () => new Set(subsessions.filter((item) => item.status === 'running').map((item) => item.session_id)),
+    [subsessions],
+  )
+
+  // 运行时长逐秒走字；没有运行中子 Agent 时不挂定时器。
+  useEffect(() => {
+    if (runningSubagentCount === 0) return
+    setClock(Date.now())
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [runningSubagentCount])
+
+  // 有运行中子 Agent 时每 5 秒静默刷新子 Agent 与 Oracle 列表；离开 Oracle
+  // 页签（或页面卸载）即清理定时器。无运行中不轮询。
+  useEffect(() => {
+    if (section !== 'oracles' || runningSubagentCount === 0) return
+    const timer = window.setInterval(() => {
+      void loadSubsessions()
+      void loadOracles(undefined, true)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [section, runningSubagentCount, loadSubsessions, loadOracles])
+
   const counts = board?.counts
   const oracleCount = useCallback((status: WebApiBoardOracleStatus) => counts?.oracles?.[status] ?? 0, [counts])
   const totalOracles = ORACLE_FILTERS.reduce((total, key) => total + (key === 'all' ? 0 : oracleCount(key)), 0)
@@ -384,10 +464,11 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
 
   const refreshAll = useCallback(() => {
     void loadBoard()
+    void loadSubsessions()
     if (section === 'oracles') void loadOracles()
     else if (section === 'map') void loadEndpoints()
     else void loadFacts()
-  }, [section, loadBoard, loadOracles, loadEndpoints, loadFacts])
+  }, [section, loadBoard, loadSubsessions, loadOracles, loadEndpoints, loadFacts])
 
   const selectOracle = (number: string) => {
     setSelectedNumber(number)
@@ -526,6 +607,47 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
 
       {section === 'oracles' ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {subsessions.length > 0 && (
+            <div className="shrink-0 border-b border-border/70 px-4 py-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[12px] font-semibold text-foreground">{t('board.subagentsTitle', { count: runningSubagentCount })}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{t('board.subagentsLimit')}</span>
+              </div>
+              <div className="space-y-1.5">
+                {subsessions.map((sub) => {
+                  const oracle = sub.oracle
+                  const settled = sub.status === 'ended'
+                  const elapsed = Math.max(0, Math.floor((clock - Date.parse(sub.created_at)) / 1000))
+                  const minutes = Math.floor(elapsed / 60)
+                  const seconds = elapsed % 60
+                  return (
+                    <div key={sub.session_id} className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-border px-3 text-[12px]">
+                      <SubagentStatusBadge sub={sub} />
+                      {oracle ? (
+                        <button
+                          type="button"
+                          onClick={() => revealOracle(oracle.number)}
+                          className="shrink-0 font-mono text-[11px] tabular-nums text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          title={oracle.number}
+                        >
+                          {oracle.number}
+                        </button>
+                      ) : (
+                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">—</span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-foreground" title={oracle?.question ?? ''}>{oracle?.question ?? ''}</span>
+                      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">{t('board.subagentCounts', { requests: sub.request_count, findings: sub.finding_count })}</span>
+                      <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+                        {settled
+                          ? (formatShortDateTime(sub.ended_at) || '—')
+                          : t('board.subagentElapsed', { minutes, seconds })}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 px-4 py-2">
             <FilterPills
               items={filterItems}
@@ -596,6 +718,11 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                                 {t(STATUS_LABEL_KEYS[oracle.status] ?? 'board.statusOpen')}
                               </Badge>
                             </span>
+                            {oracle.claimed_session_id && runningClaimedSessions.has(oracle.claimed_session_id) && (
+                              <span className="ws-st-badge shrink-0 bg-slate-100 text-[10.5px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {t('board.subagentTag')}
+                              </span>
+                            )}
                           </span>
                         </button>
                       ))}
@@ -680,14 +807,23 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                         <dt className="text-muted-foreground">{t('board.fieldSession')}</dt>
                         <dd className="min-w-0">
                           {selectedOracle.claimed_session_id ? (
-                            <button
-                              type="button"
-                              onClick={() => onOpenSession(selectedOracle.claimed_session_id)}
-                              title={selectedOracle.claimed_session_id}
-                              className="max-w-full truncate font-mono text-[12px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                            >
-                              {selectedOracle.claimed_session_id}
-                            </button>
+                            subsessionBySession.has(selectedOracle.claimed_session_id) ? (
+                              <div className="min-w-0">
+                                <span className="block max-w-full truncate font-mono text-[12px] text-foreground" title={selectedOracle.claimed_session_id}>
+                                  {t('board.subagentClaimed', { id: selectedOracle.claimed_session_id })}
+                                </span>
+                                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{t('board.subagentClaimedNote')}</p>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onOpenSession(selectedOracle.claimed_session_id)}
+                                title={selectedOracle.claimed_session_id}
+                                className="max-w-full truncate font-mono text-[12px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                              >
+                                {selectedOracle.claimed_session_id}
+                              </button>
+                            )
                           ) : <span className="text-muted-foreground">—</span>}
                         </dd>
                         <dt className="text-muted-foreground">{t('board.fieldCreated')}</dt>

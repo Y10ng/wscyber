@@ -9,6 +9,7 @@ import {
   getWebApiEvidence,
   getWebApiFinding,
   listWebApiFindings,
+  listWebApiSubsessions,
   type WebApiEvidenceDetail,
   type WebApiFindingDetail,
   type WebApiFindingSummary,
@@ -69,6 +70,26 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onStart
   const [evidenceFlow, setEvidenceFlow] = useState<TrafficFlow | null>(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [evidenceError, setEvidenceError] = useState('')
+
+  // 候选详情带 source.session_id：映射到子 Agent 认领的 Oracle 后标注来源。
+  // 列表摘要没有来源会话字段，因此只在详情标注；读取失败静默不标注。
+  const [subagentOracleBySession, setSubagentOracleBySession] = useState<Map<string, string>>(() => new Map())
+  const subsessionSeq = useRef(0)
+  useEffect(() => {
+    const seq = ++subsessionSeq.current
+    setSubagentOracleBySession(new Map())
+    listWebApiSubsessions(task.id)
+      .then((result) => {
+        if (seq !== subsessionSeq.current) return
+        const next = new Map<string, string>()
+        for (const item of result.items) {
+          if (item.oracle?.number) next.set(item.session_id, item.oracle.number)
+        }
+        setSubagentOracleBySession(next)
+      })
+      .catch(() => { /* 增量标注，失败不报错 */ })
+    return () => { subsessionSeq.current++ }
+  }, [task.id])
 
   const listSeq = useRef(0)
   const detailSeq = useRef(0)
@@ -390,6 +411,7 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onStart
             onScroll={(event) => rememberScroll('detail', event)}
             detail={detail}
             canExport={detail.task_id === task.id && detail.finding_id === selectedId}
+            subagentNumber={subagentOracleBySession.get(detail.source.session_id)}
             evidenceView={evidenceView}
             evidenceDetail={evidenceDetail}
             expandedEvidenceId={expandedEvidenceId}
@@ -423,6 +445,7 @@ function FindingDetailBody({
   onScroll,
   detail,
   canExport,
+  subagentNumber,
   evidenceView,
   evidenceDetail,
   expandedEvidenceId,
@@ -448,6 +471,7 @@ function FindingDetailBody({
   onScroll: (event: UIEvent<HTMLDivElement>) => void
   detail: WebApiFindingDetail
   canExport: boolean
+  subagentNumber?: string
   evidenceView: TrafficHttpView | null
   evidenceDetail: WebApiEvidenceDetail | null
   expandedEvidenceId: string | null
@@ -508,6 +532,11 @@ function FindingDetailBody({
               <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{detail.number}</span>
               <h2 className="text-[16px] font-semibold leading-[1.4] text-foreground">{content.title || t('webapi.untitledFinding')}</h2>
               <span className="text-[12px] text-muted-foreground">{t('webapi.findingStatus_candidate')}</span>
+              {subagentNumber && (
+                <span className="ws-st-badge shrink-0 bg-slate-100 text-[10.5px] text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={t('webapi.findingSourceSubagentNote')}>
+                  {t('webapi.findingSourceSubagent', { number: subagentNumber })}
+                </span>
+              )}
               <span className="ml-auto shrink-0">
                 <Tooltip>
                   <TooltipTrigger asChild>

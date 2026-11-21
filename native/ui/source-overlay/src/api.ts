@@ -1601,6 +1601,34 @@ export async function listWebApiBoardOracles(taskId: string, params: {
   return apiJSON<WebApiBoardList<WebApiBoardOracle>>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/oracles?${query.toString()}`, 'Failed to load board oracles')
 }
 
+// --- 子 Agent 并行探索（M5a 后端，契约 native/SUBAGENT.md）--------------------
+// 研究会话派出的命名子 Agent oracle_explorer 认领一个 Oracle 并行探索；子会话
+// 转录不在 Hub 保存，平台可追溯的是 /subsessions、请求、候选与黑板事件。
+export interface WebApiSubsessionOracle {
+  id: string
+  /** 后端为 "O-001" 形态的字符串。 */
+  number: string
+  question: string
+  status: WebApiBoardOracleStatus
+}
+
+export interface WebApiSubsession {
+  session_id: string
+  oracle: WebApiSubsessionOracle | null
+  status: 'running' | 'ended'
+  /** 上游 StopReason：completed/canceled/error/interrupted… */
+  stop_reason: string
+  error: string
+  created_at: string
+  ended_at: string | null
+  request_count: number
+  finding_count: number
+}
+
+export async function listWebApiSubsessions(taskId: string): Promise<{ items: WebApiSubsession[] }> {
+  return apiJSON<{ items: WebApiSubsession[] }>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/subsessions`, 'Failed to load subagents', { cache: 'no-store' })
+}
+
 export async function createWebApiBoardOracle(taskId: string, body: WebApiBoardOracleInput): Promise<{ oracle: WebApiBoardOracle; created: boolean }> {
   return apiJSON<{ oracle: WebApiBoardOracle; created: boolean }>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/board/oracles`, 'Failed to propose oracle', {
     method: 'POST',

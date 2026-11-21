@@ -12,6 +12,7 @@ import {
   getWebApiEvidence,
   listWebApiEgress,
   listWebApiEvidence,
+  listWebApiSubsessions,
   webApiEgressImageURL,
   webApiEvidenceImageURL,
   type WebApiEgressDetail,
@@ -124,6 +125,21 @@ function methodTone(method: string): string {
   return 'text-muted-foreground'
 }
 
+// 流量来源标注：session_id 属于子 Agent 会话时，在方法徽标后显示认领的 Oracle。
+function SubagentSourceTag({ number }: { number: string }) {
+  const { t } = useTranslation('chat')
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="ws-st-badge shrink-0 bg-slate-100 px-1.5 text-[10.5px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          {t('webapi.subagentTrafficTag', { number })}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t('webapi.subagentTrafficTooltip')}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 // 状态码按段着色：2xx 绿 / 3xx 蓝 / 4xx 琥珀 / 5xx 红（状态色只作强化，文字仍在）。
 function httpStatusTone(code: number): string {
   if (code < 300) return 'text-emerald-600 dark:text-emerald-400'
@@ -202,6 +218,10 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   const [egressFlow, setEgressFlow] = useState<TrafficFlow | null>(null)
   const [egressDetailLoading, setEgressDetailLoading] = useState(false)
   const [egressDetailError, setEgressDetailError] = useState('')
+  // 子 Agent 来源：进入流量视图时拉一次 /subsessions，把 session_id 映射到 Oracle 编号。
+  // 失败或接口不可用时静默不标注，不影响流量主流程。
+  const [subagentOracleBySession, setSubagentOracleBySession] = useState<Map<string, string>>(() => new Map())
+  const subsessionSeq = useRef(0)
   // 证据图片预览：两个来源共用一个 Dialog，打开时固定 URL 与下载文件名。
   const [imageDialog, setImageDialog] = useState<{ url: string; filename: string } | null>(null)
   const listSeq = useRef(0)
@@ -285,7 +305,25 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     detailSeq.current++
     egressDetailSeq.current++
     copySeq.current++
+    subsessionSeq.current++
   }, [])
+
+  // 进入流量视图时读取一次子 Agent 会话（标签只做来源提示；失败静默）。
+  useEffect(() => {
+    const seq = ++subsessionSeq.current
+    setSubagentOracleBySession(new Map())
+    listWebApiSubsessions(task.id)
+      .then((result) => {
+        if (seq !== subsessionSeq.current) return
+        const next = new Map<string, string>()
+        for (const item of result.items) {
+          if (item.oracle?.number) next.set(item.session_id, item.oracle.number)
+        }
+        setSubagentOracleBySession(next)
+      })
+      .catch(() => { /* 增量标注，失败不报错 */ })
+    return () => { subsessionSeq.current++ }
+  }, [task.id])
 
   const loadDetail = useCallback(async (evidenceId: string) => {
     const seq = ++detailSeq.current
@@ -631,7 +669,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th scope="col" className="w-[76px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.time')}</th>
-                        <th scope="col" className="w-[64px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.method')}</th>
+                        <th scope="col" className="w-[132px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.method')}</th>
                         <th scope="col" className="w-[190px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficHost')}</th>
                         <th scope="col" className="border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficPath')}</th>
                         <th scope="col" className="w-[110px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.result')}</th>
@@ -657,8 +695,13 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                             <td className="border-b border-border/40 px-3 font-mono text-[12px] tabular-nums text-muted-foreground" title={new Date(item.created_at).toLocaleString()}>
                               {formatClock(item.created_at)}
                             </td>
-                            <td className={cn('border-b border-border/40 px-1 font-mono text-[12px] font-semibold', methodTone(item.method))}>
-                              {item.method || '-'}
+                            <td className="border-b border-border/40 px-1">
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className={cn('font-mono text-[12px] font-semibold', methodTone(item.method))}>{item.method || '-'}</span>
+                                {subagentOracleBySession.has(item.session_id) && (
+                                  <SubagentSourceTag number={subagentOracleBySession.get(item.session_id)!} />
+                                )}
+                              </span>
                             </td>
                             <td className="max-w-0 truncate border-b border-border/40 px-1 font-mono text-[12px] text-foreground" title={host}>
                               {host || '—'}
@@ -693,7 +736,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     <thead className="sticky top-0 z-10">
                       <tr>
                         <th scope="col" className="w-[76px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.time')}</th>
-                        <th scope="col" className="w-[64px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.method')}</th>
+                        <th scope="col" className="w-[132px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.method')}</th>
                         <th scope="col" className="w-[190px] border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficHost')}</th>
                         <th scope="col" className="border-b border-border/60 bg-background px-1 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.trafficPath')}</th>
                         <th scope="col" className="w-[110px] border-b border-border/60 bg-background px-3 py-1 text-[12px] font-medium text-muted-foreground">{t('webapi.result')}</th>
@@ -718,8 +761,13 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                             <td className="border-b border-border/40 px-3 font-mono text-[12px] tabular-nums text-muted-foreground" title={new Date(item.created_at).toLocaleString()}>
                               {formatClock(item.created_at)}
                             </td>
-                            <td className={cn('border-b border-border/40 px-1 font-mono text-[12px] font-semibold', methodTone(item.method))}>
-                              {item.method || '-'}
+                            <td className="border-b border-border/40 px-1">
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className={cn('font-mono text-[12px] font-semibold', methodTone(item.method))}>{item.method || '-'}</span>
+                                {subagentOracleBySession.has(item.session_id) && (
+                                  <SubagentSourceTag number={subagentOracleBySession.get(item.session_id)!} />
+                                )}
+                              </span>
                             </td>
                             <td className="max-w-0 truncate border-b border-border/40 px-1 font-mono text-[12px] text-foreground" title={host}>
                               {host || '—'}
