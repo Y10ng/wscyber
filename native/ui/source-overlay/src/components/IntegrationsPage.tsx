@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { ExternalLink, HelpCircle, Inbox, Loader2, RefreshCw } from 'lucide-react'
 import {
-  Badge, Button, Callout, Field, Input, Spinner, Switch,
+  Button, Callout, Field, Input, Spinner, Switch,
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { FilterPills, IconAction, Page, PageHeader } from './PageFrame'
-import { NotificationStatusBadge } from './ui-badges'
+import { FilterPills, Page, PageHeader } from './PageFrame'
+import { IntegrationStatusBadge, NotificationStatusBadge } from './ui-badges'
+import { formatShortDateTime } from '../lib/time'
 import { usePolling } from '../hooks/usePolling'
 import {
   actWebApiNotification, APIError, getWebApiWecomSettings, listWebApiNotifications,
@@ -28,7 +29,7 @@ interface IntegrationsPageProps {
 }
 
 export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilter, onPresetConsumed }: IntegrationsPageProps) {
-  const { t, i18n } = useTranslation('chat')
+  const { t } = useTranslation('chat')
   const [settings, setSettings] = useState<WebApiWecomSettings | null>(null)
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [settingsError, setSettingsError] = useState('')
@@ -203,27 +204,6 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
     }
   }
 
-  const formatCreated = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return { day: iso, time: '' }
-    return {
-      day: date.toLocaleDateString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit' }),
-      time: date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false }),
-    }
-  }
-  const formatDateTime = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-    return date.toLocaleString(i18n.language, {
-      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-    })
-  }
-  const formatHM = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-    return date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false })
-  }
-
   const filterItems: Array<{ key: NotificationFilter; label: string }> = [
     { key: 'all', label: t('shell.integrationsFilterAll') },
     { key: 'pending_confirm', label: t('shell.integrationsFilterPending') },
@@ -235,289 +215,278 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
   ]
 
   const configured = !!settings?.has_webhook
-  const headerBadge = !configured
-    ? { variant: 'muted' as const, label: t('shell.integrationsStatusUnconfigured') }
-    : settings?.enabled
-      ? { variant: 'success' as const, label: t('shell.integrationsStatusEnabled') }
-      : { variant: 'muted' as const, label: t('shell.integrationsStatusDisabled') }
 
+  // 说明列：发送时间 / 下次尝试 / 错误。
   const noteOf = (item: WebApiNotification): string => {
-    if (item.status === 'sent' && item.sent_at) return formatDateTime(item.sent_at)
+    if (item.status === 'sent' && item.sent_at) return formatShortDateTime(item.sent_at)
     if (item.status === 'queued' && item.next_attempt_at) {
-      return t('shell.integrationsNextAttempt', { time: formatHM(item.next_attempt_at) })
+      return t('shell.integrationsNextAttempt', { time: formatShortDateTime(item.next_attempt_at) })
     }
     return item.last_error || '—'
   }
 
   return (
-    <Page contentClassName="max-w-[1100px] space-y-4">
+    <Page contentClassName="max-w-[1600px] space-y-4">
       <PageHeader
         title={t('shell.integrationsTitle')}
         onOpenMenu={onOpenMenu}
         menuLabel={t('shell.openMenu')}
-      />
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('shell.integrationsHelp')}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+            {t('shell.integrationsHelp')}
+          </TooltipContent>
+        </Tooltip>
+      </PageHeader>
 
-      {/* 卡片 A：企业微信群机器人 */}
-      <div className="rounded-lg border border-border bg-card">
-        <div className="flex h-12 items-center gap-2 border-b border-border px-5">
-          <h2 className="text-[14px] font-semibold text-foreground">{t('shell.integrationsWecomTitle')}</h2>
-          <Badge variant={headerBadge.variant} size="sm">{headerBadge.label}</Badge>
-          <div className="ml-auto">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={configured ? -1 : 0} className="inline-flex">
+      <div className="flex flex-col gap-4 min-[1280px]:flex-row min-[1280px]:items-start">
+        {/* 左：企业微信群机器人配置卡 */}
+        <div className="min-w-0 flex-1 rounded-lg border border-border bg-card">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+            <h2 className="text-[14px] font-semibold text-foreground">{t('shell.integrationsWecomTitle')}</h2>
+            <IntegrationStatusBadge configured={configured} enabled={!!settings?.enabled} />
+            <div className="ml-auto">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={configured ? -1 : 0} className="inline-flex">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={!configured || testing}
+                      onClick={() => { void runTest() }}
+                    >
+                      {testing && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      {t('shell.integrationsSendTest')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{configured ? t('shell.integrationsSendTest') : t('shell.integrationsSendTestHint')}</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          {loadingSettings ? (
+            <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+              <Spinner className="h-5 w-5" />
+              {t('shell.loading')}
+            </div>
+          ) : (
+            <div className="space-y-4 p-4">
+              {settingsError && <Callout tone="destructive">{t('shell.integrationsLoadFailed', { error: settingsError })}</Callout>}
+              {testResult && <Callout tone={testResult.tone}>{testResult.text}</Callout>}
+
+              {/* 设置行：标签 + 说明在左，开关在右。 */}
+              <div className="divide-y divide-border border-y border-border">
+                <SettingRow label={t('shell.integrationsEnabledLabel')} hint={t('shell.integrationsEnabledHint')}>
+                  <Switch checked={enabled} onCheckedChange={setEnabled} disabled={saving} aria-label={t('shell.integrationsEnabledLabel')} />
+                </SettingRow>
+                <SettingRow label={t('shell.integrationsRequireConfirmLabel')} hint={t('shell.integrationsRequireConfirmHint')}>
+                  <Switch checked={requireConfirm} onCheckedChange={setRequireConfirm} disabled={saving} aria-label={t('shell.integrationsRequireConfirmLabel')} />
+                </SettingRow>
+              </div>
+
+              <Field label={t('shell.integrationsWebhookLabel')}>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={webhook}
+                    disabled={clearWebhook || saving}
+                    onChange={(event) => setWebhook(event.target.value)}
+                    placeholder={clearWebhook
+                      ? t('shell.integrationsWebhookWillClear')
+                      : configured
+                        ? t('shell.integrationsWebhookConfigured', { hint: settings?.webhook_hint || '' })
+                        : t('shell.integrationsWebhookPlaceholder')}
+                    className="h-9 min-w-0 flex-1 font-mono text-[12px]"
+                    aria-label={t('shell.integrationsWebhookLabel')}
+                  />
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    disabled={!configured || testing}
-                    onClick={() => { void runTest() }}
+                    className={cn('h-9 shrink-0', !configured && !clearWebhook && 'hidden')}
+                    disabled={saving || (!configured && !clearWebhook)}
+                    onClick={() => setClearWebhook((prev) => !prev)}
                   >
-                    {testing && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                    {t('shell.integrationsSendTest')}
+                    {clearWebhook ? t('shell.integrationsWebhookUndo') : t('shell.integrationsWebhookClear')}
                   </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{configured ? t('shell.integrationsSendTest') : t('shell.integrationsSendTestHint')}</TooltipContent>
-            </Tooltip>
-          </div>
+                </div>
+              </Field>
+
+              <Field label={t('shell.integrationsBaseUrlLabel')} hint={t('shell.integrationsBaseUrlHint')}>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={baseURL}
+                    onChange={(event) => setBaseURL(event.target.value)}
+                    placeholder="https://wscyber.example.test"
+                    disabled={saving}
+                    className="h-9 min-w-0 flex-1"
+                    aria-label={t('shell.integrationsBaseUrlLabel')}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 shrink-0"
+                    disabled={saving}
+                    onClick={() => setBaseURL(window.location.origin)}
+                  >
+                    {t('shell.integrationsUseCurrent')}
+                  </Button>
+                </div>
+              </Field>
+
+              <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
+                {saveError && <span className="text-[12px] text-destructive">{saveError}</span>}
+                {saved && <span className="text-[12px] text-success">{t('shell.integrationsSaved')}</span>}
+                <Button type="button" className="h-9" onClick={() => { void save() }} disabled={saving}>
+                  {saving && <Spinner className="mr-1.5 h-4 w-4" />}
+                  {t('shell.integrationsSave')}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {loadingSettings ? (
-          <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-muted-foreground">
-            <Spinner className="h-5 w-5" />
-            {t('shell.loading')}
-          </div>
-        ) : (
-          <div className="space-y-4 p-5">
-            {settingsError && <Callout tone="destructive">{t('shell.integrationsLoadFailed', { error: settingsError })}</Callout>}
-            {testResult && <Callout tone={testResult.tone}>{testResult.text}</Callout>}
-
-            <Field label={t('shell.integrationsEnabledLabel')} hint={t('shell.integrationsEnabledHint')}>
-              <Switch checked={enabled} onCheckedChange={setEnabled} disabled={saving} />
-            </Field>
-
-            <Field label={t('shell.integrationsWebhookLabel')}>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  value={webhook}
-                  disabled={clearWebhook || saving}
-                  onChange={(event) => setWebhook(event.target.value)}
-                  placeholder={clearWebhook
-                    ? t('shell.integrationsWebhookWillClear')
-                    : configured
-                      ? t('shell.integrationsWebhookConfigured', { hint: settings?.webhook_hint || '' })
-                      : t('shell.integrationsWebhookPlaceholder')}
-                  className="min-w-0 flex-1"
-                  aria-label={t('shell.integrationsWebhookLabel')}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={saving || (!configured && !clearWebhook)}
-                  className={cn(!configured && !clearWebhook && 'hidden')}
-                  onClick={() => setClearWebhook((prev) => !prev)}
-                >
-                  {clearWebhook ? t('shell.integrationsWebhookUndo') : t('shell.integrationsWebhookClear')}
-                </Button>
-              </div>
-            </Field>
-
-            <Field label={t('shell.integrationsRequireConfirmLabel')} hint={t('shell.integrationsRequireConfirmHint')}>
-              <Switch checked={requireConfirm} onCheckedChange={setRequireConfirm} disabled={saving} />
-            </Field>
-
-            <Field label={t('shell.integrationsBaseUrlLabel')} hint={t('shell.integrationsBaseUrlHint')}>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={baseURL}
-                  onChange={(event) => setBaseURL(event.target.value)}
-                  placeholder="https://wscyber.example.test"
-                  disabled={saving}
-                  className="min-w-0 flex-1"
-                  aria-label={t('shell.integrationsBaseUrlLabel')}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => setBaseURL(window.location.origin)}
-                >
-                  {t('shell.integrationsUseCurrent')}
-                </Button>
-              </div>
-            </Field>
-
-            <div className="flex items-center justify-end gap-3">
-              {saveError && <span className="text-[12px] text-destructive">{saveError}</span>}
-              {saved && <span className="text-[12px] text-success">{t('shell.integrationsSaved')}</span>}
-              <Button type="button" onClick={() => { void save() }} disabled={saving}>
-                {saving && <Spinner className="mr-1.5 h-4 w-4" />}
-                {t('shell.integrationsSave')}
+        {/* 右：推送记录卡 */}
+        <div className="min-w-0 flex-1 rounded-lg border border-border bg-card">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+            <h2 className="text-[14px] font-semibold text-foreground">{t('shell.integrationsRecordsTitle')}</h2>
+            <div className="ml-auto">
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={refresh} disabled={loading}>
+                <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')} />
+                {t('shell.refresh')}
               </Button>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* 卡片 B：推送记录 */}
-      <div className="rounded-lg border border-border bg-card">
-        <div className="flex h-12 items-center gap-2 border-b border-border px-5">
-          <h2 className="text-[14px] font-semibold text-foreground">{t('shell.integrationsRecordsTitle')}</h2>
-          <div className="ml-auto">
-            <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading}>
-              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-            </IconAction>
+          <div className="border-b border-border px-4 py-2.5">
+            <FilterPills items={filterItems} value={filter} onChange={setFilter} />
           </div>
-        </div>
 
-        <div className="border-b border-border px-5 py-3">
-          <FilterPills items={filterItems} value={filter} onChange={setFilter} />
-        </div>
+          {listError && <p role="status" className="border-b border-border px-4 py-2 text-[12px] text-warning">{t('shell.integrationsLoadFailed', { error: listError })}</p>}
 
-        {listError && <p role="status" className="border-b border-border px-5 py-2 text-[12px] text-warning">{t('shell.integrationsLoadFailed', { error: listError })}</p>}
-
-        {loading ? (
-          <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-muted-foreground">
-            <Spinner className="h-5 w-5" />
-            {t('shell.loading')}
-          </div>
-        ) : items.length === 0 ? (
-          <div className="flex h-32 flex-col items-center justify-center gap-1 px-6 text-center text-[13px] text-muted-foreground">
-            <span>{t('shell.integrationsEmpty')}</span>
-            {!settings?.enabled && <span className="text-[12px]">{t('shell.integrationsEmptyHint')}</span>}
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] table-fixed border-collapse text-[13px]">
-                <colgroup>
-                  <col className="w-[120px]" />
-                  <col className="w-20" />
-                  <col />
-                  <col className="w-[140px]" />
-                  <col className="w-[100px]" />
-                  <col className="w-[60px]" />
-                  <col />
-                  <col className="w-[150px]" />
-                </colgroup>
-                <thead>
-                  <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colCreated')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.integrationsColKind')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.integrationsColVuln')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.integrationsColAsset')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
-                    <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.integrationsColAttempts')}</th>
-                    <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.integrationsColNote')}</th>
-                    <th className="whitespace-nowrap px-3 text-right font-medium">{t('shell.colActions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => {
-                    const created = formatCreated(item.created_at)
-                    const busy = acting !== null && acting.startsWith(`${item.id}:`)
-                    const rowConflict = rowError?.id === item.id ? rowError.message : ''
-                    return (
-                      <tr key={item.id} className="h-12 border-b border-border/70 transition-colors hover:bg-muted/40">
-                        <td className="px-3 leading-tight">
-                          <div className="text-[12px] text-foreground">{created.day}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{created.time}</div>
-                        </td>
-                        <td className="px-3">
-                          {item.kind === 'regression'
-                            ? <Badge variant="warning" size="sm">{t('shell.integrationsKindRegression')}</Badge>
-                            : <Badge variant="muted" size="sm">{t('shell.integrationsKindNew')}</Badge>}
-                        </td>
-                        <td className="min-w-0 px-3 leading-tight">
-                          <div className="truncate font-mono text-[11px] text-muted-foreground">
-                            {item.finding_number || '—'}
-                          </div>
-                          <div className="truncate text-[13px] text-foreground" title={item.title}>{item.title || '—'}</div>
-                        </td>
-                        <td className="truncate px-3 text-[12px] text-muted-foreground" title={item.asset?.name}>
-                          {item.asset?.name || '—'}
-                        </td>
-                        <td className="px-3">
-                          <NotificationStatusBadge status={item.status} />
-                        </td>
-                        <td className="px-3 text-right tabular-nums text-muted-foreground">{item.attempts}</td>
-                        <td className="min-w-0 px-3">
-                          {rowConflict
-                            ? <span className="block truncate text-[12px] text-destructive" title={rowConflict}>{rowConflict}</span>
-                            : <span className="block truncate text-[12px] text-muted-foreground" title={noteOf(item)}>{noteOf(item)}</span>}
-                        </td>
-                        <td className="px-3">
-                          <div className="flex items-center justify-end gap-1">
-                            {item.status === 'pending_confirm' && (
-                              <>
-                                <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runAction(item, 'confirm') }}>
-                                  {t('shell.integrationsConfirm')}
-                                </Button>
-                                <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runAction(item, 'dismiss') }}>
-                                  {t('shell.integrationsDismiss')}
-                                </Button>
-                              </>
-                            )}
-                            {item.status === 'failed' && (
-                              <>
-                                <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runAction(item, 'retry') }}>
-                                  {t('shell.integrationsRetry')}
-                                </Button>
-                                <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runAction(item, 'dismiss') }}>
-                                  {t('shell.integrationsDismiss')}
-                                </Button>
-                              </>
-                            )}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-flex">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    aria-label={t('shell.integrationsOpenSession')}
-                                    disabled={!item.verification_session_id || busy}
-                                    onClick={() => onOpenSession(item.verification_session_id)}
-                                    className="text-muted-foreground"
-                                  >
-                                    <ExternalLink className="h-3.5 w-3.5" />
-                                  </Button>
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>{t('shell.integrationsOpenSession')}</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+          {loading ? (
+            <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+              <Spinner className="h-5 w-5" />
+              {t('shell.loading')}
             </div>
-            <div className="flex h-12 items-center border-t border-border px-5">
-              <span className="text-[12px] text-muted-foreground">{t('shell.integrationsShown', { count: items.length })}</span>
-              {hasMore && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="ml-auto h-8"
-                  disabled={loadingMore}
-                  onClick={() => { void loadNotifications({ reset: false }) }}
-                >
-                  {loadingMore && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                  {t('shell.loadMore')}
-                </Button>
-              )}
+          ) : items.length === 0 ? (
+            <div className="flex h-40 flex-col items-center justify-center gap-1.5 px-6 text-center text-[13px] text-muted-foreground">
+              <Inbox className="mb-1 h-6 w-6 text-muted-foreground/60" aria-hidden />
+              <span>{t('shell.integrationsEmpty')}</span>
+              {!settings?.enabled && <span className="text-[12px]">{t('shell.integrationsEmptyHint')}</span>}
             </div>
-          </>
-        )}
+          ) : (
+            <>
+              <ul className="divide-y divide-border/70">
+                {items.map((item) => {
+                  const busy = acting !== null && acting.startsWith(`${item.id}:`)
+                  const rowConflict = rowError?.id === item.id ? rowError.message : ''
+                  return (
+                    <li key={item.id} className="px-4 py-2.5">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <NotificationStatusBadge status={item.status} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground" title={item.title}>
+                          {item.title || item.finding_number || '—'}
+                        </span>
+                        <span className="shrink-0 text-[12px] text-muted-foreground">{item.asset?.name || '—'}</span>
+                        <span className="shrink-0 font-mono text-[11px] tabular text-muted-foreground">{formatShortDateTime(item.created_at)}</span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          {item.status === 'pending_confirm' && (
+                            <>
+                              <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runAction(item, 'confirm') }}>
+                                {t('shell.integrationsConfirm')}
+                              </Button>
+                              <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runAction(item, 'dismiss') }}>
+                                {t('shell.integrationsDismiss')}
+                              </Button>
+                            </>
+                          )}
+                          {item.status === 'failed' && (
+                            <>
+                              <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runAction(item, 'retry') }}>
+                                {t('shell.integrationsRetry')}
+                              </Button>
+                              <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runAction(item, 'dismiss') }}>
+                                {t('shell.integrationsDismiss')}
+                              </Button>
+                            </>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label={t('shell.integrationsOpenSession')}
+                                  disabled={!item.verification_session_id || busy}
+                                  onClick={() => onOpenSession(item.verification_session_id)}
+                                  className="text-muted-foreground"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('shell.integrationsOpenSession')}</TooltipContent>
+                          </Tooltip>
+                        </span>
+                      </div>
+                      {(rowConflict || item.status === 'queued' || item.last_error) && (
+                        <p className={cn('mt-1 truncate text-[11px]', rowConflict ? 'text-destructive' : 'text-muted-foreground')} title={rowConflict || noteOf(item)}>
+                          {rowConflict || noteOf(item)}
+                        </p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+              <div className="flex h-12 items-center border-t border-border px-4">
+                <span className="text-[12px] text-muted-foreground">{t('shell.integrationsShown', { count: items.length })}</span>
+                {hasMore && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-8"
+                    disabled={loadingMore}
+                    onClick={() => { void loadNotifications({ reset: false }) }}
+                  >
+                    {loadingMore && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    {t('shell.loadMore')}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </Page>
+  )
+}
+
+/** 设置行：标签 + 说明左、控件右。 */
+function SettingRow({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-[13px] text-foreground">{label}</div>
+        {hint && <div className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{hint}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   )
 }

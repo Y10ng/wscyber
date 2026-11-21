@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowLeft } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, HelpCircle } from 'lucide-react'
 import AppSidebar from './components/AppSidebar'
 import OverviewPage from './components/OverviewPage'
 import TasksPage from './components/TasksPage'
@@ -30,7 +30,7 @@ import IntegrationsPage from './components/IntegrationsPage'
 import { assetMentionables } from './components/AssetPanel'
 import MentionPicker from './components/MentionPicker'
 import { useObservations } from '@/viewer'
-import { Button, TooltipProvider } from '@cyber/ui'
+import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@cyber/ui'
 import { ThemeProvider } from '@cyber/theme'
 import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiSessionKinds, getWebApiVerificationBySession } from './api'
 import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiReportDetail, WebApiRetestDetail, WebApiTask, WebApiVerificationDetail } from './api'
@@ -670,6 +670,15 @@ export default function App({ services }: { services: HubServices }) {
     navigate('assets')
   }, [navigate])
 
+  // 资产漏洞库打开漏洞卡：记下资产与条目，浏览器后退回资产页时重新选中该资产并停在漏洞库。
+  const openVulnFromAsset = useCallback((assetID: string, key: string) => {
+    if (assetID) {
+      setFocusAssetId(assetID)
+      setFocusVulnId(key)
+    }
+    openVulnCard(key)
+  }, [openVulnCard])
+
   return (
     <ThemeProvider initial={getInitialTheme()} storageKey="cyber-theme" className="aspect-theme-root h-full text-foreground font-sans antialiased">
     <TooltipProvider delayDuration={300}>
@@ -1011,6 +1020,8 @@ export default function App({ services }: { services: HubServices }) {
                     onFocusConsumed={() => setFocusAssetId(null)}
                     onFocusVulnConsumed={() => setFocusVulnId(null)}
                     onOpenTask={openTaskSession}
+                    onOpenAssetVulnCard={openVulnFromAsset}
+                    onOpenMenu={() => setSidebarOpen(true)}
                   />
                 ) : (
                   <Page>
@@ -1020,7 +1031,22 @@ export default function App({ services }: { services: HubServices }) {
               )}
               {page === 'models' && (
                 <Page>
-                  <PageHeader title={tc('shell.modelsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  <PageHeader title={tc('shell.modelsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={tc('shell.modelsHelp')}
+                          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+                        {tc('shell.modelsHelp')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </PageHeader>
                   {/* 设置面板以页面模式内嵌：同一份内容 JSX，不渲染 Dialog/遮罩。 */}
                   <ConfigPanel
                     variant="page"
@@ -1035,7 +1061,22 @@ export default function App({ services }: { services: HubServices }) {
               )}
               {page === 'nodes' && (
                 <Page className="flex flex-col" contentClassName="flex min-h-0 flex-1 flex-col space-y-3">
-                  <PageHeader title={tc('shell.nodesTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  <PageHeader title={tc('shell.nodesTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={tc('shell.nodesHelp')}
+                          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+                        {tc('shell.nodesHelp')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </PageHeader>
                   {/* Agent 控制台以页面模式内嵌：同一份内容 JSX，不渲染 ToolDrawer。 */}
                   <AgentPanel variant="page" open agents={chat.agents} onClose={() => {}} />
                 </Page>

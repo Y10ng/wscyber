@@ -42,6 +42,11 @@ export default {
   statusApplyUncertain: 'Apply pending verification',
   statusConnectedAt: 'Connected at',
   statusConnectedAtHint: 'This is when the connection was established, not a per-save apply receipt or a recent report.',
+  nodeModel: 'Model',
+  nodeCapabilities: 'Capabilities',
+  nodeTools: 'Tools',
+  nodeHost: 'Host',
+  localModelNode: 'Local controlled',
 
   // TerminalDetails panel
   offline: 'offline',

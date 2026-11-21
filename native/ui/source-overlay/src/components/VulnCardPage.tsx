@@ -2,16 +2,23 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useTranslation } from 'react-i18next'
 import {
   Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, ExternalLink,
-  HelpCircle, Loader2, Menu, RotateCw, Sparkles, Wrench, XCircle,
+  HelpCircle, Loader2, Menu, MoreHorizontal, RotateCw, Sparkles, Wrench, XCircle,
 } from 'lucide-react'
-import { Button, Switch, Tooltip, TooltipContent, TooltipTrigger } from '@cyber/ui'
+import {
+  Button, Dialog, DialogContent, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent,
+  DropdownMenuSubTrigger, DropdownMenuTrigger, Input, Spinner, Switch, Tooltip, TooltipContent,
+  TooltipTrigger, useConfirm,
+} from '@cyber/ui'
+import { newID } from '@cyber/aop'
 import { cn } from '@cyber/theme'
 import {
-  getWebApiVulnCard, getWebApiVulnCardCurl,
+  getWebApiVulnCard, getWebApiVulnCardCurl, listWebApiAssetVulns, mergeWebApiVulns,
+  moveWebApiVulnMember, saveWebApiVulnTitle,
   webApiEvidenceImageURL,
-  type WebApiVulnCard, type WebApiVulnCardContrast, type WebApiVulnCardEvent,
-  type WebApiVulnCardEvidence, type WebApiVulnCardRepro, type WebApiVulnCardStep,
-  type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
+  type WebApiVuln, type WebApiVulnCard, type WebApiVulnCardContrast, type WebApiVulnCardEvent,
+  type WebApiVulnCardEvidence, type WebApiVulnCardMember, type WebApiVulnCardRepro,
+  type WebApiVulnCardStep, type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
 } from '../api'
 import {
   DeadlineText, DispositionBadge, SeverityBadge, StatusBadge, VerdictBadge,
@@ -348,9 +355,19 @@ function ContrastSection({ repro }: { repro: WebApiVulnCardRepro }) {
   )
 }
 
-function Appendix({ card, onOpenTaskFinding }: {
+interface AssetVulnActions {
+  targets: WebApiVuln[] | null
+  targetsLoading: boolean
+  acting: string | null
+  loadTargets: () => void
+  moveMember: (member: WebApiVulnCardMember, targetId: string | null) => void
+}
+
+function Appendix({ card, onOpenTaskFinding, assetActions }: {
   card: WebApiVulnCard
   onOpenTaskFinding: (taskId: string, findingId: string) => void
+  /** 仅资产漏洞条目（header.asset 非空且非 finding: 键）传入；finding: 条目为 null。 */
+  assetActions: AssetVulnActions | null
 }) {
   const { t } = useTranslation('chat')
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -415,16 +432,24 @@ function Appendix({ card, onOpenTaskFinding }: {
           {members.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">—</p>
           ) : members.map((item) => (
-            <button
-              key={`${item.task_id}:${item.finding_id}`}
-              type="button"
-              onClick={() => onOpenTaskFinding(item.task_id, item.finding_id)}
-              className="flex w-full min-w-0 items-center gap-2 rounded px-1 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <span className="shrink-0 font-mono text-[11.5px] text-foreground">{item.number}</span>
-              <span className="min-w-0 flex-1 truncate text-[12px] text-secondary-foreground" title={item.title}>{item.title}</span>
-              <VerdictBadge verdict={item.latest_verdict} showModelLabel={false} className="shrink-0" />
-            </button>
+            <div key={`${item.task_id}:${item.finding_id}`} className="flex min-w-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onOpenTaskFinding(item.task_id, item.finding_id)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <span className="shrink-0 font-mono text-[11.5px] text-foreground">{item.number}</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary-foreground" title={item.title}>{item.title}</span>
+                <VerdictBadge verdict={item.latest_verdict} showModelLabel={false} className="shrink-0" />
+              </button>
+              {assetActions && (
+                <MemberActions
+                  member={item}
+                  memberCount={members.length}
+                  actions={assetActions}
+                />
+              )}
+            </div>
           ))}
         </AppendixItem>
 
@@ -472,6 +497,60 @@ function AppendixItem({ title, meta, open, onToggle, children }: {
       </button>
       {open && <div className="space-y-2 px-4 pb-3.5 pt-0.5 text-[12px] text-secondary-foreground">{children}</div>}
     </div>
+  )
+}
+
+function MemberActions({ member, memberCount, actions }: {
+  member: WebApiVulnCardMember
+  memberCount: number
+  actions: AssetVulnActions
+}) {
+  const { t } = useTranslation('chat')
+  const busy = actions.acting !== null
+  const canSplit = memberCount > 1
+  return (
+    <DropdownMenu onOpenChange={(next) => { if (next && actions.targets === null && !actions.targetsLoading) actions.loadTargets() }}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={t('webapi.vulnMemberActions')}
+          disabled={busy}
+          className="shrink-0 text-muted-foreground"
+        >
+          {actions.acting?.startsWith(`${member.finding_id}:`) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MoreHorizontal className="h-3.5 w-3.5" />}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled={actions.targetsLoading}>{t('webapi.vulnMove')}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {actions.targets === null || actions.targetsLoading ? (
+              <DropdownMenuItem disabled>{actions.targetsLoading ? t('shell.loading') : '—'}</DropdownMenuItem>
+            ) : actions.targets.length === 0 ? (
+              <DropdownMenuItem disabled>—</DropdownMenuItem>
+            ) : actions.targets.map((target) => (
+              <DropdownMenuItem key={target.id} onSelect={() => actions.moveMember(member, target.id)}>
+                <StatusBadge status={target.status} />
+                <span className="ml-2 max-w-[280px] truncate">{target.title}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="block" tabIndex={canSplit ? -1 : 0}>
+              <DropdownMenuItem disabled={!canSplit || busy} onSelect={() => actions.moveMember(member, null)}>
+                {t('webapi.vulnSplit')}
+              </DropdownMenuItem>
+            </span>
+          </TooltipTrigger>
+          {!canSplit && <TooltipContent>{t('webapi.vulnSplitSingle')}</TooltipContent>}
+        </Tooltip>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -558,6 +637,16 @@ export default function VulnCardPage({
   const [toast, setToast] = useState('')
   const [shot, setShot] = useState<{ url: string; filename: string } | null>(null)
   const [curlBusy, setCurlBusy] = useState(false)
+  const confirm = useConfirm()
+  // 资产漏洞条目的人工归并操作（改标题 / 合并 / 移动 / 拆条）。
+  const [targets, setTargets] = useState<WebApiVuln[] | null>(null)
+  const [targetsLoading, setTargetsLoading] = useState(false)
+  const [acting, setActing] = useState<string | null>(null)
+  const [actionError, setActionError] = useState('')
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
+  const [renameError, setRenameError] = useState('')
   const seq = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toastTimer = useRef<number | null>(null)
@@ -601,6 +690,9 @@ export default function VulnCardPage({
   useEffect(() => {
     setCard(null)
     setMasked(true)
+    setActionError('')
+    setTargets(null)
+    setRenameOpen(false)
     void loadCard()
   }, [loadCard])
 
@@ -632,6 +724,89 @@ export default function VulnCardPage({
       notify(t('vulnCard.copyFailed'))
     } finally {
       setCurlBusy(false)
+    }
+  }
+
+  const isAssetVuln = Boolean(card?.header.asset && !card.header.key.startsWith('finding:'))
+
+  const loadTargets = useCallback(async () => {
+    const assetId = card?.header.asset?.id
+    const selfKey = card?.header.key
+    if (!assetId || !selfKey) return
+    setTargetsLoading(true)
+    try {
+      const list = await listWebApiAssetVulns(assetId)
+      setTargets(list.vulns.filter((item) => item.id !== selfKey))
+      setActionError('')
+    } catch (err) {
+      setActionError(errorText(err))
+    } finally {
+      setTargetsLoading(false)
+    }
+  }, [card?.header.asset?.id, card?.header.key])
+
+  const openRename = () => {
+    if (!card) return
+    setTitleDraft(card.header.title || '')
+    setRenameError('')
+    setRenameOpen(true)
+  }
+
+  const saveRename = async () => {
+    const assetId = card?.header.asset?.id
+    if (!assetId || !card || renameSaving) return
+    setRenameSaving(true)
+    setRenameError('')
+    try {
+      await saveWebApiVulnTitle(assetId, card.header.key, titleDraft.trim())
+      setRenameOpen(false)
+      await loadCard(true)
+    } catch (err) {
+      setRenameError(errorText(err))
+    } finally {
+      setRenameSaving(false)
+    }
+  }
+
+  const mergeInto = async (target: WebApiVuln) => {
+    const assetId = card?.header.asset?.id
+    if (!assetId || !card || acting) return
+    if (!(await confirm({ description: t('webapi.vulnMergeConfirm', { from: card.header.title, to: target.title }) }))) return
+    setActing('merge')
+    setActionError('')
+    try {
+      await mergeWebApiVulns(assetId, target.id, card.header.key)
+      // 合并后源条目已不存在：跳到目标条目。
+      onSwitch(target.id)
+    } catch (err) {
+      setActionError(errorText(err))
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const moveMember = async (member: WebApiVulnCardMember, targetId: string | null) => {
+    const assetId = card?.header.asset?.id
+    if (!assetId || !card || acting) return
+    setActing(`${member.finding_id}:${targetId ?? 'split'}`)
+    setActionError('')
+    try {
+      await moveWebApiVulnMember(assetId, targetId ?? newID(), member.finding_id)
+      try {
+        setCard(await getWebApiVulnCard(card.header.key))
+        setTargets(null)
+      } catch (err) {
+        if ((err as { status?: number }).status === 404) {
+          // 移走最后一个成员后当前条目已不存在：回到资产漏洞库。
+          onOpenAssetVuln(assetId, card.header.key)
+          return
+        }
+        throw err
+      }
+    } catch (err) {
+      setActionError(errorText(err))
+    } finally {
+      setActing(null)
     }
   }
 
@@ -734,6 +909,13 @@ export default function VulnCardPage({
               </div>
             </div>
 
+            {/* 操作失败错误条 */}
+            {actionError && (
+              <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+                <span className="min-w-0 break-words">{actionError}</span>
+              </div>
+            )}
+
             {/* 横幅 */}
             {card.header.status === 'fixed' && (
               <div
@@ -820,6 +1002,42 @@ export default function VulnCardPage({
                     <ExternalLink className="h-3.5 w-3.5" />
                     {t('vulnCard.viewInTask')}
                   </Button>
+                  {isAssetVuln && (
+                    <DropdownMenu onOpenChange={(next) => { if (next) void loadTargets() }}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          className="h-8 w-8"
+                          aria-label={t('webapi.vulnMoreActions')}
+                          disabled={acting !== null}
+                        >
+                          {acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={openRename}>{t('webapi.vulnRename')}</DropdownMenuItem>
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger disabled={targetsLoading}>{t('webapi.vulnMergeInto')}</DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {targets === null || targetsLoading ? (
+                              <DropdownMenuItem disabled>
+                                {targetsLoading ? t('shell.loading') : '—'}
+                              </DropdownMenuItem>
+                            ) : targets.length === 0 ? (
+                              <DropdownMenuItem disabled>—</DropdownMenuItem>
+                            ) : targets.map((target) => (
+                              <DropdownMenuItem key={target.id} onSelect={() => { void mergeInto(target) }}>
+                                <StatusBadge status={target.status} />
+                                <span className="ml-2 max-w-[280px] truncate">{target.title}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             </Card>
@@ -954,7 +1172,11 @@ export default function VulnCardPage({
                   </Card>
                 )}
 
-                <Appendix card={card} onOpenTaskFinding={onOpenTaskFinding} />
+                <Appendix
+                  card={card}
+                  onOpenTaskFinding={onOpenTaskFinding}
+                  assetActions={isAssetVuln ? { targets, targetsLoading, acting, loadTargets, moveMember } : null}
+                />
               </div>
 
               <aside className="w-full shrink-0 space-y-3.5 min-[1024px]:sticky min-[1024px]:top-4 min-[1024px]:w-[340px] min-[1440px]:w-[376px]">
@@ -1009,7 +1231,9 @@ export default function VulnCardPage({
                         >
                           {item.severity
                             ? <SeverityBadge severity={item.severity} compact className="shrink-0 text-[10.5px]" />
-                            : <SeverityBadge severity="" compact className="shrink-0 text-[10.5px]" />}
+                            : item.suggested_severity
+                              ? <SeverityBadge severity={item.suggested_severity} suggested compact className="shrink-0 text-[10.5px]" />
+                              : <SeverityBadge severity="" compact className="shrink-0 text-[10.5px]" />}
                           <span className="min-w-0 flex-1 truncate text-[12px] text-foreground" title={item.title}>{item.title}</span>
                           <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">{item.code}</span>
                         </button>
@@ -1028,6 +1252,33 @@ export default function VulnCardPage({
           {toast}
         </div>
       )}
+
+      <Dialog open={renameOpen} onOpenChange={(next) => { if (!next) setRenameOpen(false) }}>
+        <DialogContent closeLabel={t('webapi.close')} aria-describedby={undefined} className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] font-semibold text-foreground">{t('webapi.vulnRename')}</DialogTitle>
+          </DialogHeader>
+          <label className="block space-y-1.5">
+            <span className="block text-[12px] text-muted-foreground">{t('webapi.vulnTitleLabel')}</span>
+            <Input
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              maxLength={200}
+              autoFocus
+              disabled={renameSaving}
+            />
+            <span className="block text-[11px] text-muted-foreground">{t('webapi.vulnTitleAutoHint')}</span>
+          </label>
+          {renameError && <p role="alert" className="text-xs text-destructive">{renameError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setRenameOpen(false)} disabled={renameSaving}>{t('webapi.close')}</Button>
+            <Button type="button" onClick={() => void saveRename()} disabled={renameSaving}>
+              {renameSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {t('webapi.vulnSave')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <WebApiEvidenceImageDialog
         open={shot !== null}

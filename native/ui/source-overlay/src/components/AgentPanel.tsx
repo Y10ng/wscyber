@@ -24,7 +24,6 @@ async function loadAgentTerminalWithRecovery() {
 const AgentTerminal = lazy(loadAgentTerminalWithRecovery)
 import {
   Badge,
-  Callout,
   EmptyState,
   Input,
   ListRow,
@@ -35,6 +34,8 @@ import {
 } from '@cyber/ui'
 import { ToolDrawer } from './layout/ToolDrawer'
 import { isLocalModelAgent } from '../lib/session-agent'
+import { NodeStateBadge } from './ui-badges'
+import { formatDateTime } from '../lib/time'
 
 interface AgentPanelProps {
   open: boolean
@@ -89,15 +90,20 @@ export default function AgentPanel({ open, variant = 'drawer', agents: rosterAge
   )
 
   if (variant === 'page') {
+    // 页面模式：每台节点一张卡（名称 + NodeStateBadge + 右侧连接时间），卡内两列信息。
     return (
-      <div className="flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
-          <Monitor className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <span className="text-[13px] font-semibold text-foreground">{t('agentConsole')}</span>
-          {titleMeta}
-          <span className="min-w-0 truncate text-[12px] text-muted-foreground">{description}</span>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+        {agents.length === 0 ? (
+          <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-border bg-card">
+            <EmptyState icon={Monitor} title={t('noAgentsConnected')} />
+          </div>
+        ) : (
+          [...agents]
+            .sort((a, b) => Number(b.busy) - Number(a.busy) || (a.hello?.name || '').localeCompare(b.hello?.name || ''))
+            .map((agent) => (
+              <NodeCard key={agent.hello?.nodeId} agent={agent} />
+            ))
+        )}
       </div>
     )
   }
@@ -165,31 +171,81 @@ function LocalModelAgentStatus({ agent }: { agent: AgentView }) {
   const status = agent.status
   const reported = [status?.provider || '—', status?.model || '—'].join(' / ')
   const notConfigured = !status?.provider?.trim() || !status?.model?.trim()
+  const connectedAt = agent.connectedAt ? formatDateTime(timestampDate(agent.connectedAt).toISOString()) : '—'
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="local-model-status">
-      <Callout>{t('localModelNote')}</Callout>
-      <div className="text-sm">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('nodeReportedStatus')}</div>
-        <div className="mt-1 break-words text-foreground">{reported}</div>
-        {status?.configError ? (
-          <div className="mt-1 text-xs text-warning">{t('statusApplyUncertain')}</div>
-        ) : notConfigured ? (
-          <div className="mt-1 text-xs text-muted-foreground">{t('statusNotConfigured')}</div>
-        ) : null}
+      {/* 本机受控模式提示：卡内顶部提示条（--brand-soft 底、12px）。 */}
+      <p className="rounded-md px-3 py-2 text-[12px] leading-relaxed text-foreground" style={{ background: 'var(--brand-soft)' }}>
+        {t('localModelNote')}
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="min-w-0">
+          <div className="text-[12px] text-muted-foreground">{t('nodeReportedStatus')}</div>
+          <div className="mt-1 break-words text-[13px] text-foreground">{reported}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
+            <span>{t('statusConnectedAt')}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" aria-label={t('statusConnectedAtHint')} className="inline-flex text-muted-foreground/70 hover:text-foreground">
+                  <Info className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t('statusConnectedAtHint')}</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="mt-1 font-mono text-[13px] tabular text-foreground">{connectedAt}</div>
+        </div>
       </div>
-      {status?.configError ? <Callout tone="warning">{status.configError}</Callout> : null}
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span>{t('statusConnectedAt')}: {agent.connectedAt ? formatDateTime(timestampDate(agent.connectedAt).toISOString()) : '—'}</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button type="button" aria-label={t('statusConnectedAtHint')} className="inline-flex text-muted-foreground/70 hover:text-foreground">
-              <Info className="h-3 w-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t('statusConnectedAtHint')}</TooltipContent>
-        </Tooltip>
-      </div>
+      {status?.configError ? (
+        <div className="text-[12px] text-warning">{t('statusApplyUncertain')}</div>
+      ) : notConfigured ? (
+        <div className="text-[12px] text-muted-foreground">{t('statusNotConfigured')}</div>
+      ) : null}
+      {status?.configError ? <p className="rounded-md bg-muted/60 px-3 py-2 text-[12px] text-warning">{status.configError}</p> : null}
     </div>
+  )
+}
+
+function NodeCard({ agent }: { agent: AgentView }) {
+  const { t } = useTranslation('agent')
+  const runtime = agent.hello?.runtime
+  const status = agent.status
+  const connectedAt = agent.connectedAt ? formatDateTime(timestampDate(agent.connectedAt).toISOString()) : '—'
+  const isLocal = isLocalModelAgent(agent)
+  const info: Array<{ label: string; value: string }> = [
+    { label: t('nodeModel'), value: [status?.provider, status?.model].filter(Boolean).join(' / ') || '—' },
+    { label: t('nodeCapabilities'), value: String(agent.hello?.capabilities.length || 0) },
+    { label: t('nodeTools'), value: String(agent.commands.length) },
+    { label: t('nodeHost'), value: runtime?.hostname || '—' },
+  ]
+  return (
+    <section className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Monitor className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+        <h3 className="min-w-0 truncate text-[14px] font-semibold text-foreground" title={agent.hello?.name}>{agent.hello?.name || agent.hello?.nodeId}</h3>
+        <NodeStateBadge state={agent.busy ? 'busy' : 'idle'} />
+        {isLocal && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{t('localModelNode')}</span>}
+        <span className="ml-auto shrink-0 text-[12px] text-muted-foreground">
+          {t('statusConnectedAt')} <span className="font-mono tabular text-foreground">{connectedAt}</span>
+        </span>
+      </div>
+      {isLocal && (
+        <p className="mt-3 rounded-md px-3 py-2 text-[12px] leading-relaxed text-foreground" style={{ background: 'var(--brand-soft)' }}>
+          {t('localModelNote')}
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-[12px]">
+        {info.map((item) => (
+          <div key={item.label} className="min-w-0">
+            <span className="block text-muted-foreground">{item.label}</span>
+            <span className="mt-0.5 block truncate text-foreground" title={item.value}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+      {status?.configError ? <p className="mt-2 text-[12px] text-warning">{status.configError}</p> : null}
+    </section>
   )
 }
 
@@ -297,14 +353,6 @@ function agentDetails(agent: AgentView) {
     stats ? `tokens: ${stats.totalTokens}` : '',
   ]
   return parts.filter(Boolean).join('\n')
-}
-
-function formatDateTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
 }
 
 function formatRelativeTime(iso: string, t: TFunction<'agent'>): string {

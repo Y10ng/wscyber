@@ -231,3 +231,90 @@ export function NotificationStatusBadge({ status, className }: {
     </span>
   )
 }
+
+/** 环境：test 灰 / staging 蓝 / prod 红 / 其它灰；文案原样显示（不做 i18n 映射）。 */
+export function EnvBadge({ env, className }: { env: string | null | undefined; className?: string }) {
+  if (!env) return null
+  const key = env.trim().toLowerCase()
+  const tone = key === 'prod' || key === 'production'
+    ? 'ws-st-new'
+    : key === 'staging' || key === 'stage'
+      ? 'ws-st-pending'
+      : 'ws-st-unconfirmed'
+  return (
+    <span className={cn('ws-st-badge', tone, className)}>
+      <span aria-hidden className="ws-st-dot" />
+      {env}
+    </span>
+  )
+}
+
+/** 企业微信集成状态：未配置灰 / 已启用绿 / 已配置未启用琥珀。 */
+export function IntegrationStatusBadge({ configured, enabled, className }: {
+  configured: boolean
+  enabled: boolean
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const tone = !configured ? 'ws-st-unconfirmed' : enabled ? 'ws-st-fixed' : 'ws-st-present'
+  const label = !configured
+    ? t('shell.integrationsStatusUnconfigured')
+    : enabled
+      ? t('shell.integrationsStatusEnabled')
+      : t('shell.integrationStatusConfiguredOff')
+  return (
+    <span className={cn('ws-st-badge', tone, className)}>
+      <span aria-hidden className="ws-st-dot" />
+      {label}
+    </span>
+  )
+}
+
+/** 节点状态：空闲绿 / 忙碌蓝 / 离线灰。 */
+export function NodeStateBadge({ state, className }: {
+  state: 'idle' | 'busy' | 'offline'
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const meta = state === 'busy'
+    ? { className: 'bg-primary/10 text-primary', dotClassName: 'bg-primary animate-pulse', labelKey: 'shell.nodeBusy' }
+    : state === 'idle'
+      ? { className: 'ws-st-fixed', dotClassName: undefined, labelKey: 'shell.nodeIdle' }
+      : { className: 'ws-st-unconfirmed', dotClassName: undefined, labelKey: 'shell.nodeOffline' }
+  return (
+    <span className={cn('ws-st-badge', meta.className, className)}>
+      <span aria-hidden className={cn('ws-st-dot', meta.dotClassName)} />
+      {t(meta.labelKey)}
+    </span>
+  )
+}
+
+/** 周期计划运行状态：已发起绿 / 失败红 / 已跳过灰（资产右栏运行记录时间线也用）。 */
+export function RunStateBadge({ status, className }: {
+  status: 'launched' | 'failed' | 'skipped'
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const meta = status === 'launched'
+    ? { className: 'ws-st-fixed', labelKey: 'webapi.scheduleStatusLaunched' }
+    : status === 'failed'
+      ? { className: 'ws-st-new', labelKey: 'webapi.scheduleStatusFailed' }
+      : { className: 'ws-st-unconfirmed', labelKey: 'webapi.scheduleStatusSkipped' }
+  return (
+    <span className={cn('ws-st-badge', meta.className, className)}>
+      <span aria-hidden className="ws-st-dot" />
+      {t(meta.labelKey)}
+    </span>
+  )
+}
+
+/** 周期计划启用状态：已启用绿 / 已停用灰。 */
+export function ScheduleStateBadge({ enabled, className }: { enabled: boolean; className?: string }) {
+  const { t } = useTranslation('chat')
+  return (
+    <span className={cn('ws-st-badge', enabled ? 'ws-st-fixed' : 'ws-st-unconfirmed', className)}>
+      <span aria-hidden className="ws-st-dot" />
+      {t(enabled ? 'webapi.scheduleEnabled' : 'webapi.scheduleDisabled')}
+    </span>
+  )
+}

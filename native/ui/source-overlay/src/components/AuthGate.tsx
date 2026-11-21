@@ -1,9 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Eye, EyeOff, KeyRound, LoaderCircle } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { Button, Input, TooltipProvider } from '@cyber/ui'
 import { APIError, login } from '../api'
-import BrandLogo from './brand/BrandLogo'
 import LanguageToggle from './LanguageToggle'
 
 import type { AuthService } from '../runtime/auth'
@@ -69,7 +68,9 @@ function LoginPage() {
 
       <header className="relative z-10 flex h-14 items-center justify-between px-5 sm:px-8">
         <div className="flex items-center gap-2.5">
-          <BrandLogo size={24} />
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
+            <ShieldCheck className="h-4 w-4" aria-hidden />
+          </div>
           <span className="text-sm font-semibold tracking-tight">WScyber</span>
         </div>
         <LanguageToggle />
@@ -78,8 +79,8 @@ function LoginPage() {
       <main className="relative z-10 flex min-h-[calc(100dvh-3.5rem)] items-center justify-center px-4 pb-14 sm:px-6">
         <section className="w-full max-w-[400px] rounded-2xl border border-border/80 bg-card/95 p-6 shadow-elevated backdrop-blur sm:p-8">
           <div className="mb-7 flex flex-col items-center text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 shadow-glow-sm">
-              <BrandLogo size={38} />
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+              <ShieldCheck className="h-7 w-7" aria-hidden />
             </div>
             <h1 className="text-xl font-semibold tracking-tight">{t('loginTitle')}</h1>
             <p className="mt-2 max-w-xs text-sm leading-6 text-muted-foreground">{t('loginDescription')}</p>

@@ -29,12 +29,6 @@
   -webkit-line-clamp: 1;
 }
 
-/* 详情内容最大宽 880px、左对齐，宽屏不横跨整屏。 */
-.assets-detail-column {
-  width: 100%;
-  max-width: 880px;
-}
-
 /* 基本信息两列；容器窄于 640px 时单列。 */
 .assets-form-grid {
   display: grid;
@@ -63,10 +57,10 @@
   }
 }
 
-/* 主区宽 ≥1100px：360px 列表 | 详情，中间 1px 竖线。 */
+/* 主区宽 ≥1100px：320px 列表 | 详情，中间 1px 竖线。 */
 @container (min-width: 1100px) {
   .assets-workspace {
-    grid-template-columns: 360px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 
   .assets-workspace .assets-list,

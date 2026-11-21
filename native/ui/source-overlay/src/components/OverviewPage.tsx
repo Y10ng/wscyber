@@ -888,8 +888,12 @@ export default function OverviewPage({
                     className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <span className="min-w-0 truncate text-xs text-foreground" title={item.name}>{item.name}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-warning">
-                      {item.days_since === null ? t('overview.neverTested') : t('overview.daysNotTested', { count: item.days_since })}
+                    <span className={cn('shrink-0 text-[11px] tabular-nums', item.days_since === 0 ? 'text-muted-foreground' : 'text-warning')}>
+                      {item.days_since === null
+                        ? t('overview.neverTested')
+                        : item.days_since === 0
+                          ? t('overview.testedToday')
+                          : t('overview.daysNotTested', { count: item.days_since })}
                     </span>
                   </button>
                 ))}

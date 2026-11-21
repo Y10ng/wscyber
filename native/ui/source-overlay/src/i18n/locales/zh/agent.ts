@@ -42,6 +42,11 @@ export default {
   statusApplyUncertain: '应用待核对',
   statusConnectedAt: '连接时间',
   statusConnectedAtHint: '仅表示连接建立时刻，不是本次保存的应用回执或最近上报。',
+  nodeModel: '模型',
+  nodeCapabilities: '能力',
+  nodeTools: '工具数',
+  nodeHost: '主机',
+  localModelNode: '本机受控',
 
   // TerminalDetails panel
   offline: '离线',

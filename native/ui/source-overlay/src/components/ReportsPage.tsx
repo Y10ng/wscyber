@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Braces, ExternalLink, FileDown, Loader2, RefreshCw } from 'lucide-react'
+import { Braces, ExternalLink, FileDown, HelpCircle, Loader2, RefreshCw } from 'lucide-react'
 import {
   Button, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Spinner, Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { IconAction, Page, PageHeader, TableCard } from './PageFrame'
+import { Page, PageHeader, TableCard } from './PageFrame'
+import { formatShortDateTime } from '../lib/time'
 import {
   exportWebApiReport,
   listWebApiAssets,
@@ -30,7 +31,7 @@ function errorText(err: unknown): string {
 }
 
 export default function ReportsPage({ webapiEnabled, onOpenTaskReport, onOpenMenu }: ReportsPageProps) {
-  const { t, i18n } = useTranslation('chat')
+  const { t } = useTranslation('chat')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
   const [assetId, setAssetId] = useState('')
@@ -109,15 +110,6 @@ export default function ReportsPage({ webapiEnabled, onOpenTaskReport, onOpenMen
     void loadReports({ reset: true })
   }
 
-  const formatCreated = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return { day: iso, time: '' }
-    return {
-      day: date.toLocaleDateString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit' }),
-      time: date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false }),
-    }
-  }
-
   // 导出由已存草稿确定性渲染；无草稿时后端 409，前端先禁用并说明。
   const handleExport = async (item: WebApiGlobalReport, format: 'markdown' | 'json') => {
     if (!item.has_draft || exporting) return
@@ -176,30 +168,51 @@ export default function ReportsPage({ webapiEnabled, onOpenTaskReport, onOpenMen
           onOpenMenu={onOpenMenu}
           menuLabel={t('shell.openMenu')}
           actions={(
-            <IconAction label={t('shell.refresh')} onClick={refresh} disabled={loading}>
-              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-            </IconAction>
+            <Button type="button" variant="outline" size="sm" className="h-9" onClick={refresh} disabled={loading}>
+              <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')} />
+              {t('shell.refresh')}
+            </Button>
           )}
         >
-          <Input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder={t('shell.searchReports')}
-            aria-label={t('shell.searchReports')}
-            className="h-9 w-[220px] sm:w-[320px]"
-          />
-          <Select value={assetId || ALL_ASSETS} onValueChange={(value) => setAssetId(value === ALL_ASSETS ? '' : value)}>
-            <SelectTrigger aria-label={t('shell.reportsAssetFilter')} className="h-9 w-[180px] shrink-0">
-              <SelectValue placeholder={t('shell.reportsAssetAll')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_ASSETS}>{t('shell.reportsAssetAll')}</SelectItem>
-              {assets.map((asset) => (
-                <SelectItem key={asset.id} value={asset.id}>{asset.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t('shell.reportsHelp')}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[300px] whitespace-normal text-left leading-relaxed">
+              {t('shell.reportsHelp')}
+            </TooltipContent>
+          </Tooltip>
         </PageHeader>
+
+        {/* 筛选行：左侧留空，右侧资产下拉 + 搜索（同漏洞页）。 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Select value={assetId || ALL_ASSETS} onValueChange={(value) => setAssetId(value === ALL_ASSETS ? '' : value)}>
+              <SelectTrigger aria-label={t('shell.reportsAssetFilter')} className="h-9 w-[168px] shrink-0 bg-card">
+                <SelectValue placeholder={t('shell.reportsAssetAll')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ASSETS}>{t('shell.reportsAssetAll')}</SelectItem>
+                {assets.map((asset) => (
+                  <SelectItem key={asset.id} value={asset.id}>{asset.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t('shell.searchReports')}
+              aria-label={t('shell.searchReports')}
+              className="h-9 w-[240px] bg-card"
+            />
+          </div>
+        </div>
 
         {(error || assetError || exportError) && (
           <p role="status" className="text-[12px] text-warning">{t('shell.loadFailed')}：{error || assetError || exportError}</p>
@@ -226,18 +239,18 @@ export default function ReportsPage({ webapiEnabled, onOpenTaskReport, onOpenMen
             <EmptyState title={t('shell.reportsEmpty')} />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] table-fixed border-collapse text-[13px]">
+              <table className="w-full min-w-[1000px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
                 <colgroup>
                   <col />
-                  <col className="w-[200px]" />
-                  <col className="w-[160px]" />
-                  <col className="w-16" />
-                  <col className="w-[110px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[120px]" />
+                  <col className="w-[240px]" />
+                  <col className="w-[140px]" />
+                  <col className="w-[72px]" />
+                  <col className="w-[116px]" />
+                  <col className="w-[116px]" />
+                  <col className="w-[112px]" />
                 </colgroup>
                 <thead>
-                  <tr className="h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
+                  <tr className="ws-table-head h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colReport')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colTask')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colAsset')}</th>
@@ -248,61 +261,52 @@ export default function ReportsPage({ webapiEnabled, onOpenTaskReport, onOpenMen
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => {
-                    const created = formatCreated(item.created_at)
-                    const updated = formatCreated(item.updated_at)
-                    return (
-                      <tr
-                        key={item.report_id}
-                        className="h-12 cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40"
-                        onClick={() => onOpenTaskReport(item.task_id, item.report_id)}
-                      >
-                        <td className="min-w-0 px-3">
-                          {item.title
-                            ? <span className="block truncate text-[13px] font-medium text-foreground" title={item.title}>{item.title}</span>
-                            : <span className="block truncate text-[12px] text-muted-foreground">{t('shell.reportsNoDraft')}</span>}
-                        </td>
-                        <td className="min-w-0 px-3">
-                          <span className="block truncate text-[12px] text-foreground" title={item.task_title}>{item.task_title || '—'}</span>
-                        </td>
-                        <td className="px-3">
-                          {item.asset
-                            ? <span className="block truncate text-[12px] text-foreground" title={item.asset.name}>{item.asset.name}</span>
-                            : <span className="text-[12px] text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-3 text-right tabular-nums text-foreground">{item.item_count}</td>
-                        <td className="px-3 leading-tight">
-                          <div className="text-[12px] text-foreground">{created.day}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{created.time}</div>
-                        </td>
-                        <td className="px-3 leading-tight">
-                          <div className="text-[12px] text-foreground">{updated.day}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{updated.time}</div>
-                        </td>
-                        <td className="px-3" onClick={(event) => event.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-0.5">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  aria-label={t('shell.reportsOpen')}
-                                  onClick={() => onOpenTaskReport(item.task_id, item.report_id)}
-                                  className="text-muted-foreground"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>{t('shell.reportsOpen')}</TooltipContent>
-                            </Tooltip>
-                            {exportButton(item, 'markdown', t('shell.reportsExportMd'), <FileDown className="h-3.5 w-3.5" />)}
-                            {exportButton(item, 'json', t('shell.reportsExportJson'), <Braces className="h-3.5 w-3.5" />)}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {items.map((item) => (
+                    <tr
+                      key={item.report_id}
+                      className="cursor-pointer border-b border-border/70 transition-colors hover:bg-muted/40"
+                      onClick={() => onOpenTaskReport(item.task_id, item.report_id)}
+                    >
+                      <td className="min-w-0 px-3 py-2.5">
+                        {item.title
+                          ? <span className="block truncate text-[13px] font-medium text-foreground" title={item.title}>{item.title}</span>
+                          : <span className="block truncate text-[12px] text-muted-foreground">{t('shell.reportsNoDraft')}</span>}
+                        <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">{item.report_id}</span>
+                      </td>
+                      <td className="min-w-0 px-3 py-2.5">
+                        <span className="block truncate text-[12px] text-foreground" title={item.task_title}>{item.task_title || '—'}</span>
+                      </td>
+                      <td className="min-w-0 px-3 py-2.5">
+                        {item.asset
+                          ? <span className="block truncate text-[12px] text-foreground" title={item.asset.name}>{item.asset.name}</span>
+                          : <span className="text-[12px] text-muted-foreground">{t('shell.reportsNoAsset')}</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular text-secondary-foreground">{item.item_count}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[12px] tabular text-muted-foreground">{formatShortDateTime(item.created_at) || '—'}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[12px] tabular text-muted-foreground">{formatShortDateTime(item.updated_at) || '—'}</td>
+                      <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={t('shell.reportsOpen')}
+                                onClick={() => onOpenTaskReport(item.task_id, item.report_id)}
+                                className="text-muted-foreground"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('shell.reportsOpen')}</TooltipContent>
+                          </Tooltip>
+                          {exportButton(item, 'markdown', t('shell.reportsExportMd'), <FileDown className="h-3.5 w-3.5" />)}
+                          {exportButton(item, 'json', t('shell.reportsExportJson'), <Braces className="h-3.5 w-3.5" />)}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

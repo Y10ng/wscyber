@@ -409,29 +409,37 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
     }
   }
 
+  // 页面模式：卡内不重复“设置”标题、只显示一个 LLM 页签时不渲染页签条。
+  const visibleTabs = TABS.filter(tab => llmOnly
+    ? tab.key === 'llm'
+    : (tab.key === 'llm' || tab.key === 'agent' || !!cs?.extensions[tab.key === 'ioa' ? 'ioa.client' : tab.key]) && (tab.key !== 'scan' || scanEnabled))
+  const showTabBar = variant === 'dialog' || visibleTabs.length > 1
+
   const content = (
     <>
-        <div className={cn('flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3', variant === 'dialog' && 'pr-12')}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <Settings className="h-4 w-4" />
+        {variant === 'dialog' && (
+          <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
+              <Settings className="h-4 w-4" />
+            </div>
+            <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('settings')}</DialogTitle>
           </div>
-          {variant === 'page'
-            ? <h2 className="truncate text-sm font-semibold text-foreground">{t('settings')}</h2>
-            : <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('settings')}</DialogTitle>}
-        </div>
+        )}
 
         <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 py-1">
-            {TABS.filter(tab => llmOnly ? tab.key === 'llm' : (tab.key === 'llm' || tab.key === 'agent' || !!cs?.extensions[tab.key === 'ioa' ? 'ioa.client' : tab.key]) && (tab.key !== 'scan' || scanEnabled)).map((tab) => (
-              <Button
-                key={tab.key} type="button" variant="ghost" size="sm"
-                aria-pressed={shownTab === tab.key} onClick={() => setActiveTab(tab.key)}
-                className={cn('h-8 text-[13px]', shownTab === tab.key ? 'bg-muted text-foreground hover:bg-muted hover:text-foreground' : 'text-muted-foreground')}
-              >{t(tab.labelKey)}</Button>
-            ))}
-          </div>
+          {showTabBar && (
+            <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 py-1">
+              {visibleTabs.map((tab) => (
+                <Button
+                  key={tab.key} type="button" variant="ghost" size="sm"
+                  aria-pressed={shownTab === tab.key} onClick={() => setActiveTab(tab.key)}
+                  className={cn('h-8 text-[13px]', shownTab === tab.key ? 'bg-muted text-foreground hover:bg-muted hover:text-foreground' : 'text-muted-foreground')}
+                >{t(tab.labelKey)}</Button>
+              ))}
+            </div>
+          )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', variant === 'page' ? 'p-4' : 'p-4')}>
             {loading ? (
               <div className="flex h-48 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Spinner className="h-8 w-8" />
@@ -488,9 +496,9 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
             {error && <Callout tone="destructive" className="mt-3">{error}</Callout>}
           </div>
 
-          <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
+          <div className={cn('flex shrink-0 flex-row justify-end gap-2 border-t border-border px-4 py-3')}>
             {variant === 'dialog' && <Button type="button" variant="outline" onClick={onClose}>{t('close')}</Button>}
-            <Button type="submit" disabled={loading || saving}>{saving && <Spinner className="h-4 w-4" />}{t('save')}</Button>
+            <Button type="submit" className="h-9" disabled={loading || saving}>{saving && <Spinner className="mr-1.5 h-4 w-4" />}{t('save')}</Button>
           </div>
         </form>
     </>
@@ -498,7 +506,7 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
 
   if (variant === 'page') {
     return (
-      <div className="flex min-h-0 max-w-3xl flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex min-h-0 w-full max-w-[960px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
         {content}
       </div>
     )
@@ -685,30 +693,37 @@ function LLMTab({
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <div className="sm:col-span-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/15 p-2">
+      {/* 配置选择条：同漏洞页筛选胶囊，选中为品牌实底白字。 */}
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-1.5">
         {profiles.map(item => {
           const active = item.id === form.llm.active_profile
           const selected = item.id === profile.id
           return (
-            <button key={item.id} type="button" onClick={() => { onSelectProfile(item.id); setModels([]); setModelsError(null); setModelsNotice(null); setResult(null) }}>
-              <Badge
-                variant="outline"
-                className={cn('gap-1.5 py-1 text-[13px] transition-colors', active || selected ? 'text-foreground' : 'text-muted-foreground', selected && 'ring-2 ring-primary/25')}
-              >
-                {active && <Check className="h-3 w-3 shrink-0 text-success" />}
-                {item.name || item.model || item.provider || t('unnamedProfile')}
-              </Badge>
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => { onSelectProfile(item.id); setModels([]); setModelsError(null); setModelsNotice(null); setResult(null) }}
+              className={cn(
+                'flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                selected
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {active && <Check className="h-3 w-3 shrink-0" />}
+              <span className="truncate">{item.name || item.model || item.provider || t('unnamedProfile')}</span>
             </button>
           )
         })}
-        <Button type="button" variant="ghost" size="xs" onClick={addProfile} className="gap-1 text-muted-foreground">
+        <Button type="button" variant="outline" size="xs" onClick={addProfile} className="h-8 gap-1 rounded-full">
           <Plus className="h-3.5 w-3.5" />
           {t('addLLMProfile')}
         </Button>
       </div>
 
       <Field label={t('profileName')}>
-        <Input value={profile.name} onChange={(e) => updateProfile('name', e.target.value)} placeholder={t('profileNameHint')} />
+        <Input className="h-9" value={profile.name} onChange={(e) => updateProfile('name', e.target.value)} placeholder={t('profileNameHint')} />
       </Field>
       {localModel ? (
         <Field label={t('provider')} hint={t('localModelProviderLocked')}>
@@ -731,6 +746,7 @@ function LLMTab({
       <Field label={t('model')} error={modelRequired ? t('modelRequired') : modelsError} hint={modelsNotice}>
         {localModel ? (
           <Input
+            className="h-9"
             value={profile.model}
             onChange={(e) => {
               updateProfile('model', e.target.value)
@@ -754,7 +770,7 @@ function LLMTab({
         )}
       </Field>
       <Field label={t('baseUrl')} hint={localModel ? t('localModelEndpointHint') : undefined}>
-        <Input value={profile.base_url} onChange={(e) => updateProfile('base_url', e.target.value)} placeholder={localModel ? 'http://127.0.0.1:<port>/v1' : t('providerDefault')} />
+        <Input className="h-9" value={profile.base_url} onChange={(e) => updateProfile('base_url', e.target.value)} placeholder={localModel ? 'http://127.0.0.1:<port>/v1' : t('providerDefault')} />
       </Field>
       <Field
         label={t('contextWindow')}
@@ -763,6 +779,7 @@ function LLMTab({
           : t('contextWindowAuto')}
       >
         <Input
+          className="h-9"
           type="number"
           min={1}
           step={1}
@@ -773,6 +790,7 @@ function LLMTab({
       </Field>
       <Field label={t('maxTokens')}>
         <Input
+          className="h-9"
           type="number"
           min={1}
           step={1}
@@ -783,6 +801,7 @@ function LLMTab({
       </Field>
       <Field label={t('llmTimeout')}>
         <Input
+          className="h-9"
           type="number"
           min={1}
           step={1}
@@ -796,7 +815,7 @@ function LLMTab({
           <div className="flex h-9 items-center rounded-md border border-border bg-muted/40 px-3 text-sm text-muted-foreground">—</div>
         </Field>
       ) : (
-        <Field label={t('proxy')}><Input value={profile.proxy} onChange={(e) => updateProfile('proxy', e.target.value)} placeholder="http://127.0.0.1:7890" /></Field>
+        <Field label={t('proxy')}><Input className="h-9" value={profile.proxy} onChange={(e) => updateProfile('proxy', e.target.value)} placeholder="http://127.0.0.1:7890" /></Field>
       )}
       <div className="sm:col-span-2">
         <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -806,7 +825,7 @@ function LLMTab({
       </div>
       <div className="sm:col-span-2">
         <Field label={t('apiKey')}>
-          <Input type="password" value={profile.api_key} onChange={(e) => updateProfile('api_key', e.target.value)}
+          <Input className="h-9" type="password" value={profile.api_key} onChange={(e) => updateProfile('api_key', e.target.value)}
             placeholder={configuredProfile?.apiKeyConfigured ? t('configuredKeep') : t('apiKeyRequired')} />
         </Field>
       </div>
@@ -814,6 +833,7 @@ function LLMTab({
         <Field label={t('jevApiKey')} hint={t('jevKeyInLLMHint')}>
           <Input
             ref={jevInputRef}
+            className="h-9"
             aria-label={t('jevApiKey')}
             type="password"
             autoComplete="new-password"

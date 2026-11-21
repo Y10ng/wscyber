@@ -1052,6 +1052,8 @@ export interface WebApiVulnCardRelated {
   code: string
   title: string
   severity: WebApiVulnSeverity
+  /** K1/2d0afe0：同资产其他条目也带 AI 建议等级。 */
+  suggested_severity: WebApiVulnSeverity
   status: WebApiVulnStatus
 }
 
@@ -2214,6 +2216,8 @@ export interface WebApiVulnEvent {
 
 export interface WebApiVuln {
   id: string
+  /** K1：稳定编号 V-XXXXXXXX。 */
+  code: string
   title: string
   status: WebApiVulnStatus
   endpoint_key: string
@@ -2224,6 +2228,10 @@ export interface WebApiVuln {
   member_count: number
   task_count: number
   members: WebApiVulnMember[]
+  /** V1 人工处置视图（后端 HTTP 层填入）。 */
+  triage?: WebApiVulnTriage | null
+  /** K1：成员中最新带建议等级的 supported 验证；空串 = 无建议。 */
+  suggested_severity?: WebApiVulnSeverity
 }
 
 export interface WebApiVulnList {
