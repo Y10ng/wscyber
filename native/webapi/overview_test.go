@@ -576,6 +576,25 @@ func TestOverviewSupportedSuggestedSeverity(t *testing.T) {
 	}
 }
 
+func TestOverviewCoverageTestedToday(t *testing.T) {
+	f := newGlobalFixture(t) // 当前本地时间 2026-11-19 12:00（UTC+8）
+	if status, raw := f.do("PUT", "/api/webapi/assets/today", `{"name":"演示今日巡检","origins":["https://today.example.test"]}`); status != http.StatusCreated {
+		t.Fatalf("asset = %d %s", status, raw)
+	}
+	// UTC 仍为前一天，但已是今天本地 00:01；days_since 应为非 null 的 0。
+	const testedAt = "2026-11-18T16:01:00Z"
+	f.task("today-task", "today", "演示巡检", "", "https://today.example.test", "today-session", testedAt)
+	var view Overview
+	f.getJSON("/api/webapi/overview?days=7", &view)
+	if view.Coverage.Total != 1 || view.Coverage.Tested != 1 || len(view.Coverage.StaleTop) != 1 {
+		t.Fatalf("coverage = %+v", view.Coverage)
+	}
+	item := view.Coverage.StaleTop[0]
+	if item.AssetID != "today" || item.LastTestedAt == nil || *item.LastTestedAt != testedAt || item.DaysSince == nil || *item.DaysSince != 0 {
+		t.Fatalf("tested today = %+v; want last_tested_at=%s, days_since=0", item, testedAt)
+	}
+}
+
 func TestOverviewAggregates(t *testing.T) {
 	f := newGlobalFixture(t)
 	f.seed()

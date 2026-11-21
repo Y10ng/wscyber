@@ -356,6 +356,22 @@ func TestVulnCardSections(t *testing.T) {
 		t.Fatalf("fp triage = %d %s", status, raw)
 	}
 
+	// 同资产另一 supported 条目：只带 AI 建议等级，不写人工定级。
+	relatedURL := "https://api.example.test/summary"
+	relatedID, relatedRev := f.addFinding("t1", "演示摘要访问检查", notifyContent(), evidenceAt("GET", relatedURL))
+	relatedVerification := f.newVerification("t1", relatedID, relatedRev)
+	relatedEvidence := f.addEvidence("t1", relatedVerification.SessionID, cardFlow(relatedURL, "sid=demo", `{"summary":"demo"}`))
+	relatedPayload := map[string]any{
+		"verdict": "supported", "method": "比较演示摘要响应", "summary": "演示摘要可读",
+		"impact": "可读取演示摘要", "key_steps": []map[string]any{{"title": "读取演示摘要", "evidence_id": relatedEvidence.ID}},
+		"evidence":           []map[string]any{{"evidence_id": relatedEvidence.ID, "relation": "supporting"}},
+		"suggested_severity": "low", "severity_reason": "仅包含演示摘要",
+	}
+	if result, message := f.callVerification(relatedVerification, relatedPayload); result == nil {
+		t.Fatalf("related verification rejected: %s", message)
+	}
+	relatedKey := vulnOf(f.vulns("a1", ""), relatedID).ID
+
 	card := f.card(vid)
 	h := card.Header
 	if h.Key != vid || h.Code != "V-"+strings.ToUpper(vid[:8]) || h.Title != "订单越权（复核）" || h.Status != VulnNew || h.Severity != SeverityMedium ||
@@ -426,8 +442,15 @@ func TestVulnCardSections(t *testing.T) {
 		if item.Code != vulnCode(item.Key) {
 			t.Fatalf("related code = %+v", item)
 		}
+		wantSuggested := ""
+		if item.Key == relatedKey {
+			wantSuggested = "low"
+		}
+		if item.Severity != "" || item.SuggestedSeverity != wantSuggested {
+			t.Fatalf("related severity = %+v; want suggested_severity=%q and no manual severity", item, wantSuggested)
+		}
 	}
-	if len(card.Related) != 3 || !related[pendingKey] || !related[fpKey] || !related[legacyKey] || related[fixedKey] || related[vid] {
+	if len(card.Related) != 4 || !related[relatedKey] || !related[pendingKey] || !related[fpKey] || !related[legacyKey] || related[fixedKey] || related[vid] {
 		t.Fatalf("related = %+v", card.Related)
 	}
 	// nav：与 GET /vulns 默认排序一致。
@@ -444,6 +467,11 @@ func TestVulnCardSections(t *testing.T) {
 		}
 		if item.ID == vid && item.SuggestedSeverity != "high" {
 			t.Fatalf("global suggested = %+v", item)
+		}
+		for _, relatedItem := range card.Related {
+			if relatedItem.Key == item.ID && relatedItem.SuggestedSeverity != item.SuggestedSeverity {
+				t.Fatalf("related/global suggested mismatch: %+v / %+v", relatedItem, item)
+			}
 		}
 		got := f.card(item.ID).Nav
 		wantPrev, wantNext := "", ""

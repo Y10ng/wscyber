@@ -21,7 +21,7 @@
 | `retest` | 成员最新复测结论 `{retest_id, task_id, finding_id, session_id, conclusion, summary, at}` 或 null |
 | `lifecycle[]` | 升序 `{at, kind, title, detail, actor}`，见下 |
 | `appendix` | `{verifications[], members[], evidence_count, evidence[], changes[]}`，见下 |
-| `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, status}`；无资产为空 |
+| `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, suggested_severity, status}`；`suggested_severity` 与 `GET /vulns` 对应条目同源，无建议时为空串；无资产为空 |
 | `nav` | `{prev_key, next_key}`：在 `GET /vulns` 默认排序（无筛选）中的前/后一条，首尾为 null |
 
 - `suggested_severity` / `severity_reason`：成员中最新一条带建议等级的 supported 验证；列表项 `suggested_severity` 同一规则。它只是 AI 建议，不写处置、不参与 SLA/逾期/计数。

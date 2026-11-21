@@ -217,11 +217,12 @@ type VulnCardAppendix struct {
 }
 
 type VulnCardRelated struct {
-	Key      string `json:"key"`
-	Code     string `json:"code"`
-	Title    string `json:"title"`
-	Severity string `json:"severity"`
-	Status   string `json:"status"`
+	Key               string `json:"key"`
+	Code              string `json:"code"`
+	Title             string `json:"title"`
+	Severity          string `json:"severity"`
+	SuggestedSeverity string `json:"suggested_severity"`
+	Status            string `json:"status"`
 }
 
 type VulnCardNav struct {
@@ -834,7 +835,7 @@ func (c *Capability) buildVulnCard(ctx context.Context, key string) (*VulnCard, 
 			if other.Triage != nil {
 				severity = other.Triage.Severity
 			}
-			card.Related = append(card.Related, VulnCardRelated{Key: other.ID, Code: vulnCode(other.ID), Title: other.Title, Severity: severity, Status: other.Status})
+			card.Related = append(card.Related, VulnCardRelated{Key: other.ID, Code: vulnCode(other.ID), Title: other.Title, Severity: severity, SuggestedSeverity: other.SuggestedSeverity, Status: other.Status})
 		}
 	}
 	return card, nil
