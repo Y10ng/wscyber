@@ -59,10 +59,15 @@ export default function VulnTriageForm({
   const [saved, setSaved] = useState(false)
   const savedTimer = useRef<number | null>(null)
 
-  // 条目切换或卡片重新拉取后用服务端视图回填。
+  // 派生值（due_effective/overdue/owner_effective 等）跟随每次卡片刷新。
+  useEffect(() => {
+    setView(triage)
+  }, [triage])
+
+  // 只有切换条目或服务端处置真正被保存（updated_at 变化）时才回填可编辑字段，
+  // 避免后台轮询刷新卡片时覆盖用户尚未保存的输入。
   useEffect(() => {
     if (!triage) return
-    setView(triage)
     setSeverity(triage.severity || '')
     setDisposition(triage.disposition || 'open')
     setOwner(triage.owner || '')
@@ -70,7 +75,7 @@ export default function VulnTriageForm({
     setNote(triage.note || '')
     setSaveError('')
     setSaved(false)
-  }, [vulnKey, triage])
+  }, [vulnKey, triage?.updated_at])
 
   useEffect(() => () => {
     if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)

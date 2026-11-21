@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "d4ce4702a83bade622939b1032805e5c119106e81bc192c950cb420ced47445d"
+      "sha256": "b66ab5c7043fb16e39a804fd8dfe7fb544137f7f696c377309d3ecf8e3381cc6"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "370bbfd953b671003cbd4c5eced4db7ed03f485f90487f9e7dda69c017065c84"
+      "sha256": "2a6dff274bc78df360225733c733e70a26803ffc655282a05a5a3a97290b46f9"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -80,7 +80,7 @@
     },
     "src/components/VulnsPage.tsx": {
       "source_sha256": null,
-      "sha256": "5eea9eeacc0d0f7b3935c727f876c2f8256472869152b44ef857cd8bf79691c2"
+      "sha256": "7a9ff4bf489027dca0fad06b982b88b2e811d1cb605b4b093cbc7980e0586a8e"
     },
     "src/components/WebApiAssetLaunchDialog.tsx": {
       "source_sha256": null,
@@ -228,7 +228,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "dc735ed409d5466afd171244b712acff777d731ff36e2a85a23781b5a3b65030"
+      "sha256": "a7656fc8bae34d9b4d71c8e9d7320ab9157ae2dd2afaf11d4300f808d95d2728"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -244,7 +244,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "8c28b068ad312cde213c652a1ccbd9bd35dac1fa32cc09a753ed572a21d05552"
+      "sha256": "5a03cd2ebb1bbec36339535f7a17577920ef1b8240d8ab830fb0024c04d73aa1"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -288,11 +288,11 @@
     },
     "src/components/VulnTriageForm.tsx": {
       "source_sha256": null,
-      "sha256": "ed58018c71b934961532de933e8bf915ffa6a69f88c14d6cfea7dbc704f76d80"
+      "sha256": "e38f15cd04513eeced784d970861ef0f695bd6c18dcf2f34b1ab276f3eef41ad"
     },
     "src/components/VulnCardPage.tsx": {
       "source_sha256": null,
-      "sha256": "4ef1c3757f7fc9be4801ff1dbb55d2750ba4938a93bf56371cd56058e901a55d"
+      "sha256": "d4493737113e71c6e5bd04bf21bbf1fad04eb382d1840ba85a1e215789322ee9"
     },
     "src/components/HttpPairBlock.tsx": {
       "source_sha256": null,
@@ -309,6 +309,14 @@
     "cyber-ui/packages/ui/src/confirm-dialog.tsx": {
       "source_sha256": "b26c8a9b7f26babf02c2ea88e87791e2b7c3c1d6f303834f4234259f61e0c717",
       "sha256": "a30a3e9914712fb16e87b8e24378c1428bf3e23bd8f3bd09a9693ce87ae1f541"
+    },
+    "src/components/VulnNotifyDialog.tsx": {
+      "source_sha256": null,
+      "sha256": "a4c56dab8b21b22e812604eb3636ffafec3d927313b767377d4cf6900d5f7cf5"
+    },
+    "src/lib/download.ts": {
+      "source_sha256": null,
+      "sha256": "20f5f4c2cbcf4caf7dcdceefeb67e8fef79f66f93491e75beb8e624c289de325"
     }
   }
 }

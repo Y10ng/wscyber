@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ClipboardEdit, ExternalLink, HelpCircle, Loader2, RefreshCw, Timer,
+  Download, ClipboardEdit, ExternalLink, HelpCircle, Loader2, RefreshCw, Timer,
 } from 'lucide-react'
 import {
-  Button, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
+  Button, Checkbox, EmptyState, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
@@ -14,8 +14,10 @@ import VulnTriageSheet from './VulnTriageSheet'
 import { DeadlineText, DispositionBadge, SeverityBadge, StatusBadge } from './ui-badges'
 import { usePolling } from '../hooks/usePolling'
 import {
+  exportWebApiVulns,
   listWebApiAssets,
   listWebApiGlobalVulns,
+  webApiVulnExportFilename,
   type WebApiAsset,
   type WebApiGlobalVuln,
   type WebApiGlobalVulnCounts,
@@ -23,6 +25,7 @@ import {
   type WebApiVulnSeverity,
   type WebApiVulnStatus,
 } from '../api'
+import { downloadText } from '../lib/download'
 
 interface VulnsPageProps {
   webapiEnabled: boolean
@@ -110,6 +113,10 @@ export default function VulnsPage({
   const [error, setError] = useState('')
   const [triageItem, setTriageItem] = useState<WebApiGlobalVuln | null>(null)
   const [slaOpen, setSlaOpen] = useState(false)
+  // K2：按 item.id 多选导出（筛选变化清空；“加载更多”保留）。
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [exporting, setExporting] = useState<'markdown' | 'json' | null>(null)
+  const [exportError, setExportError] = useState('')
   const seq = useRef(0)
   const cursorRef = useRef<string | null>(null)
 
@@ -221,6 +228,40 @@ export default function VulnsPage({
     // 保存后刷新列表当前页：重置到第一页取最新派生值（期限/逾期读时计算）。
     cursorRef.current = null
     void loadVulns({ reset: true, silent: true })
+  }
+
+  // 任一筛选/搜索条件变化都清空选择；“加载更多”不改条件，故不清空。
+  useEffect(() => {
+    setSelected(new Set())
+    setExportError('')
+  }, [filter, severity, disposition, overdueOnly, assetId, query])
+
+  const selectedItems = items.filter((item) => selected.has(item.id))
+  const allSelected = items.length > 0 && items.every((item) => selected.has(item.id))
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))
+  }
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const exportSelected = async (format: 'markdown' | 'json') => {
+    if (exporting !== null || selected.size === 0 || selected.size > 50) return
+    setExporting(format)
+    setExportError('')
+    try {
+      // 按表格显示顺序导出当前已加载的选中项。
+      const text = await exportWebApiVulns(selectedItems.map((item) => item.id), format)
+      downloadText(text, webApiVulnExportFilename(null, format), format)
+    } catch (err) {
+      setExportError(errorText(err))
+    } finally {
+      setExporting(null)
+    }
   }
 
   return (
@@ -350,6 +391,53 @@ export default function VulnsPage({
             </>
           )}
         >
+          {selected.size > 0 && (
+            <div className="flex h-11 flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 text-[13px]">
+              <span className="text-secondary-foreground">{t('shell.vulnsSelected', { count: selected.size })}</span>
+              <span className="text-muted-foreground">·</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1"
+                disabled={exporting !== null || selected.size > 50}
+                onClick={() => { void exportSelected('markdown') }}
+              >
+                {exporting === 'markdown'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
+                {t('shell.vulnsExportMarkdown')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1"
+                disabled={exporting !== null || selected.size > 50}
+                onClick={() => { void exportSelected('json') }}
+              >
+                {exporting === 'json'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
+                {t('shell.vulnsExportJson')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={() => setSelected(new Set())}
+              >
+                {t('shell.vulnsClearSelection')}
+              </Button>
+              {selected.size > 50 && (
+                <span className="text-[12px] text-warning">{t('shell.vulnsExportLimit')}</span>
+              )}
+              {exportError && (
+                <span className="text-[12px] text-destructive">{t('shell.vulnsExportFailed', { error: exportError })}</span>
+              )}
+            </div>
+          )}
           {loading ? (
             <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-muted-foreground">
               <Spinner className="h-5 w-5" />
@@ -359,8 +447,9 @@ export default function VulnsPage({
             <EmptyState title={filtered ? t('shell.vulnsFilterEmpty') : t('shell.vulnsEmpty')} />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1080px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
+              <table className="w-full min-w-[1120px] table-fixed border-collapse text-[13px] min-[1440px]:min-w-0">
                 <colgroup>
+                  <col className="w-[40px]" />
                   <col className="w-[96px]" />
                   <col className="w-[80px]" />
                   <col />
@@ -373,6 +462,13 @@ export default function VulnsPage({
                 </colgroup>
                 <thead>
                   <tr className="ws-table-head h-10 border-b border-border text-[12px] font-medium text-muted-foreground">
+                    <th className="px-3">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleAll}
+                        aria-label={t('shell.vulnsSelectAll')}
+                      />
+                    </th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colStatus')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.triageSeverity')}</th>
                     <th className="whitespace-nowrap px-3 text-left font-medium">{t('shell.colVuln')} / {t('shell.triageDisposition')}</th>
@@ -400,6 +496,13 @@ export default function VulnsPage({
                         )}
                         onClick={() => openVuln(item)}
                       >
+                        <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
+                          <Checkbox
+                            checked={selected.has(item.id)}
+                            onCheckedChange={() => toggleOne(item.id)}
+                            aria-label={t('shell.vulnsSelectRow', { code: item.code })}
+                          />
+                        </td>
                         <td className="px-3 py-2.5">
                           <StatusBadge status={item.status} />
                         </td>

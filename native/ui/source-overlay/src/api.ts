@@ -1062,6 +1062,36 @@ export interface WebApiVulnCardNav {
   next_key: string | null
 }
 
+/** K2：漏洞卡的推送段（native/NOTIFY.md“漏洞卡人工推送”）。 */
+export interface WebApiVulnCardNotify {
+  configured: boolean
+  require_confirm: boolean
+  items: WebApiNotification[]
+}
+
+/** 漏洞卡人工推送的逐字预览；image 为 null 表示不发图。 */
+export interface WebApiVulnNotifyPreview {
+  verification_id: string
+  markdown: string
+  image: { task_id: string; evidence_id: string; marks: string[] } | null
+  image_note: string
+}
+
+/** 推送/预览错误体；status 为平台语义状态。 */
+export interface WebApiVulnNotifyError {
+  error?: string
+  code?: 'not_configured' | 'false_positive' | 'no_supported' | 'in_flight'
+  notification_id?: string
+}
+
+/** 带 HTTP 状态与已解析错误体的推送失败；供 UI 区分 409 原因。 */
+export class VulnNotifyAPIError extends APIError {
+  constructor(message: string, public readonly httpStatus: number, public readonly body: WebApiVulnNotifyError | null) {
+    super(message, httpStatus)
+    this.name = 'VulnNotifyAPIError'
+  }
+}
+
 // --- K2 一键重放（native/REPLAY.md）------------------------------------
 export type WebApiReplayVerdictHint = 'still_reproducible' | 'changed' | 'unknown'
 
@@ -1139,6 +1169,7 @@ export interface WebApiVulnCard {
   appendix: WebApiVulnCardAppendix
   related: WebApiVulnCardRelated[]
   nav: WebApiVulnCardNav
+  notify: WebApiVulnCardNotify
   replays: WebApiVulnCardReplay[]
 }
 
@@ -1179,6 +1210,68 @@ export async function replayWebApiVulnStep(key: string, step: number): Promise<W
     throw new ReplayAPIError(body?.error || 'Failed to replay step', res.status, body)
   }
   return res.json() as Promise<WebApiReplayResult>
+}
+
+// --- K2 漏洞卡人工推送与漏洞报告导出（native/NOTIFY.md、VULN_CARD.md） ---
+async function notifyErrorResponse(res: Response, fallback: string): Promise<VulnNotifyAPIError> {
+  let body: WebApiVulnNotifyError | null = null
+  try {
+    const parsed = await res.json()
+    if (parsed && typeof parsed === 'object') body = parsed as WebApiVulnNotifyError
+  } catch {
+    body = null
+  }
+  return new VulnNotifyAPIError(body?.error || fallback, res.status, body)
+}
+
+/** 人工推送将发送的逐字 markdown；未配置 webhook 也可预览。 */
+export async function getWebApiVulnNotifyPreview(key: string): Promise<WebApiVulnNotifyPreview> {
+  const res = await authenticatedFetch(
+    `/api/webapi/vulns/${encodeURIComponent(key)}/card/notify/preview`,
+    { cache: 'no-store' },
+  )
+  if (!res.ok) throw await notifyErrorResponse(res, 'Failed to load notify preview')
+  return res.json() as Promise<WebApiVulnNotifyPreview>
+}
+
+/** 人工推送：直接入队（不受 require_confirm 影响）。 */
+export async function notifyWebApiVulnCard(key: string): Promise<WebApiNotification> {
+  const res = await authenticatedFetch(`/api/webapi/vulns/${encodeURIComponent(key)}/card/notify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw await notifyErrorResponse(res, 'Failed to push vulnerability card')
+  return res.json() as Promise<WebApiNotification>
+}
+
+/** 单条漏洞报告导出（遮盖版）；取文本由调用方落文件。 */
+export async function exportWebApiVulnCard(key: string, format: 'markdown' | 'json'): Promise<string> {
+  const res = await authenticatedFetch(
+    `/api/webapi/vulns/${encodeURIComponent(key)}/card/export?format=${format}`,
+    { cache: 'no-store' },
+  )
+  if (!res.ok) throw new APIError(await errorMessage(res, 'Failed to export vulnerability report'), res.status)
+  return res.text()
+}
+
+/** 多条漏洞报告导出（按 keys 顺序输出，1–50 条，遮盖版）。 */
+export async function exportWebApiVulns(keys: string[], format: 'markdown' | 'json'): Promise<string> {
+  const res = await authenticatedFetch('/api/webapi/vulns/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys, format }),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new APIError(await errorMessage(res, 'Failed to export vulnerability reports'), res.status)
+  return res.text()
+}
+
+/** 导出文件名：单条 `vuln-<code>.<ext>`，多条（code 为 null）`vulns-report.<ext>`。 */
+export function webApiVulnExportFilename(code: string | null, format: 'markdown' | 'json'): string {
+  const base = code ? `vuln-${code}` : 'vulns-report'
+  return `${base}.${format === 'markdown' ? 'md' : 'json'}`
 }
 
 export async function getWebApiVulnSLA(): Promise<WebApiVulnSLA> {
@@ -2508,7 +2601,7 @@ export type WebApiNotificationStatus = 'pending_confirm' | 'queued' | 'sending' 
 
 export interface WebApiNotification {
   id: string
-  kind: 'new' | 'regression'
+  kind: 'new' | 'regression' | 'manual'
   status: WebApiNotificationStatus
   dedupe_key: string
   task_id: string

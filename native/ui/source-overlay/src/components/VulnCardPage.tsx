@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, ExternalLink,
-  HelpCircle, Loader2, Menu, MoreHorizontal, Play, RotateCw, Sparkles, Wrench, X, XCircle,
+  Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Download, ExternalLink,
+  HelpCircle, Loader2, Menu, MoreHorizontal, Play, RotateCw, Send, Sparkles, Wrench, X, XCircle,
 } from 'lucide-react'
 import {
   Button, Dialog, DialogContent, DropdownMenu, DropdownMenuContent,
@@ -13,23 +13,28 @@ import {
 import { newID } from '@cyber/aop'
 import { cn } from '@cyber/theme'
 import {
+  actWebApiNotification, APIError, exportWebApiVulnCard,
   getWebApiVulnCard, getWebApiVulnCardCurl, listWebApiAssetVulns, mergeWebApiVulns,
   moveWebApiVulnMember, replayWebApiVulnStep, saveWebApiVulnTitle,
-  ReplayAPIError, webApiEvidenceImageURL,
-  type WebApiReplayResult, type WebApiVuln, type WebApiVulnCard, type WebApiVulnCardContrast,
-  type WebApiVulnCardEvent, type WebApiVulnCardEvidence, type WebApiVulnCardMember,
-  type WebApiVulnCardReplay, type WebApiVulnCardRepro, type WebApiVulnCardStep,
-  type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
+  ReplayAPIError, webApiEvidenceImageURL, webApiVulnExportFilename,
+  type WebApiNotification, type WebApiReplayResult, type WebApiVuln, type WebApiVulnCard,
+  type WebApiVulnCardContrast, type WebApiVulnCardEvent, type WebApiVulnCardEvidence,
+  type WebApiVulnCardMember, type WebApiVulnCardReplay, type WebApiVulnCardRepro,
+  type WebApiVulnCardStep, type WebApiVulnCardVerification, type WebApiVulnSeverity,
+  type WebApiVulnStatus,
 } from '../api'
 import {
-  DeadlineText, DispositionBadge, ReplayHintBadge, SeverityBadge, StatusBadge, VerdictBadge,
+  DeadlineText, DispositionBadge, NotificationStatusBadge, ReplayHintBadge, SeverityBadge, StatusBadge,
+  VerdictBadge,
 } from './ui-badges'
 import HttpPairBlock, {
   displayPath, rawRequestText, responseBodyLines, useEvidenceHttpView,
 } from './HttpPairBlock'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 import VulnTriageForm from './VulnTriageForm'
+import VulnNotifyDialog from './VulnNotifyDialog'
 import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
+import { downloadText } from '../lib/download'
 
 interface VulnCardPageProps {
   vulnKey: string
@@ -39,6 +44,8 @@ interface VulnCardPageProps {
   onOpenTaskFinding: (taskId: string, findingId: string) => void
   /** 在任务工作区流量视图定位某条证据（一键重放结果“在流量中查看”）。 */
   onOpenTaskEvidence: (taskId: string, evidenceId: string) => void
+  /** 推送对话框“前往集成”（未配置时）。 */
+  onOpenIntegrations: () => void
   onOpenMenu: () => void
 }
 
@@ -107,6 +114,12 @@ const RETEST_KEYS: Record<string, string> = {
   reproducible: 'webapi.retestReproducible',
   fixed_in_scope: 'webapi.retestFixedInScope',
   inconclusive: 'webapi.retestInconclusive',
+}
+
+const NOTIFY_KIND_KEYS: Record<WebApiNotification['kind'], string> = {
+  new: 'vulnCard.notifyKindNew',
+  regression: 'vulnCard.notifyKindRegression',
+  manual: 'vulnCard.notifyKindManual',
 }
 
 function retestText(t: (key: string) => string, conclusion: string | null | undefined): string {
@@ -861,7 +874,7 @@ function LifecycleTimeline({ events }: { events: WebApiVulnCardEvent[] }) {
 }
 
 export default function VulnCardPage({
-  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenTaskEvidence, onOpenMenu,
+  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenTaskEvidence, onOpenIntegrations, onOpenMenu,
 }: VulnCardPageProps) {
   const { t } = useTranslation('chat')
   const [card, setCard] = useState<WebApiVulnCard | null>(null)
@@ -886,6 +899,11 @@ export default function VulnCardPage({
   const [titleDraft, setTitleDraft] = useState('')
   const [renameSaving, setRenameSaving] = useState(false)
   const [renameError, setRenameError] = useState('')
+  // K2 统一出口：推送对话框、导出、右栏推送记录操作。
+  const [notifyOpen, setNotifyOpen] = useState(false)
+  const [exporting, setExporting] = useState<'markdown' | 'json' | null>(null)
+  const [notifyActing, setNotifyActing] = useState<string | null>(null)
+  const [notifyRowError, setNotifyRowError] = useState<{ id: string; message: string } | null>(null)
   const seq = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toastTimer = useRef<number | null>(null)
@@ -934,6 +952,10 @@ export default function VulnCardPage({
     setRenameOpen(false)
     setStepReplays({})
     setReplayCooldownUntil(0)
+    setNotifyOpen(false)
+    setExporting(null)
+    setNotifyActing(null)
+    setNotifyRowError(null)
     void loadCard()
   }, [loadCard])
 
@@ -1038,6 +1060,52 @@ export default function VulnCardPage({
     : 0
 
   const isAssetVuln = Boolean(card?.header.asset && !card.header.key.startsWith('finding:'))
+
+  // 推送记录里还有未完成项时每 10s 静默刷新（离开页面由 effect 清理）。
+  const notifyHasPending = Boolean(card?.notify.items.some(
+    (item) => item.status === 'pending_confirm' || item.status === 'queued' || item.status === 'sending',
+  ))
+  useEffect(() => {
+    if (!notifyHasPending) return
+    const timer = window.setInterval(() => { void loadCard(true) }, 10000)
+    return () => window.clearInterval(timer)
+  }, [notifyHasPending, loadCard])
+
+  const exportCard = async (format: 'markdown' | 'json') => {
+    if (!card || exporting !== null) return
+    setExporting(format)
+    try {
+      const text = await exportWebApiVulnCard(card.header.key, format)
+      downloadText(text, webApiVulnExportFilename(card.header.code, format), format)
+    } catch (err) {
+      notify(t('vulnCard.notifyExportFailed', { error: errorText(err) }))
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const runNotifyAction = async (item: WebApiNotification, action: 'confirm' | 'dismiss' | 'retry') => {
+    if (notifyActing !== null) return
+    setNotifyActing(`${item.id}:${action}`)
+    setNotifyRowError(null)
+    try {
+      await actWebApiNotification(item.id, action)
+      await loadCard(true)
+    } catch (err) {
+      setNotifyRowError({ id: item.id, message: errorText(err) })
+      if (err instanceof APIError && err.status === 409) await loadCard(true)
+    } finally {
+      setNotifyActing(null)
+    }
+  }
+
+  const notifyNote = (item: WebApiNotification): string => {
+    if (item.status === 'sent') return t('vulnCard.notifySentAt', { time: formatShort(item.sent_at) })
+    if (item.status === 'failed' || item.last_error) return item.last_error || '—'
+    if (item.status === 'pending_confirm') return t('vulnCard.notifyWaitingConfirm')
+    if (item.status === 'dismissed') return t('vulnCard.notifyDismissed')
+    return t('vulnCard.notifyWaiting')
+  }
 
   const loadTargets = useCallback(async () => {
     const assetId = card?.header.asset?.id
@@ -1338,22 +1406,37 @@ export default function VulnCardPage({
                     <ExternalLink className="h-3.5 w-3.5" />
                     {t('vulnCard.viewInTask')}
                   </Button>
-                  {isAssetVuln && (
-                    <DropdownMenu onOpenChange={(next) => { if (next) void loadTargets() }}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          className="h-8 w-8"
-                          aria-label={t('webapi.vulnMoreActions')}
-                          disabled={acting !== null}
-                        >
-                          {acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={openRename}>{t('webapi.vulnRename')}</DropdownMenuItem>
+                  <DropdownMenu onOpenChange={(next) => { if (next && isAssetVuln) void loadTargets() }}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        className="h-8 w-8"
+                        aria-label={t('webapi.vulnMoreActions')}
+                        disabled={acting !== null || exporting !== null}
+                      >
+                        {acting || exporting
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <MoreHorizontal className="h-4 w-4" />}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => setNotifyOpen(true)}>
+                        <Send className="mr-2 h-4 w-4" />
+                        {t('vulnCard.notifyMenu')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { void exportCard('markdown') }}>
+                        <Download className="mr-2 h-4 w-4" />
+                        {t('vulnCard.notifyExportMarkdown')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { void exportCard('json') }}>
+                        <Download className="mr-2 h-4 w-4" />
+                        {t('vulnCard.notifyExportJson')}
+                      </DropdownMenuItem>
+                      {isAssetVuln && <DropdownMenuSeparator />}
+                      {isAssetVuln && <DropdownMenuItem onSelect={openRename}>{t('webapi.vulnRename')}</DropdownMenuItem>}
+                      {isAssetVuln && (
                         <DropdownMenuSub>
                           <DropdownMenuSubTrigger disabled={targetsLoading}>{t('webapi.vulnMergeInto')}</DropdownMenuSubTrigger>
                           <DropdownMenuSubContent>
@@ -1371,9 +1454,9 @@ export default function VulnCardPage({
                             ))}
                           </DropdownMenuSubContent>
                         </DropdownMenuSub>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             </Card>
@@ -1558,6 +1641,82 @@ export default function VulnCardPage({
                 </Card>
 
                 <Card className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.notifyTitle')}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground">
+                        {card.notify.configured
+                          ? (card.notify.require_confirm ? t('vulnCard.notifyStateRequireConfirm') : t('vulnCard.notifyStateAuto'))
+                          : t('vulnCard.notifyStateUnconfigured')}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="gap-1"
+                        onClick={() => setNotifyOpen(true)}
+                      >
+                        <Send className="h-3 w-3" />
+                        {t('vulnCard.notifyPush')}
+                      </Button>
+                    </div>
+                  </div>
+                  {card.notify.items.length === 0 ? (
+                    <p className="text-[12px] text-muted-foreground">{t('vulnCard.notifyEmpty')}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {card.notify.items.slice(0, 5).map((item) => {
+                        const busy = notifyActing !== null
+                        const rowConflict = notifyRowError?.id === item.id ? notifyRowError.message : ''
+                        return (
+                          <div key={item.id} className="space-y-1 border-t border-border/60 pt-2 first:border-t-0 first:pt-0">
+                            <div className="flex items-center gap-1.5">
+                              <NotificationStatusBadge status={item.status} />
+                              <span className="text-[12px] text-secondary-foreground">{t(NOTIFY_KIND_KEYS[item.kind])}</span>
+                              <span className="ml-auto shrink-0 font-mono text-[11px] tabular text-muted-foreground">
+                                {formatShort(item.created_at)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <p
+                                className={cn(
+                                  'min-w-0 flex-1 truncate text-[11px]',
+                                  item.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+                                )}
+                                title={notifyNote(item)}
+                              >
+                                {notifyNote(item)}
+                              </p>
+                              {item.status === 'pending_confirm' && (
+                                <>
+                                  <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runNotifyAction(item, 'confirm') }}>
+                                    {t('vulnCard.notifyConfirm')}
+                                  </Button>
+                                  <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runNotifyAction(item, 'dismiss') }}>
+                                    {t('vulnCard.notifyDismiss')}
+                                  </Button>
+                                </>
+                              )}
+                              {item.status === 'failed' && (
+                                <>
+                                  <Button type="button" variant="soft" size="xs" disabled={busy} onClick={() => { void runNotifyAction(item, 'retry') }}>
+                                    {t('vulnCard.notifyRetry')}
+                                  </Button>
+                                  <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => { void runNotifyAction(item, 'dismiss') }}>
+                                    {t('vulnCard.notifyDismiss')}
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                            {rowConflict && <p className="text-[11px] text-destructive">{rowConflict}</p>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </Card>
+
+                <Card className="space-y-2.5">
                   <h3 className="text-[12px] font-semibold text-foreground">{t('vulnCard.assetTitle')}</h3>
                   {card.header.asset ? (
                     <div className="grid grid-cols-[76px_1fr] gap-y-1.5 text-[12px]">
@@ -1649,6 +1808,18 @@ export default function VulnCardPage({
           </DialogFooterRow>
         </DialogContent>
       </Dialog>
+
+      {card && (
+        <VulnNotifyDialog
+          open={notifyOpen}
+          onOpenChange={setNotifyOpen}
+          vulnKey={card.header.key}
+          card={card}
+          onPushed={() => { void loadCard(true) }}
+          onOpenIntegrations={onOpenIntegrations}
+          onToast={notify}
+        />
+      )}
 
       <WebApiEvidenceImageDialog
         open={shot !== null}

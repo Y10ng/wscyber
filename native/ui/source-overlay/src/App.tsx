@@ -1001,6 +1001,7 @@ export default function App({ services }: { services: HubServices }) {
                       onOpenAssetVuln={handleOpenAssetVuln}
                       onOpenTaskFinding={handleOpenTaskFinding}
                       onOpenTaskEvidence={handleOpenTaskEvidence}
+                      onOpenIntegrations={() => navigate('integrations')}
                       onOpenMenu={() => setSidebarOpen(true)}
                     />
                   ) : (
