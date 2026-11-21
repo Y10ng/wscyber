@@ -31,7 +31,7 @@
 - 调度器：`Routes` 拿到原生管理 API 时启动、`Capability.Close` 停止的单 goroutine，每 30s 检查 `enabled 且 next_run_at ≤ now` 的计划（Hub 启动后第一次检查在 30s 后）：
   - `task_id` = UUIDv5(固定命名空间, `asset_id + "\n" + scheduled_for`)：重复检查、发起后写记录前中断等情况下同一应运行时间只对应一个任务，依赖 `LaunchAssetTask` 按 task_id 幂等/续完；记录插入 `ON CONFLICT DO NOTHING`。
   - Hub 停机错过多次：只补最近一次应运行时间（`scheduled_for` 记该时间），然后 `next_run_at` = cron 在当前时间之后的下一次。
-  - “上一次仍在运行”判定（`apiLauncher.SessionRunning`，查原生会话状态）：上一次 `launched` 任务的研究会话（`initial_session_id`）存在 **且** 其绑定节点在线且原生 `AgentView.Busy`（该连接有已派发未结束的轮次）**且** 会话持久化事件里有已开始（用户消息/TurnStarted）却无 `TurnEnded` 的轮次。Busy 条件用来排除 Hub 重启后遗留的无终态旧轮次。Busy 是节点级：同节点另有会话在跑时，本会话只要事件里也有未结束轮次才会算运行中。无法核对（读取出错）时本轮不发起、保持到期、不记 run。
+  - “上一次仍在运行”判定（`apiLauncher.SessionRunning`，查原生会话状态）：上一次 `launched` 任务的研究会话（`initial_session_id`）存在 **且** 其绑定节点在线且原生 `AgentView.Busy`（该连接有已派发未结束的轮次）**且** 会话持久化事件里有已开始（用户消息/TurnStarted）却无 `TurnEnded` 的轮次。Busy 条件用来排除 Hub 重启后遗留的无终态旧轮次。Busy 是节点级：同节点另有会话在跑时，本会话只要事件里也有未结束轮次才会算运行中。研究会话不在运行但该任务仍有 `running` 子会话时也视为仍在运行。无法核对（读取出错）时本轮不发起、保持到期、不记 run。
   - 全局并发上限 2：统计各资产最近一次 `launched` 计划任务中仍在运行的数量（无法核对按运行中计）；达到上限本轮不发起、保持到期、不记 run，下轮再试。只计计划任务，不含手动发起的任务。
   - 归档资产记 skipped；`enabled=false` 不会到期（`next_run_at` 为空），不发起不记录。期间人为重新保存计划时，按新的 `next_run_at` 处理，不覆盖。
   - Hub 关闭打断进行中的发起：不记 failed，`next_run_at` 不推进，重启后同一 `scheduled_for`（若期间未跨过下一次触发）用同 task_id 续完。
@@ -41,7 +41,7 @@
 
 计划研究结束后，调度器（同一 goroutine、同一次 30s 检查）无人值守接着做“候选验证 → 已知漏洞复测”。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
 
-- 触发：扫描 `launched` 且后续未完成的计划运行——已规划未完成的，或未规划且是该资产**最近一次** launched 运行（被更新的计划运行取代时不再补规划；旧库升级后也只会规划各资产最近一次）。研究会话 `SessionRunning=false` 且事件里至少一个 `TurnEnded`（launcher `TurnEnded`）才规划；判定出错本轮跳过。手动从资产发起的任务没有 run，不触发。
+- 触发：扫描 `launched` 且后续未完成的计划运行——已规划未完成的，或未规划且是该资产**最近一次** launched 运行（被更新的计划运行取代时不再补规划；旧库升级后也只会规划各资产最近一次）。研究会话 `SessionRunning=false` 且事件里至少一个 `TurnEnded`（launcher `TurnEnded`），并且该任务没有 `running` 子会话才规划；判定出错本轮跳过。手动从资产发起的任务没有 run，不触发。
 - 规划（单事务写运行级标记 `webapi_schedule_run_followups` 与全部 pending 项，开关取当时值快照）：
   - `auto_verify`：本次任务中**还没有任何验证**的候选（当前修订）→ 验证项，`task_id`＝本次任务。
   - `auto_retest`（C3 起按漏洞条目去重）：先同步资产漏洞库（见下节），对状态 `new`/`present` 且**本次任务没有成员**的条目（本轮重新发现的由本轮验证覆盖），取一个代表成员复测——最新决定性“存在”事件（验证 supported / 复测 reproducible）所属的候选，要求其任务在本次任务之前关联（`webapi_asset_tasks.created_at` 更早，含手动发起）；在其原任务下按其**当前修订**复测，`task_id`＝原任务（授权沿用原任务 origins）。`fixed`/`pending`/`unconfirmed` 条目不复测；同条目其余候选不复测。

@@ -117,7 +117,7 @@ func (c *Capability) stopScheduler() {
 	}
 }
 
-// scheduledTaskRunning 判断计划任务的研究会话是否仍在运行（依据见 apiLauncher.SessionRunning）。
+// scheduledTaskRunning 判断计划任务的研究会话或其子会话是否仍在运行。
 func (c *Capability) scheduledTaskRunning(ctx context.Context, taskID string) (bool, error) {
 	if c.launcher == nil || taskID == "" {
 		return false, nil
@@ -126,7 +126,11 @@ func (c *Capability) scheduledTaskRunning(ctx context.Context, taskID string) (b
 	if err != nil || task == nil {
 		return false, err
 	}
-	return c.launcher.SessionRunning(ctx, task.InitialSessionID)
+	running, err := c.launcher.SessionRunning(ctx, task.InitialSessionID)
+	if err != nil || running {
+		return running, err
+	}
+	return c.store.taskHasRunningSubsession(ctx, task.ID)
 }
 
 // runDueSchedules 处理一次检查：对每个到期计划补跑最近一次应运行时间（停机错过多次只补一次），

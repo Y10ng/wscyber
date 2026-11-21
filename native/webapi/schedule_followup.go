@@ -217,6 +217,10 @@ func (c *Capability) planRunFollowups(ctx context.Context, run scheduleRunModel)
 	if err != nil || !ended {
 		return false, nil
 	}
+	// 父会话结束不代表探索结束：异步子会话仍可能写入候选。
+	if running, err := c.store.taskHasRunningSubsession(ctx, task.ID); err != nil || running {
+		return false, err
+	}
 	autoVerify, autoRetest, err := c.store.scheduleOptions(ctx, run.AssetID)
 	if err != nil {
 		return false, err

@@ -319,6 +319,8 @@ type Capability struct {
 	replays replayRuntime
 	// subsessions 是本进程内运行中的子 Agent 会话 → 任务（节点侧用量观察用，见 subagent.go）。
 	subsessions sync.Map
+	// subsessionModelCalls 是子会话的模型请求计数（*atomic.Int64），SessionEnd 清除。
+	subsessionModelCalls sync.Map
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。

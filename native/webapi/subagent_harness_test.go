@@ -29,6 +29,8 @@ type oracleExplorerScript struct {
 	childSystem   string
 	childTools    []string
 	mode          string
+	loop          bool
+	parentCalls   int
 	// completions 记录父会话后续请求中出现的 <subagent_completion> 通知（async）。
 	completions []string
 }
@@ -74,6 +76,9 @@ func (p *oracleExplorerScript) ChatCompletion(_ context.Context, request *provid
 	defer p.mu.Unlock()
 	if strings.Contains(system, "## 子 Agent：oracle_explorer") {
 		p.child = append(p.child, request)
+		if p.loop {
+			return toolCallMessage(fixtureCall("c-read", "webapi_board_read", map[string]any{})), nil
+		}
 		switch len(p.child) {
 		case 1:
 			p.childSystem = system
@@ -107,6 +112,10 @@ func (p *oracleExplorerScript) ChatCompletion(_ context.Context, request *provid
 		return toolCallMessage(fixtureCall("p-sub", "subagent", map[string]any{"name": OracleExplorerName, "mode": p.mode, "prompt": "O-001 只看订单详情接口"})), nil
 	}
 	p.parentResults = results
+	p.parentCalls++
+	if p.loop && p.parentCalls <= maxOracleExplorerModelCalls {
+		return toolCallMessage(fixtureCall("p-read", "webapi_board_read", map[string]any{})), nil
+	}
 	return &provider.ChatCompletionResponse{Choices: []provider.Choice{{Message: provider.TextMessage("assistant", "已收到子 Agent 结论。"), FinishReason: "stop"}}}, nil
 }
 
@@ -116,9 +125,16 @@ func TestOracleExplorerThroughNativeHarness(t *testing.T) {
 	}
 }
 
+func TestSubagentModelCallLimitThroughNativeHarness(t *testing.T) {
+	oracleExplorerThroughNativeHarness(t, "limit")
+}
+
 func oracleExplorerThroughNativeHarness(t *testing.T, mode string) {
 	f := newSubagentFixture(t, 1)
 	llm := &oracleExplorerScript{t: t, f: f, mode: mode}
+	if mode == "limit" {
+		llm.mode, llm.loop = "sync", true
+	}
 	h, err := harness.New(harness.Config{
 		Base:    harness.BaseConfig{Directory: t.TempDir(), Provider: provider.StartupConfig{Mode: provider.StartupDisabled}},
 		Session: &agentsession.Config{SkipBaseSkills: true},
@@ -169,7 +185,30 @@ func oracleExplorerThroughNativeHarness(t *testing.T, mode string) {
 
 	llm.mu.Lock()
 	parentResults, childSystem, childTools, childCalls := llm.parentResults, llm.childSystem, llm.childTools, len(llm.child)
+	parentCalls := llm.parentCalls
 	llm.mu.Unlock()
+	if mode == "limit" {
+		if childCalls != maxOracleExplorerModelCalls || parentCalls != maxOracleExplorerModelCalls+1 {
+			t.Fatalf("model calls: child=%d parent(after delegation)=%d", childCalls, parentCalls)
+		}
+		var subs []taskSubsessionModel
+		if err := f.cap.store.orm.NewSelect().Model(&subs).Scan(t.Context()); err != nil || len(subs) != 1 {
+			t.Fatalf("subsessions=%+v err=%v", subs, err)
+		}
+		sub := subs[0]
+		const reason = "子 Agent 模型调用已达上限 24 次，停止；Oracle 未结案将退回 open"
+		if sub.Status != subsessionEnded || sub.StopReason != "error" || !strings.Contains(sub.Error, reason) {
+			t.Fatalf("limit did not end child: %+v", sub)
+		}
+		oracle := f.oracle(1)
+		if oracle.Status != oracleOpen || oracle.ClaimedSessionID != "" || !strings.Contains(oracle.Events[len(oracle.Events)-1].Summary, reason) {
+			t.Fatalf("limit did not release oracle with reason: %+v", oracle)
+		}
+		if _, ok := f.cap.subsessionModelCalls.Load(sub.SessionID); ok {
+			t.Fatal("ended child model counter retained")
+		}
+		return
+	}
 	if childCalls != 3 {
 		t.Fatalf("child model calls = %d", childCalls)
 	}

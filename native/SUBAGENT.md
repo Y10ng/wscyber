@@ -8,7 +8,7 @@
 
 ## 装配
 
-- `Capability.ApprovalExtension()` 内订阅：`tool.before` `wscyber-webapi-subagent`（准入，替换 M5-0 的一刀切拒绝）、`tool.completed` `wscyber-webapi-subagent-release`（未启动预占清理）、`session_start` `wscyber-webapi-subsession-start`（FailClosed）、`session_end` `wscyber-webapi-subsession-end`，以及事件流观察（子会话用量）。
+- `Capability.ApprovalExtension()` 内订阅：`tool.before` `wscyber-webapi-subagent`（准入，替换 M5-0 的一刀切拒绝）、`tool.completed` `wscyber-webapi-subagent-release`（未启动预占清理）、`session_start` `wscyber-webapi-subsession-start`（FailClosed）、`session_end` `wscyber-webapi-subsession-end`，`ModelRequestPolicy` `wscyber-webapi-subsession-model-limit`（子会话模型调用上限），以及事件流观察（子会话用量）。
 - `Capability.SubagentExtension()` 向上游 Subagent Point 注册 `oracle_explorer`（`DefaultMode: async`）；两种模型节点（`model_product.go`、`model_node.go`）都装。本机验收节点的 `wscyber-model-node-subagent` 只拦**非** `oracle_explorer` 的 create（`catalog/list/kill` 与 oracle_explorer 交给平台准入）。
 
 ## 准入（全部满足才放行，否则拒绝并给出原因；拒绝不改任何状态）
@@ -34,7 +34,7 @@
 2. **Prepare**（上游 `Registry.Start` 调用）：按（父会话, CallID）读预占；无预占则返回错误，子会话不启动。
 3. **SessionStart**（FailClosed）：`ParentID + ParentToolCallID` 匹配预占且 `Delegation.AgentType == oracle_explorer` → 删预占、写 `webapi_task_subsessions(status=running)`、Oracle `claimed_session_id` = 子会话 id。父会话属于任务但无预占、或类型不符 → 返回错误，子会话不启动。父会话不属于任何任务（普通对话）不处理。**只对委派子会话（有 `ParentToolCallID`，上游 `sessionexec` 总会设置）生效**：会话轮换（`/clear`、`/compact`、恢复）以 `ParentSessionID` 开出的续接会话 `ParentToolCallID` 为空，不受影响（不拦截、不落表）；SessionEnd 同样只处理委派子会话。
 4. **工具结束**（`tool.completed`）：本调用的预占若仍在（子会话没启动：Prepare/打开失败）→ 删除并把 Oracle 退回 `open`（summary `子 Agent 未启动，退回 open`）。
-5. **SessionEnd**：行置 `ended`，记 `stop_reason`（上游 StopReason：completed/canceled/error/…）与 `error`（≤2000 字）；Oracle 仍 `in_progress` 且 `claimed_session_id` 为该子会话 → 退回 `open`、清认领，事件 summary `子 Agent 结束未给结论（<stop>）`。已结案的不动。
+5. **SessionEnd**：行置 `ended`，记 `stop_reason`（上游 StopReason：completed/canceled/error/…）与 `error`（≤2000 字）；Oracle 仍 `in_progress` 且 `claimed_session_id` 为该子会话 → 退回 `open`、清认领，事件 summary `子 Agent 结束未给结论（<stop>）`，有 error 时追加 `：<error>`（含模型调用上限原因）。已结案的不动。
 6. **Hub 重启**：`Capability.Routes`（拿到原生管理 API，即 Hub 启动时；模型节点随 Hub 进程启动，旧子会话已不存在）把遗留 `running` 行按 `stop_reason=interrupted`、`error="Hub 重启时子会话仍在运行，按已中断结束"` 结束并同样释放 Oracle，遗留预占行清除并释放。
 
 ## 表
@@ -62,14 +62,14 @@
 - 工具白名单：`webapi_http`、`webapi_finding`、`webapi_board_read|map|fact|oracle`（包装执行器：定义只列白名单，其它名字执行即报错；bash/终端/subagent/文件工具都不可用）。
 - 系统提示词 = 上游 `main.system` 骨架（经 `PromptResolver`）→ `injectScenarioPrompt`（与研究会话同一构建函数：本项目身份段 + 授权与边界〔按 scope〕+ 黑板纪律 + 证据标准 + 场景方法 + 完成标准）+ `oracleExplorerPromptTemplate`（`## 子 Agent：oracle_explorer`：只负责 O-NNN、先读黑板、最少请求证实/证伪、成立先 `webapi_finding` 再 close holds、结束前必须 close 或 drop 并写 summary、最终回复一句结论）。
 - 首条输入 = `请探索 Oracle O-NNN（你只负责这一个）。` + 问题、类别、优先级、端点 + `研究会话补充说明：<prompt 去掉编号后的余下文本>`。
-- 不开 Goal 模式（上游子会话 SingleTask，单次 Run）。
+- 不开 Goal 模式（上游子会话 SingleTask，单次 Run）。资源约束：每个子会话最多 `maxOracleExplorerModelCalls = 24` 次模型请求；`ModelRequestPolicy` 从第 25 次起 Deny，文案为“子 Agent 模型调用已达上限 24 次，停止；Oracle 未结案将退回 open”。计数在进程内按 session 保存，SessionEnd 清除；不使用会被上游 Continue Run 覆盖的 `cfg.MaxTurns`。拒绝按上游语义结束子会话（stop_reason=error），照常释放未结案 Oracle；研究/验证/复测/报告会话不受此计数影响。
 - 研究会话场景提示词黑板纪律段末句：存在多个独立 open Oracle 时可用 `subagent`（name=oracle_explorer，prompt 以 Oracle 编号开头）并行探索，最多 3 个。
 
 ## 接口
 
 `GET /api/webapi/tasks/{id}/subsessions` → `{items:[{session_id, oracle:{id, number, question, status}|null, status running|ended, stop_reason, error, created_at, ended_at|null, request_count, finding_count}]}`，按 `created_at` 新到旧，最多 50 条；`request_count` = `webapi_requests` 中该子会话行数（含拒绝/未发送），`finding_count` = 该子会话写过修订的不同候选数；任务不存在 404。
 
-任务视图运行态：有 `running` 子会话时任务列表/总览 `status=running`。
+任务视图运行态：有 `running` 子会话时任务列表/总览 `status=running`。计划任务“上一次仍在运行”也包含该任务的 `running` 子会话；后续自动验证/复测仅在研究会话结束且该任务没有 `running` 子会话时规划。
 
 ## 可见性调查结论与已知限制
 

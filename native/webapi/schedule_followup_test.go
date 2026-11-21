@@ -182,6 +182,40 @@ HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出；沿用�
 	}
 }
 
+// 父研究已结束但子会话仍在运行：计划仍占运行名额，后续暂不规划；子会话结束后恢复。
+func TestSubagentScheduleFollowupWaitsForChildren(t *testing.T) {
+	f := newScheduleFixture(t, "2026-11-18T09:30:00Z")
+	f.createAsset("a1")
+	f.putSchedule("a1", `{"cron":"0 * * * *"}`)
+	f.setNow("2026-11-18T10:00:10Z")
+	f.tick()
+	run := f.runFor("a1", "2026-11-18T10:00:00Z")
+	f.endResearch(run.TaskID)
+	f.addFinding(run.TaskID, "合成候选", simpleContent(), nil)
+	child := &taskSubsessionModel{SessionID: "schedule-child", TaskID: run.TaskID, ParentSessionID: f.sessionOf(run.TaskID),
+		ParentCallID: "call", OracleID: "synthetic-oracle", AgentName: OracleExplorerName, Status: subsessionRunning, CreatedAt: nowRFC3339()}
+	if _, err := f.capability.store.orm.NewInsert().Model(child).Exec(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if running, err := f.capability.scheduledTaskRunning(t.Context(), run.TaskID); err != nil || !running {
+		t.Fatalf("child running: running=%v err=%v", running, err)
+	}
+	f.tick()
+	if f.marker(run.ID) != nil || len(f.launcher.runs) != 1 {
+		t.Fatal("followups planned/launched before child ended")
+	}
+	if _, err := f.capability.store.orm.NewUpdate().Model(child).Set("status = ?", subsessionEnded).WherePK().Exec(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if running, err := f.capability.scheduledTaskRunning(t.Context(), run.TaskID); err != nil || running {
+		t.Fatalf("child ended: running=%v err=%v", running, err)
+	}
+	f.tick()
+	if f.marker(run.ID) == nil || len(f.followups(run.ID)) != 1 || len(f.launcher.runs) != 2 {
+		t.Fatal("followups did not resume after child ended")
+	}
+}
+
 // 研究未结束不触发；结束后无验证的候选建验证并 Run，已有验证的不建；之前任务 supported 且未修复的候选复测，
 // fixed_in_scope/未 supported/本次任务候选不复测；重复检查与重启回放不重复建与 Run；明细与摘要 API。
 func TestWebAPIScheduleFollowupVerifyAndRetest(t *testing.T) {

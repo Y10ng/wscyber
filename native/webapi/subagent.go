@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/chainreactors/cyber/agent"
@@ -34,6 +35,8 @@ const (
 	OracleExplorerName = "oracle_explorer"
 	// maxOracleExplorers 是同一任务同时进行中（含已预占未启动）的子 Agent 上限：资源约束，不是实验性次数限制。
 	maxOracleExplorers = 3
+	// 子会话 Continue Run 不受 cfg.MaxTurns 约束，在模型请求策略处强制限制。
+	maxOracleExplorerModelCalls = 24
 
 	subsessionRunning = "running"
 	subsessionEnded   = "ended"
@@ -371,6 +374,7 @@ func (c *Capability) subagentSessionStart(ctx context.Context, event agenthooks.
 	if err != nil {
 		return struct{}{}, fmt.Errorf("登记子会话失败，不启动: %w", err)
 	}
+	c.subsessionModelCalls.Store(event.SessionID, &atomic.Int64{})
 	c.subsessions.Store(event.SessionID, reservation.TaskID)
 	return struct{}{}, nil
 }
@@ -381,6 +385,7 @@ func (c *Capability) subagentSessionEnd(ctx context.Context, event agenthooks.Se
 		return struct{}{}, nil
 	}
 	c.subsessions.Delete(event.SessionID)
+	c.subsessionModelCalls.Delete(event.SessionID)
 	errText := ""
 	if event.Err != nil {
 		errText = capRunes(event.Err.Error(), 2000)
@@ -409,7 +414,11 @@ func (s *taskStore) endSubsession(ctx context.Context, sessionID, stop, errText 
 		if n, _ := res.RowsAffected(); n == 0 {
 			return nil
 		}
-		return releaseOracleTx(ctx, tx, sub.OracleID, sessionID, sessionID, at, "子 Agent 结束未给结论（"+stop+"）")
+		summary := "子 Agent 结束未给结论（" + stop + "）"
+		if errText != "" {
+			summary += "：" + errText
+		}
+		return releaseOracleTx(ctx, tx, sub.OracleID, sessionID, sessionID, at, summary)
 	})
 }
 
@@ -471,6 +480,13 @@ func (c *Capability) observeSubsessionUsage(event *aop.Event) {
 
 func (c *Capability) subagentSubscriptions(registry *corehooks.Registry) []*corehooks.Subscription {
 	return []*corehooks.Subscription{
+		agenthooks.ModelRequestPolicy.On(registry, "wscyber-webapi-subsession-model-limit", func(ctx context.Context, event agenthooks.ModelRequestEvent) (agenthooks.ModelPolicy, error) {
+			// 仅 SessionStart 已登记的子会话有计数；其它角色不受影响。
+			if value, ok := c.subsessionModelCalls.Load(event.SessionID); ok && value.(*atomic.Int64).Add(1) > maxOracleExplorerModelCalls {
+				return agenthooks.ModelPolicy{Deny: fmt.Errorf("子 Agent 模型调用已达上限 %d 次，停止；Oracle 未结案将退回 open", maxOracleExplorerModelCalls)}, nil
+			}
+			return agenthooks.ModelPolicy{}, nil
+		}),
 		toolhooks.Before.On(registry, "wscyber-webapi-subagent", c.admitSubagent),
 		toolhooks.Completed.On(registry, "wscyber-webapi-subagent-release", func(ctx context.Context, completion toolhooks.Completion) (struct{}, error) {
 			if completion.Call.GetName() != "subagent" {

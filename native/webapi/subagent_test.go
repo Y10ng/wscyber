@@ -477,7 +477,7 @@ func TestSubagentOrphanReleaseEndpointAndUsage(t *testing.T) {
 	if sub.Status != subsessionEnded || sub.StopReason != subsessionInterrupted || !strings.Contains(sub.Error, "Hub 重启") {
 		t.Fatalf("orphan = %+v", sub)
 	}
-	if o := f.oracle(1); o.Status != oracleOpen || o.Events[len(o.Events)-1].Summary != "子 Agent 结束未给结论（interrupted）" {
+	if o := f.oracle(1); o.Status != oracleOpen || o.Events[len(o.Events)-1].Summary != "子 Agent 结束未给结论（interrupted）：Hub 重启时子会话仍在运行，按已中断结束" {
 		t.Fatalf("orphan oracle = %+v", o)
 	}
 	if o := f.oracle(2); o.Status != oracleOpen || f.count(`SELECT COUNT(*) FROM webapi_subagent_reservations`) != 0 {
