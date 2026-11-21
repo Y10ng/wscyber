@@ -55,13 +55,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 9）：K2 一键重放后端（b43ce63，`native/REPLAY.md`：人触发、授权现读、越界/危险请求不发送、存证 source=replay、确定性对比、10s 限频、审计 vuln.replay）与前端（a6ded39）。K2 剩余：报告/推送从漏洞卡生成。
 
-进行中：无。
+已提交（续 10）：K2 统一出口后端（65070d7，契约 `native/NOTIFY.md`、`native/VULN_CARD.md`）：推送标题/链接以漏洞卡为准；卡上人工推送 kind=manual（直接入队、终态后复用同行再推、409 not_configured/false_positive/no_supported/in_flight）与逐字预览；卡片 notify 段；按漏洞卡确定性导出单条/多条报告（MD/JSON `wscyber.vuln_report.v1`，遮盖版）。记下：manual 推过后该键不再自动登记 new；manual 与 new 并发登记可能多推一条（未加锁）。
+
+进行中：**K2 统一出口前端**（`var/k2-out-frontend/task.md`，ds-flash）：漏洞卡推送对话框（预览/图片/发送）、右栏推送记录卡、导出 MD/JSON；漏洞列表多选导出。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. K2 余项（报告/推送从漏洞卡生成）→ M5 → D3（需 SDL 接口文档）。
+1. K2 统一出口前端 → M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -74,4 +76,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-无。
+- `k2-out-frontend`（wangsu-ds-flash-latest，11-21 启动，日志 `var/k2-out-frontend/exec.log`）。
