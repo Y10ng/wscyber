@@ -8,6 +8,7 @@
   python3 scripts/demo-stack.py selftest [--chain] 经 Hub API 跑一遍研究（--chain 再跑验证/报告/复测）
   python3 scripts/demo-stack.py approval-demo     经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）
   python3 scripts/demo-stack.py egress-demo       经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）
+  python3 scripts/demo-stack.py subagent-demo [--slow N]  并行探索 Oracle；可延迟子 Agent 每次回复 N 秒
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
@@ -15,6 +16,7 @@
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import secrets
@@ -38,6 +40,7 @@ UI_DIR = ROOT / 'var' / 'ui-work' / 'release' / 'public'
 KEY_FILE = DEMO / 'access.key'
 PIDS_FILE = DEMO / 'pids.json'
 FIX_FLAG = DEMO / 'fixed'
+SUBAGENT_SLOW_FILE = DEMO / 'subagent-slow'
 HOST = '127.0.0.1'
 TARGET_PORT, MODEL_PORT, HUB_PORT = 18080, 18081, 42460
 ORIGIN = f'http://{HOST}:{TARGET_PORT}'
@@ -182,8 +185,8 @@ def serve_target(fix_flag):
 
 # ---------------------------------------------------------------------------
 # 模拟模型：OpenAI 兼容 chat completions，无状态；按首条用户消息识别会话类型，
-# 按对话中已有工具结果推进脚本。受控节点每次 Run 最多 3 回合，所以同一阶段的
-# 多个工具调用放在同一条 assistant 消息里并行发出。
+# 按对话中已有工具结果推进脚本。受控节点入站 Run 最多 3 回合，同阶段工具并行。
+# 子 Agent 由上游内部 Continue 启动，不受入站预算限制；成立链用 4 次交互。
 # ---------------------------------------------------------------------------
 
 def content_text(content):
@@ -240,6 +243,10 @@ class Conversation:
         return [r for r in self.results if r['name'] == name]
 
     def kind(self):
+        if self.first_user.startswith('请探索 Oracle O-') or any(
+                '## 子 Agent：oracle_explorer' in content_text(m.get('content'))
+                for m in self.messages if m.get('role') == 'system'):
+            return 'subagent'
         first_line = self.first_user.strip().splitlines()[0] if self.first_user.strip() else ''
         if first_line.startswith('这是报告撰写会话'):
             return 'report'
@@ -423,11 +430,96 @@ def script_egress(conv, origin):
     return {'text': '\n'.join(lines)}
 
 
+SUBAGENT_MARK = '并行演示'
+SUBAGENT_PLAN = [
+    ('分页大小', '/api/items?page=1&size=150', 'logic', '列表是否接受超过 100 条的分页大小？'),
+    ('调试信息', '/api/debug/error', 'info_disclosure', '错误响应是否包含调试调用栈？'),
+    ('配置接口', '/api/admin/config', 'authz', '配置接口是否无需鉴权即可读取？'),
+]
+
+
+def subagent_completions(conv):
+    return {sid for m in conv.messages if m.get('role') == 'user'
+            for sid in re.findall(r'<subagent_completion\b[^>]*\bsession_id="([^"]+)"',
+                                  content_text(m.get('content')))}
+
+
+def script_parallel_research(conv, origin):
+    proposed = conv.of('webapi_board_oracle')
+    dispatched = conv.of('subagent')
+    if not proposed:
+        return {'text': '并行演示：提出三个独立、可证伪的 Oracle。', 'calls': [
+            ('webapi_board_oracle', {'action': 'propose', 'items': [{
+                'question': question, 'category': category, 'priority': 'medium',
+                'endpoint_keys': ['GET ' + origin + path]}]})
+            for _, path, category, question in SUBAGENT_PLAN]}
+    if not dispatched:
+        items = [item for r in proposed for item in (r['value'] or {}).get('items', [])]
+        if len(items) != 3 or any(item.get('status') != 'open' for item in items):
+            return {'text': 'Oracle 提出失败或状态异常，不派出子 Agent。'}
+        return {'text': '派出三个 oracle_explorer，各自认领一个 Oracle。', 'calls': [
+            ('subagent', {'name': 'oracle_explorer', 'mode': 'async',
+                          'prompt': item['number'] + ' 请按 Oracle 验证'}) for item in items]}
+    count = len(subagent_completions(conv))
+    if count >= 3:
+        return {'text': '已收到 3 个子 Agent 的完成通知；结论与候选以黑板及证据为准，候选仍待独立验证。'}
+    return {'text': '等待子 Agent 完成' if count else '已派出 3 个子 Agent，等待完成'}
+
+
+def script_subagent(conv):
+    number = re.search(r'请探索 Oracle (O-\d+)', conv.first_user)
+    endpoint = re.search(r'^- 端点：GET (https?://[^\s；]+)', conv.first_user, re.M)
+    if not number or not endpoint:
+        return {'text': '未能识别 Oracle 或端点，不发送请求。'}
+    parsed = urlparse.urlsplit(endpoint.group(1))
+    origin = f'{parsed.scheme}://{parsed.netloc}'
+    target = next((p for p in SUBAGENT_PLAN if p[1].split('?')[0] == parsed.path), None)
+    if not target or origin != ORIGIN:
+        return {'text': '不是本地演示目标的已知 Oracle，不发送请求。'}
+    keyword, path, _, _ = target
+    http_results, findings, closed = (conv.of(name) for name in
+                                     ('webapi_http', 'webapi_finding', 'webapi_board_oracle'))
+    if closed:
+        value = closed[-1]['value'] or {}
+        return {'text': f'{number[1]} 结论：{value["status"]}，以保存证据为准。' if value.get('status')
+                else f'{number[1]} 关闭失败：{closed[-1]["raw"][:200]}'}
+    if not http_results:
+        return {'text': f'验证 {number[1]}：GET {path}。', 'calls': [http_call(origin, 'GET', path)]}
+    primary = http_results[-1]
+    value = primary['value'] or {}
+    verdict, relation, note = primary_verdict(keyword, primary)
+    close = {'action': 'close', 'number': number[1], 'summary': note}
+    if verdict != 'supported':
+        close['status'] = 'refuted' if verdict == 'counterevidence' and value.get('evidence_id') else 'blocked'
+        if value.get('evidence_id') and evidence_ok(value):
+            close['evidence_ids'] = [value['evidence_id']]
+        return {'text': note, 'calls': [('webapi_board_oracle', close)]}
+    if not findings:
+        content = {
+            'title': {'分页大小': '列表分页大小未限制', '调试信息': '错误响应暴露调试信息',
+                      '配置接口': '配置接口未要求鉴权'}[keyword],
+            'description': f'本地演示 GET {path}：{note}。这是候选主张，未确认漏洞。',
+            'steps': [{'text': f'匿名 GET {path}，观察：{note}。', 'evidence_indices': [0]}],
+            'remediation': DEMO_REPRO[keyword][5][0],
+            'limitations': '仅一次匿名 GET；全部为测试数据。未做正常分页对照或性能测试，未证明真实环境影响。',
+            'evidence': [{'evidence_id': value['evidence_id'], 'relation': relation}],
+        }
+        return {'text': note + '，保存候选。', 'calls': [('webapi_finding', {'content': content})]}
+    finding_id = (findings[-1]['value'] or {}).get('finding_id')
+    if not finding_id:
+        close.update(status='blocked', summary='候选保存失败，不能关闭为 holds：' + findings[-1]['raw'][:300])
+    else:
+        close.update(status='holds', finding_id=finding_id, evidence_ids=[value['evidence_id']])
+    return {'text': '依据工具返回结果关闭 Oracle。', 'calls': [('webapi_board_oracle', close)]}
+
+
 def script_research(conv):
     origins = conv.origins()
     if not origins:
         return {'text': '演示模型未能从首条消息解析到授权 origin，不发送任何请求。'}
     origin = origins[0]
+    if SUBAGENT_MARK in conv.first_user:
+        return script_parallel_research(conv, origin)
     if APPROVAL_MARK in conv.first_user:
         return script_approval(conv, origin)
     if EGRESS_MARK in conv.first_user:
@@ -648,7 +740,9 @@ def script_report(conv):
 def scripted_reply(body):
     conv = Conversation(body)
     kind = conv.kind()
-    if kind == 'research':
+    if kind == 'subagent':
+        reply = script_subagent(conv)
+    elif kind == 'research':
         reply = script_research(conv)
     elif kind == 'verification':
         reply = script_checked(conv, '独立验证', 'webapi_verification_result', 'verdict', {})
@@ -695,6 +789,14 @@ class ModelHandler(BaseHTTPRequestHandler):
             return self._json(400, {'error': {'message': 'invalid json', 'type': 'invalid_request_error'}})
         try:
             kind, text, calls = scripted_reply(body)
+            if kind == 'subagent':
+                try:
+                    delay = float(SUBAGENT_SLOW_FILE.read_text().strip())
+                except FileNotFoundError:
+                    delay = 0
+                if not math.isfinite(delay) or delay < 0:
+                    raise ValueError('子 Agent 延迟必须是非负有限秒数')
+                time.sleep(delay)
         except Exception as exc:  # 脚本异常时如实回文字，不伪造工具调用
             kind, text, calls = 'error', f'演示模型脚本出错：{type(exc).__name__}: {exc}', []
         tool_calls = [{'id': 'call_' + uuid.uuid4().hex[:24], 'type': 'function',
@@ -1378,6 +1480,105 @@ def cmd_egress_demo(_args):
             f'http_status={flow.get("http_status", "-")} error={flow.get("error") or "-"}')
 
 
+def parent_run_summary(events):
+    runs = {}
+    for delivery in events:
+        event = delivery.get('event', {})
+        turn_id = event.get('turnId')
+        if not turn_id:
+            continue
+        run = runs.setdefault(turn_id, {'turn_id': turn_id, 'model_calls': 0})
+        if 'turnStarted' in event:
+            run['started'] = True
+        if 'usage' in event:
+            run['model_calls'] += 1
+        if 'turnEnded' in event:
+            run['stop_reason'] = event['turnEnded'].get('stopReason', '')
+    return list(runs.values())
+
+
+def cmd_subagent_demo(args):
+    try:
+        if args.slow:
+            DEMO.mkdir(parents=True, exist_ok=True)
+            SUBAGENT_SLOW_FILE.write_text(str(args.slow))
+        else:
+            SUBAGENT_SLOW_FILE.unlink(missing_ok=True)
+        run_subagent_demo(args)
+    finally:
+        SUBAGENT_SLOW_FILE.unlink(missing_ok=True)
+
+
+def run_subagent_demo(args):
+    node = demo_node()
+    if not node:
+        sys.exit('没有演示模型节点；先 up 并查看 status')
+    task_id = 'demo-subagent-' + uuid.uuid4().hex[:8]
+    task = api('PUT', f'/api/webapi/tasks/{task_id}', {
+        'known_info': f'本地演示库存 API，地址 {ORIGIN}，全部为测试数据。',
+        'objective': f'{SUBAGENT_MARK}：三个子 Agent 分别验证分页、调试信息和匿名配置读取。',
+        'authorization': {'confirmed': True, 'origins': [ORIGIN]}})['task']
+    api('PUT', f'/api/webapi/tasks/{task_id}/policy', {'scope': 'origins', 'approval': 'off'})
+    session_id = task['initial_session_id']
+    fixed = FIX_FLAG.exists()
+    log(f'[并行演示] task={task_id} session={session_id} scope=origins approval=off fix={fixed} slow={args.slow:g}s')
+    first = '\n'.join(['开始探索任务。', f'目标／已知信息：{task["known_info"]}',
+                       f'希望达到的目标：{task["objective"]}', 'HTTP(S) 授权范围（仅限以下 origin）：',
+                       *[f'- {o}' for o in task['origins']]])
+    open_and_run(session_id, node['hello']['nodeId'], first)
+    subsessions = []
+    running_seen = False
+
+    def children_ended():
+        nonlocal subsessions, running_seen
+        subsessions = api('GET', f'/api/webapi/tasks/{task_id}/subsessions')['items']
+        if not running_seen and any(s['status'] == 'running' for s in subsessions):
+            running_seen = True
+            log('[并行演示] 运行中 subsessions=' + json.dumps(subsessions, ensure_ascii=False, indent=2))
+        return len(subsessions) == 3 and all(s['status'] == 'ended' for s in subsessions)
+
+    ended = wait_for(children_ended, 120, 0.5)
+    log('[并行演示] subsessions=' + json.dumps(subsessions, ensure_ascii=False, indent=2))
+    if not ended:
+        raise RuntimeError('120 秒内未观察到三个子会话全部 ended')
+    events = []
+
+    def parent_finished():
+        nonlocal events
+        events = rpc('cyber.rpc.chat.SessionService/ListEvents',
+                     {'sessionId': session_id, 'limit': 1000}).get('events', [])
+        runs = parent_run_summary(events)
+        return (runs and all('stop_reason' in r for r in runs)
+                and '已收到 3 个子 Agent 的完成通知' in json.dumps(events, ensure_ascii=False))
+
+    parent_done = wait_for(parent_finished, 30, 0.5)
+    runs = parent_run_summary(events)
+    log('[并行演示] 父会话 Run（model_calls 按逐轮 usage 事件计数）=' + json.dumps(runs, ensure_ascii=False))
+    oracles = list_all(f'/api/webapi/tasks/{task_id}/board/oracles')
+    log('[并行演示] Oracle 最终状态=' + json.dumps(oracles, ensure_ascii=False, indent=2))
+    findings = list_all(f'/api/webapi/tasks/{task_id}/findings')
+    evidence = list_all(f'/api/webapi/tasks/{task_id}/evidence')
+    child_ids = {s['session_id'] for s in subsessions}
+    child_evidence = sum(e.get('session_id') in child_ids for e in evidence)
+    child_findings = sum(s['finding_count'] for s in subsessions)
+    log(f'[并行演示] 候选数={len(findings)} 子会话候选数={child_findings}；证据数={len(evidence)} 子会话来源证据数={child_evidence}')
+    usage = api('GET', f'/api/webapi/usage?task_id={task_id}')
+    child_usage = [s for s in usage['by_session'] if s['role'] == 'subagent']
+    totals = {key: sum(int(s.get(key, 0)) for s in child_usage) for key in
+              ('calls', 'input_tokens', 'output_tokens', 'total_tokens', 'cache_read_tokens', 'cache_write_tokens')}
+    log('[并行演示] subagent 用量=' + json.dumps({'by_session': child_usage, 'total': totals}, ensure_ascii=False, indent=2))
+    expected_findings = 2 if fixed else 3
+    expected_statuses = sorted(['holds', 'holds', 'refuted' if fixed else 'holds'])
+    expected_calls = sorted([4, 4, 3 if fixed else 4])
+    if not (parent_done and runs[0]['model_calls'] <= 3
+            and sorted(o['status'] for o in oracles) == expected_statuses
+            and child_evidence == 3 and len(findings) == child_findings == expected_findings
+            and sorted(s['calls'] for s in child_usage) == expected_calls
+            and all(s['stop_reason'] == 'completed' and not s['error'] for s in subsessions)):
+        raise RuntimeError('并行演示未满足父会话小结 / 轮数预算 / Oracle 结案 / 子会话证据、候选、用量断言')
+    log('[并行演示] PASS')
+
+
 def main():
     parser = argparse.ArgumentParser(description='wscyber 本地演示环境（测试数据）')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1391,16 +1592,22 @@ def main():
     selftest.add_argument('--chain', action='store_true', help='研究后继续跑验证、报告与两次复测')
     sub.add_parser('approval-demo', help='经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）')
     sub.add_parser('egress-demo', help='经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）')
+    subagent_demo = sub.add_parser('subagent-demo', help='三个子 Agent 并行验证 Oracle，打印证据、候选与用量')
+    subagent_demo.add_argument('--slow', type=float, default=0, metavar='N',
+                               help='子 Agent 每次回复前延迟 N 秒（默认 0），供前端观察探索中状态')
     target = sub.add_parser('_target')
     target.add_argument('--fix-flag', required=True)
     sub.add_parser('_model')
     args = parser.parse_args()
+    if args.command == 'subagent-demo' and (not math.isfinite(args.slow) or args.slow < 0):
+        parser.error('--slow 必须是非负有限秒数')
     if args.command == '_target':
         return serve_target(args.fix_flag)
     if args.command == '_model':
         return serve_model()
     {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest,
-     'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo}[args.command](args)
+     'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo,
+     'subagent-demo': cmd_subagent_demo}[args.command](args)
 
 
 if __name__ == '__main__':
