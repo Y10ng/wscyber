@@ -61,7 +61,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 12）：M5-0 安全小修（2a6e53a）：调研发现正式模型节点未拦上游 `subagent` 工具，子会话映射不到任务、其终端请求被出口代理按普通对话放行（不受 origins 限制）；现两种节点均拒绝，预览已重启加载。
 
-进行中：**M5a 子 Agent 认领 Oracle 并行探索后端**（`var/m5a-oracle-explorer-backend/task.md`，o-latest）：只放行命名子 Agent `oracle_explorer`（研究首会话、async/sync、≤3 并发、预占 Oracle）、子会话→任务映射（请求/出口/审批/候选/黑板全线识别）、结束释放 Oracle、`GET /tasks/{id}/subsessions`、子会话事件可见性调查。M5 后续：M5a 前端；M5b 多账号越权对比；M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
+已提交（续 13）：M5a 子 Agent 认领 Oracle 并行探索后端（30ada10，契约 `native/SUBAGENT.md`，经一轮纠正：会话轮换 /clear、/compact、恢复产生的续接会话曾被 FailClosed 拦截）：只放行 `oracle_explorer`（研究会话、async/sync、O-NNN、每任务≤3），预占→落表→释放，子会话全线归属任务，工具白名单无终端，黑板认领排他，子会话审批经父会话处理，用量计入任务，`GET /tasks/{id}/subsessions`。已知限制：子会话转录 Hub 不持久化（上游按 turn 找会话）；周期任务“上一次仍在运行”与后续自动验证就绪判定未计入子会话。`TestProductModelNativeEntryAndReopen` 基线即偶发失败（约 1/10）。
+
+进行中：**M5a 演示剧本**（`var/m5a-demo/task.md`，gpt-6-astra：`demo-stack.py subagent-demo`）→ 之后 **M5a 前端**（`var/m5a-frontend/task.md` 已写，ds-flash：黑板子 Agent 区、流量/审批来源标签、用量角色）。M5 后续：M5b 多账号越权对比；M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -80,4 +82,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `m5a`（wangsu-o-latest，11-21 启动，日志 `var/m5a-oracle-explorer-backend/exec.log`）。
+- `m5a-demo`（gpt-6-astra，11-21 启动，日志 `var/m5a-demo/exec.log`）。
