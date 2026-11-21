@@ -244,6 +244,11 @@ func TestModelNodeProfileAdmissionAndOwnership(t *testing.T) {
 	if !strings.Contains(coretool.ResultText(result)+fmt.Sprint(toolErr), "多Agent") {
 		t.Fatal("subagent was not denied")
 	}
+	// oracle_explorer 不被本机节点一刀切拦截，统一由平台准入决定（此处无可信会话上下文 → 平台拒绝）。
+	result, toolErr = tools.ExecuteTool(t.Context(), "subagent", `{"name":"oracle_explorer","prompt":"O-001 not executed"}`)
+	if text := coretool.ResultText(result) + fmt.Sprint(toolErr); strings.Contains(text, "本机模型节点") || !strings.Contains(text, "已拒绝 subagent：") {
+		t.Fatalf("oracle_explorer admission on model node: %s result=%v", text, result)
+	}
 	if requests.Load() != 0 {
 		t.Fatal("admission sent model request")
 	}

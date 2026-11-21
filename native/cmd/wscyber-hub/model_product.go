@@ -66,7 +66,7 @@ func newProductModelProfile(request profile.Request, directory string, capabilit
 			Directory: directory, Logger: telemetry.NopLogger(),
 			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: capability.EgressExtension(),
 		},
-		Extensions: []extension.Extension{capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,
+		Extensions: []extension.Extension{capability.ToolExtension(), capability.ApprovalExtension(), capability.SubagentExtension()}, Session: &session,
 	})
 	if err != nil {
 		return nil, err

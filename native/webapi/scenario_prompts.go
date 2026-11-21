@@ -1,6 +1,9 @@
 package webapi
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // 研究场景提示词（M1）：内容依据 docs/scenarios.md（本项目自写），只注入任务研究会话的系统提示词。
 // 验证/复测/报告与普通对话会话不注入。契约见 native/SCENARIO.md。
@@ -26,7 +29,8 @@ const scenarioBoardPrompt = "## 黑板纪律\n\n" +
 	"- 发现的接口（包括从页面、脚本、文档里看到但还没请求的）用 `webapi_board_map` 登记。\n" +
 	"- 有证据的客观信息用 `webapi_board_fact` 记录（认证方式、角色、技术栈、对象 ID 规律等）；推测标为 inferred。\n" +
 	"- 每个值得验证的想法写成一个具体、可证伪的 Oracle（`webapi_board_oracle propose`，指明端点、角色、预期与判定依据），不要写“测试 SQL 注入”这类泛化条目。\n" +
-	"- 动手前 claim，结束后 close：成立 → 先用 `webapi_finding` 保存候选再以 holds 关联；不成立 → refuted 并引用证据；无法推进 → blocked 写明原因。"
+	"- 动手前 claim，结束后 close：成立 → 先用 `webapi_finding` 保存候选再以 holds 关联；不成立 → refuted 并引用证据；无法推进 → blocked 写明原因。\n" +
+	"- 存在多个相互独立的 open Oracle 时，可用 `subagent`（name=oracle_explorer，prompt 以 Oracle 编号开头，如 \"O-003 重点核对……\"）派子 Agent 并行探索，每个子 Agent 只负责一个 Oracle，同一任务最多 3 个同时进行；完成后会收到通知，以黑板上该 Oracle 的结论为准。"
 
 const scenarioEvidencePrompt = `## 证据标准
 
@@ -132,4 +136,18 @@ func injectScenarioPrompt(system string, scenario TaskScenario, scope string) st
 		system = scenarioIdentityPrompt + "\n\n" + system
 	}
 	return strings.TrimRight(system, "\n") + "\n\n" + renderScenarioSections(scenario, scope)
+}
+
+// oracleExplorerPromptTemplate 是命名子 Agent oracle_explorer 在任务场景提示词之后追加的段落（M5a，见 native/SUBAGENT.md）。%[1]s 为 Oracle 编号。
+const oracleExplorerPromptTemplate = `## 子 Agent：oracle_explorer
+
+- 你是研究会话派出的子 Agent，只负责 Oracle %[1]s；不要认领或结案其它 Oracle，发现新的可疑点用 ` + "`webapi_board_oracle propose`" + ` 提出新 Oracle 留给研究会话。
+- 先读黑板（` + "`webapi_board_read summary`" + ` 与相关事实），再用尽量少的请求证实或证伪 %[1]s。
+- 成立：先用 ` + "`webapi_finding`" + ` 保存候选，再 ` + "`webapi_board_oracle close`" + ` status=holds 并关联 finding_id 与证据；不成立：close refuted 并引用证据；无法推进：close blocked 写明原因；不值得继续：drop 写明原因。
+- 结束前必须对 %[1]s 执行 close 或 drop 并写 summary；未结案就结束时平台会把它退回 open。
+- 你只能使用 webapi_http、webapi_finding 与黑板工具；同样受任务授权范围、测试策略与人工审批约束。
+- 最终回复只写一句结论（例如“%[1]s 成立，候选 WSC-000012”或“%[1]s 不成立：……”），它会作为完成通知交给研究会话。`
+
+func oracleExplorerSystemPrompt(number string) string {
+	return fmt.Sprintf(oracleExplorerPromptTemplate, number)
 }

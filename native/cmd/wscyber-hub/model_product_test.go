@@ -167,6 +167,15 @@ func TestProductModelSubagentDenied(t *testing.T) {
 	if !strings.Contains(coretool.ResultText(result)+fmt.Sprint(toolErr), "已拒绝 subagent") {
 		t.Fatalf("product subagent was not denied: result=%v err=%v", result, toolErr)
 	}
+	// 命名 oracle_explorer 由平台准入：无可信会话上下文同样拒绝，且 Catalog 已注册该定义。
+	result, toolErr = tools.ExecuteTool(t.Context(), "subagent", `{"name":"oracle_explorer","prompt":"O-001 not executed"}`)
+	if !strings.Contains(coretool.ResultText(result)+fmt.Sprint(toolErr), "已拒绝 subagent：缺少可信原生 session/call 上下文") {
+		t.Fatalf("product oracle_explorer admission: result=%v err=%v", result, toolErr)
+	}
+	result, toolErr = tools.ExecuteTool(t.Context(), "subagent", `{"action":"catalog"}`)
+	if toolErr != nil || !strings.Contains(coretool.ResultText(result), "oracle_explorer (default=async)") {
+		t.Fatalf("product catalog lacks oracle_explorer: result=%v err=%v", result, toolErr)
+	}
 	if requests.Load() != 0 {
 		t.Fatalf("subagent admission sent %d model requests", requests.Load())
 	}

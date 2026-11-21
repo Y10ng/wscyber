@@ -15,7 +15,8 @@ import (
 	coretool "github.com/chainreactors/cyber/core/tool"
 )
 
-// 黑板模型工具：任务内任意会话（研究/验证/复测）可读；写只允许该任务研究会话（initial_session_id）。
+// 黑板模型工具：任务内任意会话（研究/验证/复测/子 Agent）可读；写只允许该任务研究会话（initial_session_id）
+// 与其 oracle_explorer 子会话（M5a：地图/事实/propose 可写，Oracle 只能结案自己认领的那一个，不能 claim 其它）。
 // 每次读写前先把新流量摄取进地图。契约见 native/BOARD.md。
 
 const (
@@ -63,6 +64,8 @@ type boardOracleArguments struct {
 type boardToolContext struct {
 	inv  operation.Invocation
 	task *Task
+	// subsession 非空表示调用方是本任务的 oracle_explorer 子会话。
+	subsession *taskSubsessionModel
 }
 
 // boardToolSetup 取可信 Invocation 与任务；write 时只允许研究会话；随后摄取新流量。
@@ -78,13 +81,20 @@ func boardToolSetup(ctx context.Context, store *taskStore, write bool) (*boardTo
 	if task == nil {
 		return nil, "session无已保存任务，黑板未读写"
 	}
-	if write && inv.SessionID != task.InitialSessionID {
+	sub, err := store.subsessionFor(ctx, inv.SessionID)
+	if err != nil {
+		return nil, "无法核对session所属任务，黑板未读写"
+	}
+	if sub != nil && sub.TaskID != task.ID {
+		sub = nil
+	}
+	if write && inv.SessionID != task.InitialSessionID && sub == nil {
 		return nil, "只有本任务研究会话可写黑板；当前会话（验证/复测）只能用 webapi_board_read 读取，本次未写入"
 	}
 	if err := store.boardIngest(ctx, task.ID, time.Now()); err != nil {
 		return nil, "摄取流量到黑板地图失败，黑板未读写"
 	}
-	return &boardToolContext{inv: inv, task: task}, ""
+	return &boardToolContext{inv: inv, task: task, subsession: sub}, ""
 }
 
 func publicBoardError(err error) string {
@@ -530,9 +540,27 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 		}
 	}
 	label := oracleNumber(number)
+	// 认领排他（M5a）：子 Agent 持有（运行中或预占中）的 Oracle 只有该子会话能 close/drop；子会话只能动自己认领的那一个。
+	holder := ""
+	if current, err := t.store.boardOracle(ctx, taskID, number); err != nil {
+		return coretool.ErrorResult(publicBoardError(err)), nil
+	} else if current != nil {
+		if holder, err = t.store.oracleSubagentHolder(ctx, t.store.orm, current.ID); err != nil {
+			return coretool.ErrorResult(publicBoardError(err)), nil
+		}
+	}
+	if setup.subsession != nil && args.Action == "claim" && holder != sessionID {
+		return coretool.ErrorResult(fmt.Sprintf("子 Agent 只负责认领时指定的 Oracle，不能 claim %s", label)), nil
+	}
 	change := boardOracleChange{actor: "model", sessionID: sessionID, apply: func(model *boardOracleModel) (string, error) {
 		if oracleClosed(model.Status) {
 			return "", boardInputError{fmt.Sprintf("冲突（409）：%s 已是终态 %s，不能再 %s；如需重新评估，请用户先在任务页重开（status=open）", label, model.Status, args.Action)}
+		}
+		if setup.subsession != nil && (model.ClaimedSessionID != sessionID || holder != sessionID) {
+			return "", boardInputError{fmt.Sprintf("冲突（409）：子 Agent 只能 %s 自己认领的 Oracle，%s 不是本子会话认领的", args.Action, label)}
+		}
+		if setup.subsession == nil && holder != "" {
+			return "", boardInputError{fmt.Sprintf("冲突（409）：%s 正由子 Agent 探索（%s），不能 %s；等子 Agent 结束或由用户在任务页重开/放弃", label, holderText(holder), args.Action)}
 		}
 		switch args.Action {
 		case "claim":
@@ -590,4 +618,11 @@ func validateOracleClose(args boardOracleArguments) error {
 		return errors.New("finding_id 超长：上限 128 字节")
 	}
 	return nil
+}
+
+func holderText(holder string) string {
+	if holder == "reserved" {
+		return "已预占、尚未启动"
+	}
+	return "会话 " + holder
 }

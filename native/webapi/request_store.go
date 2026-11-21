@@ -55,10 +55,18 @@ func (s *taskStore) taskForSession(ctx context.Context, sessionID string) (*Task
 	}
 	// 复测session同验证：只映射到父任务，授权仍取父任务origins，unknown保护按父任务指纹生效。
 	retest, retestErr := s.retestForSession(ctx, sessionID)
-	if retestErr != nil || retest == nil {
+	if retestErr != nil {
 		return nil, retestErr
 	}
-	return s.Get(ctx, retest.TaskID)
+	if retest != nil {
+		return s.Get(ctx, retest.TaskID)
+	}
+	// 子 Agent 会话（M5a）：映射到所属任务，授权/策略/审批/unknown 保护都按该任务，存证 session_id 为子会话。
+	sub, subErr := s.subsessionFor(ctx, sessionID)
+	if subErr != nil || sub == nil {
+		return nil, subErr
+	}
+	return s.Get(ctx, sub.TaskID)
 }
 
 // claim 在单个先INSERT取得SQLite写锁的事务里回读同call并检查同指纹未决项。

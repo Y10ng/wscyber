@@ -169,7 +169,7 @@ func parseUsageDay(name, value string) (time.Time, error) {
 	return day, nil
 }
 
-// usageSessions 读取任务会话映射；taskID 为空时读全部任务。研究 > 验证 > 报告 > 复测，
+// usageSessions 读取任务会话映射；taskID 为空时读全部任务。研究 > 验证 > 报告 > 复测 > 子 Agent，
 // 同一 session 只取首个角色。
 func (s *taskStore) usageSessions(ctx context.Context, taskID string) (map[string]usageSessionRef, map[string]string, error) {
 	sessions := map[string]usageSessionRef{}
@@ -203,6 +203,7 @@ func (s *taskStore) usageSessions(ctx context.Context, taskID string) (map[strin
 		{"verification", `SELECT task_id, session_id, finding_id, '' FROM webapi_verifications`},
 		{"report", `SELECT task_id, session_id, '', id FROM webapi_reports`},
 		{"retest", `SELECT task_id, session_id, finding_id, '' FROM webapi_retests`},
+		{"subagent", `SELECT task_id, session_id, '', '' FROM webapi_task_subsessions`},
 	}
 	for _, q := range queries {
 		rows, err := s.db.QueryContext(ctx, q.query+filter+` ORDER BY created_at, rowid`, args...)
@@ -294,29 +295,15 @@ func (s *taskStore) Usage(ctx context.Context, taskID string, from, to time.Time
 		}
 		return m[key]
 	}
-	for rows.Next() {
-		var session, createdAt string
-		var raw []byte
-		if err := rows.Scan(&session, &createdAt, &raw); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		usage, decodeErr := eventUsage(raw)
-		if decodeErr != nil {
-			report.SkippedEvents++
-			continue
-		}
-		if usage == nil {
-			continue
-		}
+	count := func(session, createdAt string, usage *aop.TokenUsage) {
 		at, timeErr := time.Parse(time.RFC3339Nano, createdAt)
 		if timeErr != nil {
 			report.SkippedEvents++
-			continue
+			return
 		}
 		at = at.In(time.Local)
 		if (!start.IsZero() && at.Before(start)) || (!end.IsZero() && !at.Before(end)) {
-			continue
+			return
 		}
 		report.Totals.add(usage)
 		bucket(days, at.Format("2006-01-02")).add(usage)
@@ -327,7 +314,51 @@ func (s *taskStore) Usage(ctx context.Context, taskID string, from, to time.Time
 			bucket(tasks, sessions[session].taskID).add(usage)
 		}
 	}
+	for rows.Next() {
+		var session, createdAt string
+		var raw []byte
+		if err := rows.Scan(&session, &createdAt, &raw); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		// 子 Agent 会话的用量只取节点侧登记表（Hub 不持久化子会话事件；若将来持久化也不重复计）。
+		if sessions[session].role == "subagent" {
+			continue
+		}
+		usage, decodeErr := eventUsage(raw)
+		if decodeErr != nil {
+			report.SkippedEvents++
+			continue
+		}
+		if usage == nil {
+			continue
+		}
+		count(session, createdAt, usage)
+	}
 	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	subQuery := `SELECT session_id, model, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, created_at FROM webapi_subsession_usage`
+	var subArgs []any
+	if taskID != "" {
+		subQuery += ` WHERE task_id = ?`
+		subArgs = append(subArgs, taskID)
+	}
+	subRows, err := s.db.QueryContext(ctx, subQuery, subArgs...)
+	if err != nil {
+		return nil, err
+	}
+	for subRows.Next() {
+		var session, model, createdAt string
+		var input, output, total, cacheRead, cacheWrite uint64
+		if err := subRows.Scan(&session, &model, &input, &output, &total, &cacheRead, &cacheWrite, &createdAt); err != nil {
+			subRows.Close()
+			return nil, err
+		}
+		count(session, createdAt, &aop.TokenUsage{Model: model, InputTokens: input, OutputTokens: output, TotalTokens: total,
+			Detail: map[string]uint64{"cache_read": cacheRead, "cache_write": cacheWrite}})
+	}
+	if err := closeRows(subRows); err != nil {
 		return nil, err
 	}
 

@@ -1,12 +1,12 @@
 # 测试策略与危险操作审批（B1）
 
-策略按任务保存，只由人经鉴权 API 设置：`PUT /api/webapi/tasks/{id}/policy` `{"scope","approval"}`（枚举校验，写 `webapi_task_policies` 当前值 + `webapi_task_policy_events` 变更记录，保存即生效，影响之后的调用）。`GET /api/webapi/tasks/{id}`、`GET /api/webapi/tasks?session_id=`、任务 PUT 响应带 `policy:{scope,approval,is_default,updated_at}`。无记录（旧任务）＝默认 `origins + high_risk`，`is_default=true`；会话按现有映射（首会话/验证/复测）找任务，映射不到按默认。模型、目标响应、资料、工具参数都没有改策略的途径。
+策略按任务保存，只由人经鉴权 API 设置：`PUT /api/webapi/tasks/{id}/policy` `{"scope","approval"}`（枚举校验，写 `webapi_task_policies` 当前值 + `webapi_task_policy_events` 变更记录，保存即生效，影响之后的调用）。`GET /api/webapi/tasks/{id}`、`GET /api/webapi/tasks?session_id=`、任务 PUT 响应带 `policy:{scope,approval,is_default,updated_at}`。无记录（旧任务）＝默认 `origins + high_risk`，`is_default=true`；会话按现有映射（首会话/验证/复测/子 Agent 会话）找任务，映射不到按默认。模型、目标响应、资料、工具参数都没有改策略的途径。
 
 - `scope`：`origins`（默认，`webapi_http` 只发授权 origins，越界记 `denied`）| `unrestricted`（任意 http/https，仍完整记证据）。同一 scope 也决定终端出口：`origins` 时终端经代理的请求越界即拒绝，`unrestricted` 时只记录，见下文「全工具出口（B2）」。这是**代理强制**，不是系统级隔离。
 - `approval`：`off` | `high_risk`（默认）| `all`。
   - high_risk：`webapi_http` 命中 `policy.go requestReview`（DELETE、路径/查询/方法覆盖头/正文破坏性信号）；`bash` 命令命中 `webapi/command_rules.go` 规则表：rm -r/-f、mkfs/wipefs/shred/mkswap、dd of=/dev/…、重定向写块设备、shutdown/reboot/halt/poweroff/init 0|6/systemctl reboot…、SQL DROP/TRUNCATE/DELETE FROM、curl/wget DELETE 或破坏性信号、find -delete；穿透 sudo/env/xargs/timeout 等包装、find -exec、sh/bash -c、eval、tmux send-keys。命令名为动态展开、或高危类程序参数含动态展开（无法静态核对）也要求审批。
   - all：以上 + `webapi_http` 全部非 GET/HEAD/OPTIONS + 全部 `bash` + `write`。
-  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）；`subagent` 在两种模型节点均被拒绝（平台钩子 `wscyber-webapi-subagent`；子会话尚无任务归属，开放前须先实现子会话→任务映射，见 roadmap M5）；tmux 在模型节点本就拒绝。
+  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）；`subagent` 只放行任务研究会话派出的命名子 Agent `oracle_explorer`（平台钩子 `wscyber-webapi-subagent`：须 async/sync、prompt 以 open Oracle 编号开头、同任务 ≤3 个；匿名/fork/其它名字/非研究会话一律拒绝，见 `native/SUBAGENT.md`），子会话按所属任务同样受本策略、审批与出口约束；tmux 在模型节点本就拒绝。
 
 ## 审批机制
 
@@ -16,11 +16,11 @@
 
 终端超时：模型节点 bash 5s 超时只计进程运行；审批在 `tool.before`（进程启动前）等待，不计入（`TestModelNodeApprovalThroughNativeBash` 等 6s 后批准仍执行）。`command.before` 兜底只对注册命令生效（本固定上游版本外部程序不经过它），未批准的高危注册命令直接拒绝、不等待。
 
-审批状态在节点内存：节点重启时挂起审批随调用取消。演示：`scripts/demo-stack.py approval-demo`（任务目标含“审批演示”）。
+审批状态在节点内存：节点重启时挂起审批随调用取消。子 Agent 会话的挂起审批经其研究会话的 Pending/Resolve 列出与处理（见 `native/SUBAGENT.md`）。演示：`scripts/demo-stack.py approval-demo`（任务目标含“审批演示”）。
 
 ## 全工具出口（B2）
 
-**机制。** 两个模型节点（正式 `model_product.go`、本机验收 `model_node.go`）用 `Capability.EgressExtension()` 替代 `harness.NoEgress()`：随节点 Load 启动一个上游 `tools/proxy.NewProxyHub`（监听 `127.0.0.1:随机端口`，capture+decrypt 开，直连上游），Close 停止；不用 `exts/proxy`，不注册 `proxy/mitm` 命令。扩展发布包装后的 `egress.Endpoint`，上游终端（bash 与 tmux 共用 BashTool）对每个进程调用 `Egress(ctx)`：上游生成 `cyber-route-*` 令牌放进代理 URL，终端把 `ALL_PROXY/HTTP_PROXY/HTTPS_PROXY`（含小写）与 `CURL_CA_BUNDLE/SSL_CERT_FILE/NODE_EXTRA_CA_CERTS/REQUESTS_CA_BUNDLE/GIT_SSL_CAINFO` 注入该进程；本扩展同时登记 令牌→(session, turn, call)，进程结束时上游释放令牌（等在途 flow 写完）、本扩展删除登记。会话→任务：任务首会话、验证会话、复测会话、报告会话（后三者用所属任务的策略与 origins）。fixture 节点（`fixture_node.go`、`cmd/wscyber-native`）不装 webapi 能力，保持 `NoEgress()`。
+**机制。** 两个模型节点（正式 `model_product.go`、本机验收 `model_node.go`）用 `Capability.EgressExtension()` 替代 `harness.NoEgress()`：随节点 Load 启动一个上游 `tools/proxy.NewProxyHub`（监听 `127.0.0.1:随机端口`，capture+decrypt 开，直连上游），Close 停止；不用 `exts/proxy`，不注册 `proxy/mitm` 命令。扩展发布包装后的 `egress.Endpoint`，上游终端（bash 与 tmux 共用 BashTool）对每个进程调用 `Egress(ctx)`：上游生成 `cyber-route-*` 令牌放进代理 URL，终端把 `ALL_PROXY/HTTP_PROXY/HTTPS_PROXY`（含小写）与 `CURL_CA_BUNDLE/SSL_CERT_FILE/NODE_EXTRA_CA_CERTS/REQUESTS_CA_BUNDLE/GIT_SSL_CAINFO` 注入该进程；本扩展同时登记 令牌→(session, turn, call)，进程结束时上游释放令牌（等在途 flow 写完）、本扩展删除登记。会话→任务：任务首会话、验证会话、复测会话、报告会话、oracle_explorer 子会话（后四者用所属任务的策略与 origins）。fixture 节点（`fixture_node.go`、`cmd/wscyber-native`）不装 webapi 能力，保持 `NoEgress()`。
 
 **强制（`ProxyHub.SetProxyAuth`，在转发 HTTP / 建 CONNECT 隧道之前执行，拒绝即 407、不连目标）：**
 - 无令牌、令牌未登记或已释放 → 拒绝。

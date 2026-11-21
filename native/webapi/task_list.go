@@ -146,11 +146,17 @@ func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskLi
 	return out, nil
 }
 
-// taskRunStatus：无任何轮次 not_started；否则按原生 SessionRunning（研究会话）判定 running/idle，
+// taskRunStatus：无任何轮次 not_started；有运行中子 Agent 会话为 running；否则按原生 SessionRunning（研究会话）判定 running/idle，
 // 判定出错为 unknown。未注入原生管理 API（launcher 为空，仅测试/无会话服务）时按不在运行处理。
 func (c *Capability) taskRunStatus(ctx context.Context, row *taskListRow) string {
 	if !row.hasTurn {
 		return TaskStatusNotStarted
+	}
+	// 有运行中的子 Agent 会话（M5a）时任务仍为运行中。
+	if running, err := c.store.taskHasRunningSubsession(ctx, row.item.TaskID); err != nil {
+		return TaskStatusUnknown
+	} else if running {
+		return TaskStatusRunning
 	}
 	if c.launcher == nil {
 		return TaskStatusIdle

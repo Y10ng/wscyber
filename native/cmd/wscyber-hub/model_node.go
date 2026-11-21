@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"net/url"
@@ -178,7 +179,7 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: capability.EgressExtension(),
 			Terminal: terminalext.Config{Timeout: 5, MaximumTimeout: 5 * time.Second},
 		},
-		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension()}, Session: &session,
+		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension(), capability.SubagentExtension()}, Session: &session,
 	})
 	if err != nil {
 		return nil, err
@@ -367,8 +368,16 @@ func modelNodeAdmissionExtension() extension.Extension {
 					return toolhooks.Admission{}, nil
 				}),
 				toolhooks.Before.On(registry, "wscyber-model-node-subagent", func(_ context.Context, event toolhooks.CallEvent) (toolhooks.Admission, error) {
+					// oracle_explorer 由平台准入（webapi ApprovalExtension）统一决定；其它子 Agent 本机节点不开放。
 					if event.Call.GetName() == "subagent" {
-						return toolhooks.Admission{Deny: errors.New("本机模型节点尚未接入多Agent预算与模型选择")}, nil
+						var args struct {
+							Action string `json:"action"`
+							Name   string `json:"name"`
+						}
+						_ = json.Unmarshal(event.Call.GetArguments().GetData(), &args)
+						if args.Name != businesswebapi.OracleExplorerName && args.Action != "catalog" && args.Action != "list" && args.Action != "kill" {
+							return toolhooks.Admission{Deny: errors.New("本机模型节点只开放命名子 Agent oracle_explorer，尚未接入其它多Agent预算与模型选择")}, nil
+						}
 					}
 					return toolhooks.Admission{}, nil
 				}),

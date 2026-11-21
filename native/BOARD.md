@@ -14,7 +14,7 @@
 | `webapi_board_ingest` | `task_id PK, last_created_at, last_id` | 摄取游标 |
 | `webapi_board_facts` | `id, task_id, kind, subject, statement, confidence, evidence_ids_json, status, session_id, turn_id, call_id, created_at, updated_at` | 索引 `(task_id, created_at DESC, id DESC)` |
 | `webapi_board_oracles` | `id, task_id, number, question, category, endpoint_keys_json, priority, status, origin, claimed_session_id, result_summary, evidence_ids_json, finding_id, dedupe_key, created_at, updated_at` | `number` 存整数、对外呈现 `O-001`（任务内递增，>999 时自然变 4 位）；`dedupe_key` 为内部去重键；索引 `(task_id, number)`、`(task_id, dedupe_key)` 均唯一 |
-| `webapi_board_oracle_events` | `id, oracle_id, task_id, from_status, to_status, actor, session_id, at, summary` | 只追加状态变化（含创建：`from_status` 为空串）；按 `at, rowid` 排序 |
+| `webapi_board_oracle_events` | `id, oracle_id, task_id, from_status, to_status, actor（model\|user\|ai）, session_id, at, summary` | 只追加状态变化（含创建：`from_status` 为空串）；按 `at, rowid` 排序 |
 
 时间均为定宽 UTC 毫秒（`2006-01-02T15:04:05.000Z`）。已知旧库阶段（审计 26 表、漏洞处置 28 表）经 `PrepareWebAPISchema` 单事务补表到 33 表。
 
@@ -42,7 +42,9 @@
 
 ## 模型工具（注册在 `ToolExtension`）
 
-任务内任意会话（研究 / 验证 / 复测）可读；**写只允许该任务研究会话（`initial_session_id`）**，其他会话返回“只有本任务研究会话可写黑板……”。session/turn/call 只取自可信 Invocation。参数为 strict JSON（未知字段拒），错误逐字段说明（如 `items[0].category 仅支持 …`），校验失败整批不写。
+任务内任意会话（研究 / 验证 / 复测 / 子 Agent）可读；**写只允许该任务研究会话（`initial_session_id`）及其 `oracle_explorer` 子会话**，其他会话返回“只有本任务研究会话可写黑板……”。
+
+认领排他与子会话（M5a，见 `native/SUBAGENT.md`）：子 Agent 派出时平台把 Oracle 置 `in_progress`（事件 actor `ai`、summary“子 Agent 认领”），启动后 `claimed_session_id` 为子会话 id；子会话可写地图/事实、可 propose 新 Oracle，只能 close/drop 自己认领的那一个、不能 claim 其它；子 Agent 持有（运行中或预占中）的 Oracle 研究会话不能 claim/close/drop（409）。子会话结束未结案 → 平台退回 `open`（summary“子 Agent 结束未给结论（<stop>）”）。事件 actor 新增 `ai`（平台代子 Agent 生命周期写入）。session/turn/call 只取自可信 Invocation。参数为 strict JSON（未知字段拒），错误逐字段说明（如 `items[0].category 仅支持 …`），校验失败整批不写。
 
 | 工具 | 参数 | 结果 |
 |---|---|---|

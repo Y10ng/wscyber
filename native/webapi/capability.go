@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -316,6 +317,8 @@ type Capability struct {
 	notify notifyRuntime
 	// replays 是一键重放的进行中占位与按条目限频（进程内存，见 replay.go）。
 	replays replayRuntime
+	// subsessions 是本进程内运行中的子 Agent 会话 → 任务（节点侧用量观察用，见 subagent.go）。
+	subsessions sync.Map
 }
 
 // NewCapability 创建能力；database 为同一 hub.sqlite 路径。
@@ -345,6 +348,10 @@ func (c *Capability) SchemaModules() []webservice.SchemaModule {
 func (c *Capability) Routes(api *managementapi.API) []web.Route {
 	if api != nil {
 		c.launcher = apiLauncher{api: api}
+		// 模型节点随 Hub 进程启动：上次遗留的 running 子会话按已中断结束并释放 Oracle（M5a）。
+		if err := c.store.releaseOrphanSubsessions(context.Background(), time.Now()); err != nil {
+			log.Printf("webapi 遗留子会话释放失败：%v", err)
+		}
 		c.startScheduler()
 		c.startNotifier()
 	}
@@ -361,6 +368,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks/{id}/egress", Handler: http.HandlerFunc(c.handleEgressList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/egress/{flow_id}", Handler: http.HandlerFunc(c.handleEgressGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/egress/{flow_id}/image.png", Handler: http.HandlerFunc(c.handleEgressImage)},
+		{Pattern: "GET /api/webapi/tasks/{id}/subsessions", Handler: http.HandlerFunc(c.handleSubsessionList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/board", Handler: http.HandlerFunc(c.handleBoardGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/board/endpoints", Handler: http.HandlerFunc(c.handleBoardEndpoints)},
 		{Pattern: "GET /api/webapi/tasks/{id}/board/facts", Handler: http.HandlerFunc(c.handleBoardFacts)},

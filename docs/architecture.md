@@ -22,7 +22,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 |---|---|
 | `native/cmd/wscyber-hub/` | 入口与装配：Hub、正式模型节点（`model_product.go`）、模型配置、UI 静态挂载。`--fixture-node`/`--model-endpoint` 为本机测试分支 |
 | `native/cmd/wscyber-native/` | 早期 CLI fixture（原生会话/工具最小链），仅测试参考 |
-| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录；`notify*.go` 企业微信推送（配置、登记、后台投递）；`audit.go` 审计记录（只追加表、写操作生效后登记、查询）；`triage.go` 漏洞处置（严重度/处置/负责人/修复期限 SLA，逾期读时派生）；`board*.go` 任务黑板（地图/事实/Oracle，流量增量摄取，`boardDigest` 摘要） |
+| `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录；`notify*.go` 企业微信推送（配置、登记、后台投递）；`audit.go` 审计记录（只追加表、写操作生效后登记、查询）；`triage.go` 漏洞处置（严重度/处置/负责人/修复期限 SLA，逾期读时派生）；`board*.go` 任务黑板（地图/事实/Oracle，流量增量摄取，`boardDigest` 摘要）；`subagent.go` 命名子 Agent `oracle_explorer`（研究会话派出、认领一个 Oracle 并行探索，准入/预占/子会话→任务归属/结束释放，`GET /tasks/{id}/subsessions`，见 `native/SUBAGENT.md`） |
 | `native/modeltransport/` | 本机测试用的模型连接目的地约束 |
 | `native/patches/` | 上游 SQLite 事务锁一行补丁（`_txlock=immediate`），经 `scripts/cyber-go-overlay.py` 构建时应用 |
 | `native/ui/source-overlay/` | 对原生前端的覆盖文件（App、任务/候选/证据/验证面板、配置、i18n）；清单 `source-overlay.json` |

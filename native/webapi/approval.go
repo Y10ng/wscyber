@@ -176,6 +176,16 @@ func (r *approvalRuntime) Pending(sessionID string) []*guardrail.Review {
 	return out
 }
 
+// sessionOf 返回挂起审批所属会话；不存在为空串。
+func (r *approvalRuntime) sessionOf(operationID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p := r.pending[operationID]; p != nil {
+		return p.review.SessionId
+	}
+	return ""
+}
+
 // Resolve 只按 session+operation 精确匹配；source 记入终态事件。
 func (r *approvalRuntime) Resolve(sessionID, operationID string, approve bool, source string) error {
 	r.mu.Lock()
@@ -244,6 +254,7 @@ func unsentStatus(state guardrail.ReviewState) string {
 // 只读工具与平台结果工具不审批。审批在工具执行前完成，不计入终端命令超时。
 func (c *Capability) ApprovalExtension() extension.Extension {
 	var subscriptions []*corehooks.Subscription
+	var usageObserver interface{ Cancel() }
 	return extension.Func{
 		LoadFunc: func(scope *extension.Scope) error {
 			registry, err := extension.Use[*corehooks.Registry](scope)
@@ -255,13 +266,12 @@ func (c *Capability) ApprovalExtension() extension.Extension {
 				return err
 			}
 			lifetime := scope.Lifetime()
+			// 子 Agent 准入、预占清理与子会话 SessionStart/SessionEnd 归属（M5a，见 subagent.go）。
+			subscriptions = append(subscriptions, c.subagentSubscriptions(registry)...)
+			if observer := stream.Observe(c.observeSubsessionUsage); observer != nil {
+				usageObserver = observer
+			}
 			subscriptions = append(subscriptions,
-				toolhooks.Before.On(registry, "wscyber-webapi-subagent", func(_ context.Context, event toolhooks.CallEvent) (toolhooks.Admission, error) {
-					if event.Call.GetName() == "subagent" {
-						return toolhooks.Admission{Deny: errors.New("平台尚未接入子 Agent 的任务归属、出口与预算，已拒绝 subagent")}, nil
-					}
-					return toolhooks.Admission{}, nil
-				}),
 				toolhooks.Before.On(registry, "wscyber-webapi-approval", func(ctx context.Context, event toolhooks.CallEvent) (toolhooks.Admission, error) {
 					return c.admitTool(ctx, lifetime, stream, event)
 				}),
@@ -275,6 +285,9 @@ func (c *Capability) ApprovalExtension() extension.Extension {
 		},
 		CloseFunc: func(ctx context.Context) error {
 			var result error
+			if usageObserver != nil {
+				usageObserver.Cancel()
+			}
 			for _, subscription := range subscriptions {
 				result = errors.Join(result, subscription.Close(ctx))
 			}
@@ -331,6 +344,9 @@ func (c *Capability) admitTool(ctx, lifetime context.Context, stream *events.Str
 	}
 	if task != nil {
 		reason += fmt.Sprintf("（任务 %s 测试策略 approval=%s）", task.ID, policy.Approval)
+		if sub, _ := c.store.subsessionFor(ctx, inv.SessionID); sub != nil {
+			reason += "（子 Agent oracle_explorer 会话 " + inv.SessionID + "）"
+		}
 	}
 	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason)
 	c.auditReview(ctx, inv.SessionID, event.Operation.GetOperationId(), task, name, arguments, state)
@@ -382,7 +398,16 @@ func (c *Capability) handleApprovalProtocol(ctx context.Context, envelope *aop.E
 		if pending.SessionId == "" || bound != "" && bound != pending.SessionId {
 			return reply(aop.NewProtocolError("GUARDRAIL_DENIED", "session scope mismatch"))
 		}
-		return reply(&guardrail.ProtocolMessage{Message: &guardrail.ProtocolMessage_PendingResult{PendingResult: &guardrail.PendingResponse{Reviews: c.approvals.Pending(pending.SessionId)}}})
+		reviews := c.approvals.Pending(pending.SessionId)
+		// 子 Agent 会话没有 Hub 会话行，其待审批经父会话（研究会话）的 Pending 一并列出（Review.session_id 仍为子会话）。
+		children, err := c.store.runningSubsessionsOf(ctx, pending.SessionId)
+		if err != nil {
+			return reply(aop.NewProtocolError("UNAVAILABLE", "无法读取子 Agent 会话"))
+		}
+		for _, child := range children {
+			reviews = append(reviews, c.approvals.Pending(child)...)
+		}
+		return reply(&guardrail.ProtocolMessage{Message: &guardrail.ProtocolMessage_PendingResult{PendingResult: &guardrail.PendingResponse{Reviews: reviews}}})
 	}
 	if resolve := value.GetResolve(); resolve != nil {
 		if resolve.OperationId == "" || resolve.SessionId == "" {
@@ -391,7 +416,14 @@ func (c *Capability) handleApprovalProtocol(ctx context.Context, envelope *aop.E
 		if bound != "" && bound != resolve.SessionId {
 			return reply(aop.NewProtocolError("GUARDRAIL_DENIED", "session scope mismatch"))
 		}
-		if err := c.approvals.Resolve(resolve.SessionId, resolve.OperationId, resolve.Approve, "control"); err != nil {
+		target := resolve.SessionId
+		// 经父会话处理子 Agent 的审批：只认该父会话下运行中的子会话。
+		if owner := c.approvals.sessionOf(resolve.OperationId); owner != "" && owner != target {
+			if sub, err := c.store.subsessionFor(ctx, owner); err == nil && sub != nil && sub.ParentSessionID == target && sub.Status == subsessionRunning {
+				target = owner
+			}
+		}
+		if err := c.approvals.Resolve(target, resolve.OperationId, resolve.Approve, "control"); err != nil {
 			return reply(aop.NewProtocolError("GUARDRAIL_DENIED", err.Error()))
 		}
 		return reply(&guardrail.ProtocolMessage{Message: &guardrail.ProtocolMessage_Resolved{Resolved: &guardrail.ResolveResponse{}}})

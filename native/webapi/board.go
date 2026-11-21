@@ -144,7 +144,7 @@ type boardOracleEventModel struct {
 	TaskID     string `bun:"task_id,notnull"`
 	FromStatus string `bun:"from_status,notnull"` // 创建为空串
 	ToStatus   string `bun:"to_status,notnull"`
-	Actor      string `bun:"actor,notnull"` // model|user
+	Actor      string `bun:"actor,notnull"` // model|user|ai（子 Agent 生命周期，M5a）
 	SessionID  string `bun:"session_id,notnull"`
 	At         string `bun:"at,notnull"`
 	Summary    string `bun:"summary,type:text,notnull"`

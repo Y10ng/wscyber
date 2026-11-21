@@ -58,6 +58,10 @@
 4. 末尾追加 `## ` 二级标题段落：`授权与边界`、`黑板纪律`、`证据标准`、`研究场景：<名称>`（方法）、`完成标准`（“完成标准：<生效文本>” + 自查提示）。
 5. 测试策略 `scope=unrestricted` 时“授权与边界”第一条改为“本任务测试策略为不限制范围：可访问任意地址，但所有请求仍被记录；仍须遵守禁止行为与审批。”，其余不变。
 
+黑板纪律段末句（M5a）：存在多个相互独立的 open Oracle 时，可用 `subagent`（name=oracle_explorer，prompt 以 Oracle 编号开头）派子 Agent 并行探索，每个只负责一个，同一任务最多 3 个；以黑板上该 Oracle 结论为准。
+
+**oracle_explorer 子会话**不经本 BeforeRun（只认研究会话），而在上游 Prepare 中用同一 `injectScenarioPrompt` 构建（身份段 + 上述五段，scope 按任务），再追加 `## 子 Agent：oracle_explorer` 段（常量 `oracleExplorerPromptTemplate`）；子会话不开 Goal 模式。见 `native/SUBAGENT.md`。
+
 首条消息不变（场景由系统提示词承载；Go `webAPIFirstMessage` 与前端逐行一致的那份保持现状）。提示词只是引导；授权范围、审批与证据记录仍由平台强制。
 
 ## 持续探索（M3 后端）
