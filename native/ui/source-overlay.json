@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "1ca850ef2f174b3b22a5b9d4bc10bf8310bd047eb95c02a351630237cacb4257"
+      "sha256": "d4ce4702a83bade622939b1032805e5c119106e81bc192c950cb420ced47445d"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "05aeaece547591f7caad61df8b5adeeffc655c739f1096f7e99aed47c92d0fdd"
+      "sha256": "370bbfd953b671003cbd4c5eced4db7ed03f485f90487f9e7dda69c017065c84"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -208,7 +208,7 @@
     },
     "src/components/ui-badges.tsx": {
       "source_sha256": null,
-      "sha256": "41b0e185cbe1ec54408e4e77b3ff4cc447949a317b449b3039a632f68219b06c"
+      "sha256": "589cd1c3ccb3917b89ca303d498ad80e04bd84ee145c76ade8eb16ea801c3cc5"
     },
     "src/hooks/useChatSession.ts": {
       "source_sha256": "51e84a673a79c80225be277f0182357638964de5d7dce405e06942f549847d81",
@@ -228,7 +228,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "dda313a537dd22260aeafb2927df42941e18047f31323a33d2a7e00610158764"
+      "sha256": "dc735ed409d5466afd171244b712acff777d731ff36e2a85a23781b5a3b65030"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -244,7 +244,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "46d51487c16e5288070cbfb0e782149b96a4cb8a3eace4f9c1bcee470a530fee"
+      "sha256": "8c28b068ad312cde213c652a1ccbd9bd35dac1fa32cc09a753ed572a21d05552"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -292,7 +292,7 @@
     },
     "src/components/VulnCardPage.tsx": {
       "source_sha256": null,
-      "sha256": "877ceb4c2e73bd57f1551f463eda06eafcd433002c9001a5626cd2f7762fbb7d"
+      "sha256": "4ef1c3757f7fc9be4801ff1dbb55d2750ba4938a93bf56371cd56058e901a55d"
     },
     "src/components/HttpPairBlock.tsx": {
       "source_sha256": null,

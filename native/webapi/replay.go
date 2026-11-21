@@ -189,6 +189,7 @@ func compareReplay(originalStatus, replayedStatus int64, original, replayed []st
 type VulnCardReplay struct {
 	ReplayID    string `json:"replay_id"`
 	Step        int64  `json:"step"`
+	TaskID      string `json:"task_id"`
 	EvidenceID  string `json:"evidence_id"`
 	At          string `json:"at"`
 	StatusCode  int64  `json:"status_code"`
@@ -224,7 +225,7 @@ func (c *Capability) cardReplays(ctx context.Context, key string) ([]VulnCardRep
 	recent, events := []VulnCardReplay{}, make([]VulnCardEvent, 0, len(rows))
 	for _, row := range rows {
 		if len(recent) < replayCardMax {
-			recent = append(recent, VulnCardReplay{ReplayID: row.ID, Step: row.Step, EvidenceID: row.EvidenceID, At: row.CreatedAt, StatusCode: row.StatusCode, VerdictHint: row.VerdictHint})
+			recent = append(recent, VulnCardReplay{ReplayID: row.ID, Step: row.Step, TaskID: row.TaskID, EvidenceID: row.EvidenceID, At: row.CreatedAt, StatusCode: row.StatusCode, VerdictHint: row.VerdictHint})
 		}
 		events = append(events, replayLifecycleEvent(row))
 	}

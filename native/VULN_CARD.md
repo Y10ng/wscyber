@@ -23,7 +23,7 @@
 | `appendix` | `{verifications[], members[], evidence_count, evidence[], changes[]}`，见下 |
 | `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, suggested_severity, status}`；`suggested_severity` 与 `GET /vulns` 对应条目同源，无建议时为空串；无资产为空 |
 | `nav` | `{prev_key, next_key}`：在 `GET /vulns` 默认排序（无筛选）中的前/后一条，首尾为 null |
-| `replays[]` | 该键最近 5 次已完成的一键重放（K2，见 `native/REPLAY.md`），新到旧：`{replay_id, step, evidence_id, at, status_code, verdict_hint}`；结果未知的尝试不列（只在审计与证据里）；无则 `[]` |
+| `replays[]` | 该键最近 5 次已完成的一键重放（K2，见 `native/REPLAY.md`），新到旧：`{replay_id, step, task_id, evidence_id, at, status_code, verdict_hint}`；结果未知的尝试不列（只在审计与证据里）；无则 `[]` |
 
 - `suggested_severity` / `severity_reason`：成员中最新一条带建议等级的 supported 验证；列表项 `suggested_severity` 同一规则。它只是 AI 建议，不写处置、不参与 SLA/逾期/计数。
 - `steps[]`：`{title, evidence_id, method, url（去 userinfo）, status_code, request_marks_found[], response_marks_found[], mark_missing}`。marks 在该步证据原件中逐行查找（请求侧：请求行、原始头、正文；响应侧：状态行、原始头、正文；未遮盖；二进制正文不查），找到的按原顺序去重返回，任一找不到则 `mark_missing=true`。

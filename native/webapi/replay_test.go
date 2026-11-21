@@ -247,7 +247,7 @@ func TestVulnCardReplaySuccessAndComparison(t *testing.T) {
 	// 卡片：replays[] 新到旧、lifecycle replay 升序；审计每次实际发送一条，不含请求/响应内容。
 	card := f.card(key)
 	if len(card.Replays) != 3 || card.Replays[0].VerdictHint != hintUnknown || card.Replays[0].Step != 2 || card.Replays[1].VerdictHint != hintChanged ||
-		card.Replays[1].StatusCode != 403 || card.Replays[2].VerdictHint != hintStillReproducible || card.Replays[2].EvidenceID != firstEvidence {
+		card.Replays[1].StatusCode != 403 || card.Replays[2].VerdictHint != hintStillReproducible || card.Replays[2].EvidenceID != firstEvidence || card.Replays[0].TaskID != "t1" {
 		t.Fatalf("card replays = %+v", card.Replays)
 	}
 	titles := []string{}

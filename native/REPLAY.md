@@ -73,7 +73,7 @@
 
 ## 漏洞卡联动（`native/VULN_CARD.md`）
 
-- `GET /vulns/{key}/card` 增加 `replays[]`：最近 5 次 `{replay_id, step, evidence_id, at, status_code, verdict_hint}`，新到旧。
+- `GET /vulns/{key}/card` 增加 `replays[]`：最近 5 次 `{replay_id, step, task_id, evidence_id, at, status_code, verdict_hint}`，新到旧。
 - `lifecycle` 增加 kind `replay`（actor=user，title“一键重放：仍可复现/有变化/无法判定”，detail `METHOD /path → 状态码`），同一时刻排在 notify 之后、retest 之前。全部已完成重放都进生命周期（不限 5 条）。
 - 审计 `vuln.replay`（`native/AUDIT.md`）：每次实际发送登记一条（含结果未知，detail 另带 `outcome`）；未发送不登记。也出现在卡片 `appendix.changes[]`。
 

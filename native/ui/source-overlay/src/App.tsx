@@ -163,6 +163,8 @@ export default function App({ services }: { services: HubServices }) {
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
   const pendingFindingIdRef = useRef<{ sessionID: string; findingID: string } | null>(null)
   const pendingReportIdRef = useRef<{ sessionID: string; reportID: string } | null>(null)
+  // 漏洞卡“在流量中查看”：先按 task 解析初始会话，任务加载后切流量视图并定位证据。
+  const pendingEvidenceIdRef = useRef<{ sessionID: string; evidenceID: string } | null>(null)
   // 执行视图内部：时间线（默认）| 控制流。不在 WebApiView 枚举里 —— 切到流量/候选
   // 再回来仍落回时间线，与任务导航语义一致。
   const [executionMode, setExecutionMode] = useState<ExecutionViewMode>('timeline')
@@ -199,6 +201,7 @@ export default function App({ services }: { services: HubServices }) {
     if (!id) return
     if (pendingFindingIdRef.current && pendingFindingIdRef.current.sessionID !== id) pendingFindingIdRef.current = null
     if (pendingReportIdRef.current && pendingReportIdRef.current.sessionID !== id) pendingReportIdRef.current = null
+    if (pendingEvidenceIdRef.current && pendingEvidenceIdRef.current.sessionID !== id) pendingEvidenceIdRef.current = null
     let cancelled = false
     // 报告 session：taskForSession 与验证/复测反查都不解析，只能经 reports?session_id= 反查；
     // 只有真实 404 算无报告，网络/服务端错误可见。
@@ -269,6 +272,10 @@ export default function App({ services }: { services: HubServices }) {
             setFocusReportId(pendingReportIdRef.current.reportID)
             setWorkspaceView('reports')
             pendingReportIdRef.current = null
+          } else if (pendingEvidenceIdRef.current?.sessionID === id) {
+            setFocusEvidenceId(pendingEvidenceIdRef.current.evidenceID)
+            setWorkspaceView('traffic')
+            pendingEvidenceIdRef.current = null
           }
         } else {
           // 验证/复测 session 被后端 taskForSession 回父 Task 200：只读查回该记录显示 Bar，不再等 404。
@@ -651,6 +658,18 @@ export default function App({ services }: { services: HubServices }) {
     }
   }, [chat.selectSession])
 
+  // 漏洞卡“在流量中查看”：按 task_id 解析初始会话，再经 pendingEvidenceIdRef
+  // 在任务工作区切到流量视图并定位该条证据。
+  const handleOpenTaskEvidence = useCallback(async (taskID: string, evidenceID: string) => {
+    try {
+      const task = await getWebApiTask(taskID)
+      pendingEvidenceIdRef.current = { sessionID: task.initial_session_id, evidenceID }
+      void chat.selectSession(task.initial_session_id)
+    } catch (err) {
+      setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }, [chat.selectSession])
+
   // 全局报告页打开报告：按 task_id 解析初始会话，再经 pendingReportIdRef
   // 在任务工作区切到报告视图并选中该报告（同 handleReturnToReport）。
   const handleOpenTaskReport = useCallback(async (taskID: string, reportID: string) => {
@@ -981,6 +1000,7 @@ export default function App({ services }: { services: HubServices }) {
                       onSwitch={openVulnCard}
                       onOpenAssetVuln={handleOpenAssetVuln}
                       onOpenTaskFinding={handleOpenTaskFinding}
+                      onOpenTaskEvidence={handleOpenTaskEvidence}
                       onOpenMenu={() => setSidebarOpen(true)}
                     />
                   ) : (

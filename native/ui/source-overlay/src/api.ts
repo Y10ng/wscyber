@@ -973,7 +973,7 @@ export interface WebApiVulnCardRetest {
   at: string
 }
 
-export type WebApiVulnCardLifecycleKind = 'candidate' | 'verification' | 'triage' | 'notify' | 'retest' | 'fixed'
+export type WebApiVulnCardLifecycleKind = 'candidate' | 'verification' | 'triage' | 'notify' | 'replay' | 'retest' | 'fixed'
 export type WebApiVulnCardActor = 'ai' | 'user' | 'system'
 
 export interface WebApiVulnCardEvent {
@@ -1062,6 +1062,71 @@ export interface WebApiVulnCardNav {
   next_key: string | null
 }
 
+// --- K2 一键重放（native/REPLAY.md）------------------------------------
+export type WebApiReplayVerdictHint = 'still_reproducible' | 'changed' | 'unknown'
+
+export interface WebApiReplayMarksFound {
+  request: string[]
+  response: string[]
+}
+
+/** 重放请求 200 响应体（字段照抄 native/REPLAY.md）。 */
+export interface WebApiReplayResult {
+  replay_id: string
+  step: number
+  evidence_id: string
+  task_id: string
+  at: string
+  request: { method: string; url: string }
+  original: {
+    evidence_id: string
+    status_code: number | null
+    body_bytes: number
+    marks_found: WebApiReplayMarksFound
+  }
+  replayed: {
+    status_code: number | null
+    body_bytes: number
+    capture_truncated: boolean
+    marks_found: WebApiReplayMarksFound
+  }
+  comparison: {
+    same_status: boolean
+    response_marks_still_present: boolean
+    verdict_hint: WebApiReplayVerdictHint
+  }
+  note: string
+}
+
+/** 重放请求非 2xx 的错误体；status 为平台语义状态，不是 HTTP 状态码。 */
+export interface WebApiReplayError {
+  error?: string
+  status?: 'denied' | 'review_required' | 'archived' | 'replay_in_progress' | 'unresolved' | 'unknown'
+  reason?: string
+  evidence_id?: string
+  retry_after?: number
+}
+
+/** 带 HTTP 状态与已解析错误体的重放失败；供 UI 区分 403/409/429/502。 */
+export class ReplayAPIError extends APIError {
+  constructor(message: string, public readonly httpStatus: number, public readonly body: WebApiReplayError | null) {
+    super(message, httpStatus)
+    this.name = 'ReplayAPIError'
+  }
+}
+
+/** 漏洞卡 `replays[]` 项。 */
+export interface WebApiVulnCardReplay {
+  replay_id: string
+  step: number
+  /** 重放证据所属任务（K2）。 */
+  task_id: string
+  evidence_id: string
+  at: string
+  status_code: number | null
+  verdict_hint: WebApiReplayVerdictHint
+}
+
 export type WebApiVulnCardMissingReason = 'no_verification' | 'no_supported' | 'no_key_steps'
 
 export interface WebApiVulnCard {
@@ -1074,6 +1139,7 @@ export interface WebApiVulnCard {
   appendix: WebApiVulnCardAppendix
   related: WebApiVulnCardRelated[]
   nav: WebApiVulnCardNav
+  replays: WebApiVulnCardReplay[]
 }
 
 export async function getWebApiVulnCard(key: string): Promise<WebApiVulnCard> {
@@ -1092,6 +1158,27 @@ export async function getWebApiVulnCardCurl(key: string, step: number): Promise<
   )
   if (!res.ok) throw new APIError(await errorMessage(res, 'Failed to generate curl'), res.status)
   return res.text()
+}
+
+/** 一键重放卡片关键请求的第 step 步（native/REPLAY.md）。错误带 httpStatus 与解析后的错误体。 */
+export async function replayWebApiVulnStep(key: string, step: number): Promise<WebApiReplayResult> {
+  const res = await authenticatedFetch(`/api/webapi/vulns/${encodeURIComponent(key)}/card/replay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step }),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    let body: WebApiReplayError | null = null
+    try {
+      const parsed = await res.json()
+      if (parsed && typeof parsed === 'object') body = parsed as WebApiReplayError
+    } catch {
+      body = null
+    }
+    throw new ReplayAPIError(body?.error || 'Failed to replay step', res.status, body)
+  }
+  return res.json() as Promise<WebApiReplayResult>
 }
 
 export async function getWebApiVulnSLA(): Promise<WebApiVulnSLA> {

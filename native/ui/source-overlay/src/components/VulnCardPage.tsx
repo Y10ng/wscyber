@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useTranslation } from 'react-i18next'
 import {
   Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, ExternalLink,
-  HelpCircle, Loader2, Menu, MoreHorizontal, RotateCw, Sparkles, Wrench, XCircle,
+  HelpCircle, Loader2, Menu, MoreHorizontal, Play, RotateCw, Sparkles, Wrench, X, XCircle,
 } from 'lucide-react'
 import {
   Button, Dialog, DialogContent, DropdownMenu, DropdownMenuContent,
@@ -14,14 +14,15 @@ import { newID } from '@cyber/aop'
 import { cn } from '@cyber/theme'
 import {
   getWebApiVulnCard, getWebApiVulnCardCurl, listWebApiAssetVulns, mergeWebApiVulns,
-  moveWebApiVulnMember, saveWebApiVulnTitle,
-  webApiEvidenceImageURL,
-  type WebApiVuln, type WebApiVulnCard, type WebApiVulnCardContrast, type WebApiVulnCardEvent,
-  type WebApiVulnCardEvidence, type WebApiVulnCardMember, type WebApiVulnCardRepro,
-  type WebApiVulnCardStep, type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
+  moveWebApiVulnMember, replayWebApiVulnStep, saveWebApiVulnTitle,
+  ReplayAPIError, webApiEvidenceImageURL,
+  type WebApiReplayResult, type WebApiVuln, type WebApiVulnCard, type WebApiVulnCardContrast,
+  type WebApiVulnCardEvent, type WebApiVulnCardEvidence, type WebApiVulnCardMember,
+  type WebApiVulnCardReplay, type WebApiVulnCardRepro, type WebApiVulnCardStep,
+  type WebApiVulnCardVerification, type WebApiVulnSeverity, type WebApiVulnStatus,
 } from '../api'
 import {
-  DeadlineText, DispositionBadge, SeverityBadge, StatusBadge, VerdictBadge,
+  DeadlineText, DispositionBadge, ReplayHintBadge, SeverityBadge, StatusBadge, VerdictBadge,
 } from './ui-badges'
 import HttpPairBlock, {
   displayPath, rawRequestText, responseBodyLines, useEvidenceHttpView,
@@ -36,6 +37,8 @@ interface VulnCardPageProps {
   onSwitch: (key: string) => void
   onOpenAssetVuln: (assetId: string, vulnId: string) => void
   onOpenTaskFinding: (taskId: string, findingId: string) => void
+  /** 在任务工作区流量视图定位某条证据（一键重放结果“在流量中查看”）。 */
+  onOpenTaskEvidence: (taskId: string, evidenceId: string) => void
   onOpenMenu: () => void
 }
 
@@ -59,6 +62,20 @@ function formatShort(iso: string | null | undefined): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** MM-DD HH:mm:ss（本地时区，24 小时制）；重放结果面板用。 */
+function formatShortSeconds(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/** 千分位整数；空值显示 —。 */
+function formatCount(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -76,6 +93,7 @@ const LIFECYCLE_DOT: Record<string, string> = {
   verification: '#7C3AED',
   triage: '#64748B',
   notify: '#0891B2',
+  replay: '#D97706',
   retest: '#D97706',
   fixed: '#059669',
 }
@@ -137,8 +155,134 @@ function Skeleton() {
   )
 }
 
+/** 一键重放结果：结论徽标 + 与原步骤的确定性对比 + 新证据原文。 */
+function ReplayResultPanel({ result, masked, onClose, onOpenEvidence }: {
+  result: WebApiReplayResult
+  masked: boolean
+  onClose: () => void
+  onOpenEvidence: (taskId: string, evidenceId: string) => void
+}) {
+  const { t } = useTranslation('chat')
+  const { view, loading, error, reload } = useEvidenceHttpView(result.task_id, result.evidence_id)
+  const baseline = result.original.marks_found.response
+  const replayMarks = result.replayed.marks_found.response
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <ReplayHintBadge hint={result.comparison.verdict_hint} />
+        <span className="text-[11px] tabular-nums text-muted-foreground">{formatShortSeconds(result.at)}</span>
+        <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">{result.note}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0 text-muted-foreground"
+          aria-label={t('vulnCard.replayClose')}
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[12px]">
+          <thead>
+            <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="py-1.5 pr-3 font-medium" />
+              <th className="py-1.5 pr-3 font-medium">{t('vulnCard.replayOriginal')}</th>
+              <th className="py-1.5 font-medium">{t('vulnCard.replayReplayed')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            <tr>
+              <td className="py-1.5 pr-3 text-secondary-foreground">{t('vulnCard.replayStatus')}</td>
+              <td className="py-1.5 pr-3 font-mono">{result.original.status_code ?? '—'}</td>
+              <td className="py-1.5 font-mono">{result.replayed.status_code ?? '—'}</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-3 text-secondary-foreground">{t('vulnCard.replayBodyBytes')}</td>
+              <td className="py-1.5 pr-3 font-mono">{formatCount(result.original.body_bytes)}</td>
+              <td className="py-1.5 font-mono">
+                {formatCount(result.replayed.body_bytes)}
+                {result.replayed.capture_truncated ? <span className="text-muted-foreground">{t('vulnCard.replayCaptureTruncated')}</span> : null}
+              </td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-3 align-top text-secondary-foreground">{t('vulnCard.replayMarks')}</td>
+              <td className="py-1.5 pr-3 align-top font-mono text-[11px]">
+                {baseline.length === 0 ? '—' : baseline.map((mark, index) => (
+                  <div key={index} className="break-all">✓ {mark}</div>
+                ))}
+              </td>
+              <td className="py-1.5 align-top font-mono text-[11px]">
+                {baseline.length === 0 ? '—' : baseline.map((mark, index) => {
+                  const present = replayMarks.includes(mark)
+                  return (
+                    <div key={index} className="break-all">
+                      <span className={present ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                        {present ? '✓' : '✗'}
+                      </span>{' '}
+                      {mark}
+                    </div>
+                  )
+                })}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-[11px] font-medium text-muted-foreground">{t('vulnCard.replayEvidenceTitle')}</div>
+        <HttpPairBlock
+          view={view}
+          loading={loading}
+          error={error}
+          retry={reload}
+          requestMarks={result.replayed.marks_found.request}
+          responseMarks={result.replayed.marks_found.response}
+          masked={masked}
+          foldHeaders
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onOpenEvidence(result.task_id, result.evidence_id)}
+        className="text-left text-[11.5px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        {t('vulnCard.replayViewTraffic')}
+      </button>
+    </div>
+  )
+}
+
+/** 重放失败提示条（不弹窗），可关闭。 */
+function ReplayErrorPanel({ message, onClose }: { message: string; onClose: () => void }) {
+  const { t } = useTranslation('chat')
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300"
+    >
+      <span className="min-w-0 break-words">{message}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="ml-auto shrink-0 text-amber-700/80 hover:text-amber-800 dark:text-amber-300/80 dark:hover:text-amber-200"
+        aria-label={t('vulnCard.replayClose')}
+        onClick={onClose}
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 function StepBlock({
-  repro, step, index, masked, onScreenshot, onNotify,
+  repro, step, index, masked, onScreenshot, onNotify, onReplay,
+  replayBusy, replayBlocked, replayCooldownSeconds,
 }: {
   repro: WebApiVulnCardRepro
   step: WebApiVulnCardStep
@@ -146,6 +290,10 @@ function StepBlock({
   masked: boolean
   onScreenshot: (url: string, filename: string) => void
   onNotify: (message: string) => void
+  onReplay: (step: number) => void
+  replayBusy: boolean
+  replayBlocked: boolean
+  replayCooldownSeconds: number
 }) {
   const { t } = useTranslation('chat')
   const { view, loading, error, reload } = useEvidenceHttpView(repro.task_id, step.evidence_id)
@@ -178,6 +326,21 @@ function StepBlock({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="gap-1"
+            disabled={replayBusy || replayBlocked || replayCooldownSeconds > 0}
+            onClick={() => onReplay(index + 1)}
+          >
+            {replayBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            {replayBusy
+              ? t('vulnCard.replaying')
+              : replayCooldownSeconds > 0
+                ? t('vulnCard.replayWait', { seconds: replayCooldownSeconds })
+                : t('vulnCard.replayStep')}
+          </Button>
           <Button type="button" variant="ghost" size="xs" className="gap-1" onClick={() => void copy()} disabled={!view}>
             <ClipboardCopy className="h-3 w-3" />
             {t('vulnCard.copy')}
@@ -356,6 +519,55 @@ function ContrastSection({ repro }: { repro: WebApiVulnCardRepro }) {
   )
 }
 
+function ReplayRecordEvidence({ taskId, evidenceId, masked }: { taskId: string; evidenceId: string; masked: boolean }) {
+  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId)
+  return (
+    <div className="pb-2">
+      <HttpPairBlock
+        view={view}
+        loading={loading}
+        error={error}
+        retry={reload}
+        requestMarks={[]}
+        responseMarks={[]}
+        masked={masked}
+        foldHeaders
+      />
+    </div>
+  )
+}
+
+function ReplayRecordRow({ item, taskId, masked, open, onToggle }: {
+  item: WebApiVulnCardReplay
+  taskId: string
+  masked: boolean
+  open: boolean
+  onToggle: () => void
+}) {
+  const { t } = useTranslation('chat')
+  return (
+    <div className="border-b border-border/60 last:border-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center gap-2 py-1 text-left text-[11.5px] transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        <ChevronDown className={cn('h-3 w-3 shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')} />
+        <span className="tabular-nums text-muted-foreground">{formatShort(item.at)}</span>
+        <span className="text-muted-foreground">·</span>
+        <span>{t('vulnCard.replayStepNo', { step: item.step })}</span>
+        <span className="text-muted-foreground">·</span>
+        <span className="font-mono">{item.status_code ?? '—'}</span>
+        <ReplayHintBadge hint={item.verdict_hint} />
+      </button>
+      {open && (taskId
+        ? <ReplayRecordEvidence taskId={taskId} evidenceId={item.evidence_id} masked={masked} />
+        : <p className="pb-2 text-[11px] text-muted-foreground">{t('vulnCard.replayTaskMissing')}</p>)}
+    </div>
+  )
+}
+
 interface AssetVulnActions {
   targets: WebApiVuln[] | null
   targetsLoading: boolean
@@ -364,8 +576,9 @@ interface AssetVulnActions {
   moveMember: (member: WebApiVulnCardMember, targetId: string | null) => void
 }
 
-function Appendix({ card, onOpenTaskFinding, assetActions }: {
+function Appendix({ card, masked, onOpenTaskFinding, assetActions }: {
   card: WebApiVulnCard
+  masked: boolean
   onOpenTaskFinding: (taskId: string, findingId: string) => void
   /** 仅资产漏洞条目（header.asset 非空且非 finding: 键）传入；finding: 条目为 null。 */
   assetActions: AssetVulnActions | null
@@ -381,6 +594,7 @@ function Appendix({ card, onOpenTaskFinding, assetActions }: {
     })
   }
   const { verifications, members, evidence_count: evidenceCount, evidence, changes } = card.appendix
+  const replays = card.replays
   const latestVerification = verifications[0]?.saved_at || verifications[0]?.created_at || null
   const latestEvidence = evidence[0]?.created_at || null
   const latestChange = changes[0]?.at || null
@@ -422,6 +636,26 @@ function Appendix({ card, onOpenTaskFinding, assetActions }: {
               <p className="pt-1 text-[11px] text-muted-foreground">{t('vulnCard.onlyFirst200')}</p>
             )}
           </div>
+        </AppendixItem>
+
+        <AppendixItem
+          title={t('vulnCard.replays')}
+          meta={t('vulnCard.countItems', { count: replays.length })}
+          open={open.has('replays')}
+          onToggle={() => toggle('replays')}
+        >
+          {replays.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">{t('vulnCard.noReplays')}</p>
+          ) : replays.map((item) => (
+            <ReplayRecordRow
+              key={item.replay_id}
+              item={item}
+              taskId={item.task_id || card.repro?.task_id || ''}
+              masked={masked}
+              open={open.has(`replay:${item.replay_id}`)}
+              onToggle={() => toggle(`replay:${item.replay_id}`)}
+            />
+          ))}
         </AppendixItem>
 
         <AppendixItem
@@ -627,7 +861,7 @@ function LifecycleTimeline({ events }: { events: WebApiVulnCardEvent[] }) {
 }
 
 export default function VulnCardPage({
-  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenMenu,
+  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenTaskEvidence, onOpenMenu,
 }: VulnCardPageProps) {
   const { t } = useTranslation('chat')
   const [card, setCard] = useState<WebApiVulnCard | null>(null)
@@ -638,6 +872,10 @@ export default function VulnCardPage({
   const [toast, setToast] = useState('')
   const [shot, setShot] = useState<{ url: string; filename: string } | null>(null)
   const [curlBusy, setCurlBusy] = useState(false)
+  // 一键重放：按步骤保存进行中/结果/错误；429 的限频窗口对整张卡片生效。
+  const [stepReplays, setStepReplays] = useState<Record<number, { busy: boolean; result: WebApiReplayResult | null; error: string }>>({})
+  const [replayCooldownUntil, setReplayCooldownUntil] = useState(0)
+  const [replayNow, setReplayNow] = useState(() => Date.now())
   const confirm = useConfirm()
   // 资产漏洞条目的人工归并操作（改标题 / 合并 / 移动 / 拆条）。
   const [targets, setTargets] = useState<WebApiVuln[] | null>(null)
@@ -694,6 +932,8 @@ export default function VulnCardPage({
     setActionError('')
     setTargets(null)
     setRenameOpen(false)
+    setStepReplays({})
+    setReplayCooldownUntil(0)
     void loadCard()
   }, [loadCard])
 
@@ -727,6 +967,75 @@ export default function VulnCardPage({
       setCurlBusy(false)
     }
   }
+
+  // 429 倒计时：仅在有未到期的限频窗口时每秒驱动一次。
+  useEffect(() => {
+    if (replayCooldownUntil <= Date.now()) return
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      setReplayNow(now)
+      if (now >= replayCooldownUntil) window.clearInterval(timer)
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [replayCooldownUntil])
+
+  const runReplay = async (step: number) => {
+    const key = card?.header.key
+    if (!key) return
+    if (Object.values(stepReplays).some((item) => item.busy)) return
+    setStepReplays((prev) => ({ ...prev, [step]: { busy: true, result: null, error: '' } }))
+    try {
+      const result = await replayWebApiVulnStep(key, step)
+      setStepReplays((prev) => ({ ...prev, [step]: { busy: false, result, error: '' } }))
+    } catch (err) {
+      let message = errorText(err)
+      let retryAfter = 0
+      if (err instanceof ReplayAPIError) {
+        const body = err.body
+        const status = body?.status
+        if (err.httpStatus === 403 && status === 'denied') {
+          message = t('vulnCard.replayErrDenied')
+        } else if (err.httpStatus === 409 && status === 'review_required') {
+          message = t('vulnCard.replayErrReview', { reason: body?.reason || '—' })
+        } else if (err.httpStatus === 409 && status === 'archived') {
+          message = t('vulnCard.replayErrArchived')
+        } else if (err.httpStatus === 409 && status === 'replay_in_progress') {
+          message = t('vulnCard.replayErrInProgress')
+        } else if (err.httpStatus === 409 && status === 'unresolved') {
+          message = t('vulnCard.replayErrUnresolved', { evidenceId: body?.evidence_id || '—' })
+        } else if (err.httpStatus === 429) {
+          retryAfter = body?.retry_after || 0
+          message = t('vulnCard.replayErrRateLimited', { seconds: retryAfter })
+        } else if (err.httpStatus === 502 && status === 'unknown') {
+          message = t('vulnCard.replayErrUnknown', { evidenceId: body?.evidence_id || '—' })
+        } else {
+          message = body?.error || err.message
+        }
+      }
+      if (retryAfter > 0) {
+        setReplayNow(Date.now())
+        setReplayCooldownUntil(Date.now() + retryAfter * 1000)
+      }
+      setStepReplays((prev) => ({ ...prev, [step]: { busy: false, result: null, error: message } }))
+    } finally {
+      // 成功或失败都刷新卡片：更新 replays[] 与生命周期。
+      void loadCard(true)
+    }
+  }
+
+  const closeReplay = (step: number) => {
+    setStepReplays((prev) => {
+      if (!(step in prev)) return prev
+      const next = { ...prev }
+      delete next[step]
+      return next
+    })
+  }
+
+  const anyReplayBusy = Object.values(stepReplays).some((item) => item.busy)
+  const replayCooldownSeconds = replayCooldownUntil > replayNow
+    ? Math.max(1, Math.ceil((replayCooldownUntil - replayNow) / 1000))
+    : 0
 
   const isAssetVuln = Boolean(card?.header.asset && !card.header.key.startsWith('finding:'))
 
@@ -981,6 +1290,32 @@ export default function VulnCardPage({
                   </div>
                 </div>
                 <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span tabIndex={repro ? -1 : 0}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1"
+                          disabled={!repro || repro.steps.length === 0 || anyReplayBusy || replayCooldownSeconds > 0}
+                          onClick={() => void runReplay(1)}
+                        >
+                          {stepReplays[1]?.busy
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Play className="h-3.5 w-3.5" />}
+                          {stepReplays[1]?.busy
+                            ? t('vulnCard.replaying')
+                            : replayCooldownSeconds > 0
+                              ? t('vulnCard.replayWait', { seconds: replayCooldownSeconds })
+                              : t('vulnCard.replay')}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {(!repro || repro.steps.length === 0) && (
+                      <TooltipContent>{t('vulnCard.replayNoRepro')}</TooltipContent>
+                    )}
+                  </Tooltip>
                   <Button
                     type="button"
                     variant="outline"
@@ -1089,17 +1424,35 @@ export default function VulnCardPage({
                       )}>
                         {t('vulnCard.keyRequests', { count: repro.steps.length })}
                       </SectionTitle>
-                      {repro.steps.map((step, index) => (
-                        <StepBlock
-                          key={step.evidence_id}
-                          repro={repro}
-                          step={step}
-                          index={index}
-                          masked={masked}
-                          onScreenshot={(url, filename) => setShot({ url, filename })}
-                          onNotify={notify}
-                        />
-                      ))}
+                      {repro.steps.map((step, index) => {
+                        const state = stepReplays[index + 1]
+                        return (
+                          <div key={step.evidence_id} className="space-y-2">
+                            <StepBlock
+                              repro={repro}
+                              step={step}
+                              index={index}
+                              masked={masked}
+                              onScreenshot={(url, filename) => setShot({ url, filename })}
+                              onNotify={notify}
+                              onReplay={(target) => void runReplay(target)}
+                              replayBusy={Boolean(state?.busy)}
+                              replayBlocked={anyReplayBusy && !state?.busy}
+                              replayCooldownSeconds={replayCooldownSeconds}
+                            />
+                            {state?.result ? (
+                              <ReplayResultPanel
+                                result={state.result}
+                                masked={masked}
+                                onClose={() => closeReplay(index + 1)}
+                                onOpenEvidence={onOpenTaskEvidence}
+                              />
+                            ) : state?.error ? (
+                              <ReplayErrorPanel message={state.error} onClose={() => closeReplay(index + 1)} />
+                            ) : null}
+                          </div>
+                        )
+                      })}
                     </Card>
 
                     {repro.contrast ? <ContrastSection repro={repro} /> : null}
@@ -1138,6 +1491,17 @@ export default function VulnCardPage({
                             {t('vulnCard.startRetest')}
                           </Button>
                         </div>
+                        {card.replays[0] ? (
+                          <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2.5 text-[11.5px]">
+                            <span className="text-muted-foreground">{t('vulnCard.lastReplay')}</span>
+                            <ReplayHintBadge hint={card.replays[0].verdict_hint} />
+                            <span className="tabular-nums text-muted-foreground">{formatShort(card.replays[0].at)}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-secondary-foreground">
+                              {t('vulnCard.replayStatusLabel', { status: card.replays[0].status_code ?? '—' })}
+                            </span>
+                          </div>
+                        ) : null}
                       </Card>
                     </div>
                   </>
@@ -1175,6 +1539,7 @@ export default function VulnCardPage({
 
                 <Appendix
                   card={card}
+                  masked={masked}
                   onOpenTaskFinding={onOpenTaskFinding}
                   assetActions={isAssetVuln ? { targets, targetsLoading, acting, loadTargets, moveMember } : null}
                 />

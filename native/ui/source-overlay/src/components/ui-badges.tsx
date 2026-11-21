@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@cyber/theme'
 import type {
   WebApiNotificationStatus,
+  WebApiReplayVerdictHint,
   WebApiTaskListStatus,
   WebApiVulnDisposition,
   WebApiVulnSeverity,
@@ -315,6 +316,26 @@ export function ScheduleStateBadge({ enabled, className }: { enabled: boolean; c
     <span className={cn('ws-st-badge', enabled ? 'ws-st-fixed' : 'ws-st-unconfirmed', className)}>
       <span aria-hidden className="ws-st-dot" />
       {t(enabled ? 'webapi.scheduleEnabled' : 'webapi.scheduleDisabled')}
+    </span>
+  )
+}
+
+const REPLAY_HINT_META: Record<WebApiReplayVerdictHint, { className: string; labelKey: string }> = {
+  still_reproducible: { className: 'ws-st-new', labelKey: 'vulnCard.replayHintStill' },
+  changed: { className: 'ws-st-fixed', labelKey: 'vulnCard.replayHintChanged' },
+  unknown: { className: 'ws-st-unconfirmed', labelKey: 'vulnCard.replayHintUnknown' },
+}
+
+/** 一键重放对比结论：仍可复现红 / 有变化绿 / 无法判定灰（不是复测结论）。 */
+export function ReplayHintBadge({ hint, className }: {
+  hint?: WebApiReplayVerdictHint | null
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const meta = hint ? REPLAY_HINT_META[hint] : undefined
+  return (
+    <span className={cn('ws-st-badge', meta?.className || 'ws-st-unconfirmed', className)}>
+      {meta ? t(meta.labelKey) : hint || '—'}
     </span>
   )
 }
