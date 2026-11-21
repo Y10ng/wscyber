@@ -65,7 +65,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 14）：M5a 补漏（201bae2：子 Agent 每会话≤24 次模型请求，经 ModelRequestPolicy 强制——上游 Continue Run 会覆盖 cfg.MaxTurns；计划任务“仍在运行”与后续自动验证/复测就绪计入 running 子会话）、演示剧本 `subagent-demo [--slow N]`（d1afae7）、M5a 前端（88fe67d，经一轮纠正：认领会话改显示完整 id）：黑板子 Agent 区（运行中 5s 自动刷新）、流量/候选详情/审批卡来源标签、用量“子 Agent”角色。主会话演示环境走过：慢速剧本下探索中→自动转已结束、认领会话完整 id 与说明、流量 O-NNN 标签与端点对应、任务用量按会话 1 研究 + 3 子 Agent、390 宽。**M5a 完成。** 未验：待审批卡子 Agent 标签（演示 approval=off）；候选列表不标来源（摘要接口无来源会话字段）；子会话转录 Hub 不保存（上游限制）。
 
-进行中：无。M5 后续：M5b 多账号越权对比；M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
+进行中：**M5b 多账号越权对比后端**（`var/m5b-authz-backend/task.md`，o-latest）：账号占位符 `{{cred:<id>.secret}}`（首条消息不再含明文口令，工具结果回替）、新工具 `webapi_authz_compare`（原证据换身份/匿名确定性重发、存证、hint 不下结论）、记录表与接口、方法提示词。M5 后续：M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -84,4 +84,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-无。
+- `m5b`（wangsu-o-latest，11-21 启动，日志 `var/m5b-authz-backend/exec.log`）。
