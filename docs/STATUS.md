@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-21 从 e4088c0 构建，含 K2 一键重放与统一出口；升级前备份 `var/preview/state.bak-20261121c`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-21 16:10 从 88fe67d 构建，含 K2、M5-0、M5a；升级前备份 `var/preview/state.bak-20261121d`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -63,15 +63,17 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 13）：M5a 子 Agent 认领 Oracle 并行探索后端（30ada10，契约 `native/SUBAGENT.md`，经一轮纠正：会话轮换 /clear、/compact、恢复产生的续接会话曾被 FailClosed 拦截）：只放行 `oracle_explorer`（研究会话、async/sync、O-NNN、每任务≤3），预占→落表→释放，子会话全线归属任务，工具白名单无终端，黑板认领排他，子会话审批经父会话处理，用量计入任务，`GET /tasks/{id}/subsessions`。已知限制：子会话转录 Hub 不持久化（上游按 turn 找会话）；周期任务“上一次仍在运行”与后续自动验证就绪判定未计入子会话。`TestProductModelNativeEntryAndReopen` 基线即偶发失败（约 1/10）。
 
-进行中：**M5a 演示剧本**（`var/m5a-demo/task.md`，gpt-6-astra：`demo-stack.py subagent-demo`）→ 之后 **M5a 前端**（`var/m5a-frontend/task.md` 已写，ds-flash：黑板子 Agent 区、流量/审批来源标签、用量角色）。M5 后续：M5b 多账号越权对比；M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
+已提交（续 14）：M5a 补漏（201bae2：子 Agent 每会话≤24 次模型请求，经 ModelRequestPolicy 强制——上游 Continue Run 会覆盖 cfg.MaxTurns；计划任务“仍在运行”与后续自动验证/复测就绪计入 running 子会话）、演示剧本 `subagent-demo [--slow N]`（d1afae7）、M5a 前端（88fe67d，经一轮纠正：认领会话改显示完整 id）：黑板子 Agent 区（运行中 5s 自动刷新）、流量/候选详情/审批卡来源标签、用量“子 Agent”角色。主会话演示环境走过：慢速剧本下探索中→自动转已结束、认领会话完整 id 与说明、流量 O-NNN 标签与端点对应、任务用量按会话 1 研究 + 3 子 Agent、390 宽。**M5a 完成。** 未验：待审批卡子 Agent 标签（演示 approval=off）；候选列表不标来源（摘要接口无来源会话字段）；子会话转录 Hub 不保存（上游限制）。
+
+进行中：无。M5 后续：M5b 多账号越权对比；M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. M5 → D3（需 SDL 接口文档）。
+1. M5b 多账号越权对比 → M5c（需确认依赖）→ D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
-3. 小打磨：Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
+3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；B2 出口为代理强制（可被刻意绕过），浏览器工具未接入，新增 GPL-3.0 与许可不明依赖未做法律评估；终端规则为静态启发式；资产测试账号会出现在会话首条消息事件中；C2b 后续只在单测与替身中覆盖；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝（V4 推送待审批缓解）；审计无保留期、无用户名（单 key）。
@@ -82,4 +84,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `m5a-demo`（gpt-6-astra，11-21 启动，日志 `var/m5a-demo/exec.log`）。
+无。
