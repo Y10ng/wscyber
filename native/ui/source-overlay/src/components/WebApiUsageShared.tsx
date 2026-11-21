@@ -126,11 +126,11 @@ export function UsageCompactTable({ nameKey, rows, onRowClick, nameFallback }: C
     <table className="w-full border-separate border-spacing-0 text-left">
       <thead>
         <tr>
-          <th scope="col" className="border-b border-border/60 bg-background px-2 py-1 text-[12px] font-medium text-muted-foreground">{t(nameKey)}</th>
-          <th scope="col" className="w-[90px] border-b border-border/60 bg-background px-2 py-1 text-right text-[12px] font-medium text-muted-foreground">{t('webapi.usageInput')}</th>
-          <th scope="col" className="w-[90px] border-b border-border/60 bg-background px-2 py-1 text-right text-[12px] font-medium text-muted-foreground">{t('webapi.usageOutput')}</th>
-          <th scope="col" className="w-[100px] border-b border-border/60 bg-background px-2 py-1 text-right text-[12px] font-medium text-muted-foreground">{t('webapi.usageTotal')}</th>
-          <th scope="col" className="w-[70px] border-b border-border/60 bg-background px-2 py-1 text-right text-[12px] font-medium text-muted-foreground">{t('webapi.usageCalls')}</th>
+          <th scope="col" className="border-b border-border bg-[var(--bg-subtle)] px-2 py-1.5 text-[12px] font-semibold text-[var(--text-secondary)]">{t(nameKey)}</th>
+          <th scope="col" className="w-[90px] border-b border-border bg-[var(--bg-subtle)] px-2 py-1.5 text-right text-[12px] font-semibold text-[var(--text-secondary)]">{t('webapi.usageInput')}</th>
+          <th scope="col" className="w-[90px] border-b border-border bg-[var(--bg-subtle)] px-2 py-1.5 text-right text-[12px] font-semibold text-[var(--text-secondary)]">{t('webapi.usageOutput')}</th>
+          <th scope="col" className="w-[100px] border-b border-border bg-[var(--bg-subtle)] px-2 py-1.5 text-right text-[12px] font-semibold text-[var(--text-secondary)]">{t('webapi.usageTotal')}</th>
+          <th scope="col" className="w-[70px] border-b border-border bg-[var(--bg-subtle)] px-2 py-1.5 text-right text-[12px] font-semibold text-[var(--text-secondary)]">{t('webapi.usageCalls')}</th>
         </tr>
       </thead>
       <tbody>

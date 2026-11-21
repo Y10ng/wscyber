@@ -2,10 +2,11 @@ import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Globe, Plus, Trash2 } from 'lucide-react'
 import { newID } from '@cyber/aop'
-import { Button, Callout, Checkbox, Chip, Dialog, DialogContent, DialogTitle, Field, Input, Spinner, Textarea } from '@cyber/ui'
+import { Button, Callout, Checkbox, Chip, Dialog, DialogContent, Field, Input, Spinner, Textarea } from '@cyber/ui'
 import { saveWebApiTask, putWebApiTaskScenario, type WebApiTask, type WebApiTaskPolicy } from '../api'
 import { DEFAULT_WEB_API_POLICY, WebApiPolicyFields } from './WebApiPolicyShared'
 import WebApiScenarioPicker, { DEFAULT_SCENARIO_KEY, type WebApiScenarioDraft } from './WebApiScenarioPicker'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 export interface WebApiTaskInput {
   taskID: string
@@ -157,25 +158,26 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
             returnFocus.current.focus()
           }
         }}
-        className="flex h-[min(90dvh,40rem)] w-[calc(100vw-2rem)] max-w-xl flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-[640px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <Globe className="h-4 w-4" />
-          </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('webapi.newTaskTitle')}</DialogTitle>
-        </div>
+        <DialogHeaderRow
+          icon={<Globe className="h-4 w-4" />}
+          title={t('webapi.newTaskTitle')}
+          description={t('webapi.newTaskDescription')}
+        />
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-            <Field label={t('webapi.knownInfo')} hint={t('webapi.knownInfoHint')}>
-              <Textarea value={knownInfo} onChange={(e) => setKnownInfo(e.target.value)} placeholder={t('webapi.knownInfoPlaceholder')} disabled={saving} />
-            </Field>
-            <Field label={t('webapi.objective')} hint={t('webapi.objectiveHint')}>
-              <Textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder={t('webapi.objectivePlaceholder')} disabled={saving} />
-            </Field>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            <div className="space-y-3">
+              <Field label={t('webapi.knownInfo')} hint={t('webapi.knownInfoHint')}>
+                <Textarea value={knownInfo} onChange={(e) => setKnownInfo(e.target.value)} placeholder={t('webapi.knownInfoPlaceholder')} disabled={saving} />
+              </Field>
+              <Field label={t('webapi.objective')} hint={t('webapi.objectiveHint')}>
+                <Textarea value={objective} onChange={(e) => setObjective(e.target.value)} placeholder={t('webapi.objectivePlaceholder')} disabled={saving} />
+              </Field>
+            </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 border-t border-border pt-4">
               <div className="flex items-center gap-2">
                 <Checkbox checked={confirmed} onCheckedChange={setConfirmed} disabled={saving} aria-label={t('webapi.authorizationConfirmed')} />
                 <button type="button" onClick={() => setConfirmed((value) => !value)} disabled={saving} className="text-left text-[13px] font-medium text-foreground/75 hover:text-foreground disabled:opacity-50">
@@ -212,27 +214,29 @@ export default function WebApiTaskDialog({ open, onClose, onSubmit }: Props) {
             </div>
 
             {/* 研究场景：两输入与授权之后、测试策略之前。只由人设置，进系统提示词。 */}
-            <div className="space-y-2">
-              <span className="block text-[13px] font-medium text-foreground/75">{t('scenario.section')}</span>
+            <div className="space-y-2 border-t border-border pt-4">
+              <span className="block text-[14px] font-semibold text-foreground">{t('scenario.section')}</span>
               <WebApiScenarioPicker value={scenario} onChange={setScenario} disabled={saving} />
             </div>
 
             {/* 测试策略：无卡片边框，与上方字段同一栅格。只由人设置，不进模型上下文。 */}
-            <WebApiPolicyFields
-              scope={policy.scope}
-              approval={policy.approval}
-              onScopeChange={(scope) => setPolicy((current) => ({ ...current, scope }))}
-              onApprovalChange={(approval) => setPolicy((current) => ({ ...current, approval }))}
-              disabled={saving}
-            />
+            <div className="border-t border-border pt-4">
+              <WebApiPolicyFields
+                scope={policy.scope}
+                approval={policy.approval}
+                onScopeChange={(scope) => setPolicy((current) => ({ ...current, scope }))}
+                onApprovalChange={(approval) => setPolicy((current) => ({ ...current, approval }))}
+                disabled={saving}
+              />
+            </div>
 
             {error && <Callout tone="destructive">{error}</Callout>}
           </div>
 
-          <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
+          <DialogFooterRow>
             <Button type="button" variant="outline" onClick={handleClose} disabled={saving}>{t('webapi.close')}</Button>
             <Button type="submit" disabled={saving}>{saving && <Spinner className="h-4 w-4" />}{t('webapi.start')}</Button>
-          </div>
+          </DialogFooterRow>
         </form>
       </DialogContent>
     </Dialog>

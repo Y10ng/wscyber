@@ -8,9 +8,6 @@ import {
   Callout,
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Field,
   Input,
   Select,
@@ -44,6 +41,7 @@ import {
 import { usePolling } from '../hooks/usePolling'
 import { FilterPills, type FilterPillItem } from './PageFrame'
 import { formatTime } from './WebApiEvidenceReference'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 import './WebApiBoardPanel.css'
 
 type BoardSection = 'oracles' | 'map' | 'facts'
@@ -1097,11 +1095,14 @@ function ProposeOracleDialog({ open, taskId, prefill, onClose, onProposed }: Pro
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !submitting) onClose() }}>
-      <DialogContent closeLabel={t('board.cancel')} aria-describedby={undefined} className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="text-sm font-semibold text-foreground">{t('board.proposeTitle')}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+      <DialogContent
+        closeLabel={t('board.cancel')}
+        aria-describedby={undefined}
+        className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-[560px] flex-col gap-0 overflow-hidden p-0"
+      >
+        <DialogHeaderRow title={t('board.proposeTitle')} />
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           <Field label={t('board.question')} hint={t('board.questionHint')}>
             <Textarea
               value={question}
@@ -1203,12 +1204,13 @@ function ProposeOracleDialog({ open, taskId, prefill, onClose, onProposed }: Pro
           {dedupe && <Callout tone="warning">{t('board.dedupeNotice', { number: dedupe })}</Callout>}
           {error && <Callout tone="destructive">{error}</Callout>}
 
-          <DialogFooter>
-            <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>{t('board.cancel')}</Button>
-            <Button type="submit" size="sm" disabled={submitting}>
-              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('board.submit')}
-            </Button>
-          </DialogFooter>
+        </div>
+        <DialogFooterRow>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>{t('board.cancel')}</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('board.submit')}
+          </Button>
+        </DialogFooterRow>
         </form>
       </DialogContent>
     </Dialog>

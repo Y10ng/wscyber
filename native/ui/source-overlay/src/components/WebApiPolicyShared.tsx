@@ -99,7 +99,7 @@ export function WebApiPolicySaver({ taskID, scope, approval, current, onSaved }:
       {error && <Callout tone="destructive">{error}</Callout>}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted-foreground">{t('webapi.policySaveHint')}</span>
-        <Button type="button" size="xs" disabled={saving || !changed} onClick={() => { void save() }}>
+        <Button type="button" className="h-8 text-[12px]" disabled={saving || !changed} onClick={() => { void save() }}>
           {saving && <Spinner className="h-3.5 w-3.5" />}{t('webapi.policySave')}
         </Button>
       </div>

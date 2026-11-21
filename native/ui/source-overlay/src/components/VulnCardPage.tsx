@@ -5,7 +5,7 @@ import {
   HelpCircle, Loader2, Menu, MoreHorizontal, RotateCw, Sparkles, Wrench, XCircle,
 } from 'lucide-react'
 import {
-  Button, Dialog, DialogContent, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent,
+  Button, Dialog, DialogContent, DropdownMenu, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent,
   DropdownMenuSubTrigger, DropdownMenuTrigger, Input, Spinner, Switch, Tooltip, TooltipContent,
   TooltipTrigger, useConfirm,
@@ -28,6 +28,7 @@ import HttpPairBlock, {
 } from './HttpPairBlock'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 import VulnTriageForm from './VulnTriageForm'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 interface VulnCardPageProps {
   vulnKey: string
@@ -1254,10 +1255,13 @@ export default function VulnCardPage({
       )}
 
       <Dialog open={renameOpen} onOpenChange={(next) => { if (!next) setRenameOpen(false) }}>
-        <DialogContent closeLabel={t('webapi.close')} aria-describedby={undefined} className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[15px] font-semibold text-foreground">{t('webapi.vulnRename')}</DialogTitle>
-          </DialogHeader>
+        <DialogContent
+          closeLabel={t('webapi.close')}
+          aria-describedby={undefined}
+          className="flex w-[calc(100vw-2rem)] max-w-[560px] flex-col gap-0 overflow-hidden p-0"
+        >
+          <DialogHeaderRow title={t('webapi.vulnRename')} />
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
           <label className="block space-y-1.5">
             <span className="block text-[12px] text-muted-foreground">{t('webapi.vulnTitleLabel')}</span>
             <Input
@@ -1270,13 +1274,14 @@ export default function VulnCardPage({
             <span className="block text-[11px] text-muted-foreground">{t('webapi.vulnTitleAutoHint')}</span>
           </label>
           {renameError && <p role="alert" className="text-xs text-destructive">{renameError}</p>}
-          <div className="flex justify-end gap-2">
+          </div>
+          <DialogFooterRow>
             <Button type="button" variant="outline" onClick={() => setRenameOpen(false)} disabled={renameSaving}>{t('webapi.close')}</Button>
             <Button type="button" onClick={() => void saveRename()} disabled={renameSaving}>
               {renameSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {t('webapi.vulnSave')}
             </Button>
-          </div>
+          </DialogFooterRow>
         </DialogContent>
       </Dialog>
 

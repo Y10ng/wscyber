@@ -74,7 +74,7 @@ function PendingReviewRow({ item, onResolve, onView, resolving }: {
   const params = reviewKeyParams(item.review)
   const toolName = item.review.call?.name || ''
   return (
-    <div className="min-w-0 rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5">
+    <div className="min-w-0 px-3 py-2.5">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
         <span className="min-w-0 max-w-full truncate font-medium text-foreground" title={item.sessionName}>{item.sessionName}</span>
         <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">{toolName}</span>
@@ -92,7 +92,7 @@ function PendingReviewRow({ item, onResolve, onView, resolving }: {
           type="button"
           size="xs"
           variant="outline"
-          className="h-6 gap-1 px-2 text-[11px] text-destructive hover:text-destructive"
+          className="h-8 gap-1 px-2.5 text-[12px] text-destructive hover:text-destructive"
           disabled={resolving !== null || item.unavailable}
           onClick={() => { void onResolve(item, false) }}
         >
@@ -102,7 +102,7 @@ function PendingReviewRow({ item, onResolve, onView, resolving }: {
         <Button
           type="button"
           size="xs"
-          className="h-6 gap-1 px-2 text-[11px]"
+          className="h-8 gap-1 px-2.5 text-[12px]"
           disabled={resolving !== null || item.unavailable}
           onClick={() => { void onResolve(item, true) }}
         >
@@ -179,9 +179,11 @@ export function PendingApprovalsButton({ items, onResolve, onViewSession, openRe
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] space-y-2 p-3">
-        <p className="text-[13px] font-medium text-foreground">{t('webapi.pendingApprovalsTitle', { count })}</p>
-        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+      <PopoverContent align="end" className="w-[min(22.5rem,calc(100vw-2rem))] rounded-lg border border-border p-0 shadow-md">
+        <div className="border-b border-border px-3 py-2.5 text-[14px] font-semibold text-foreground">
+          {t('webapi.pendingApprovalsTitle', { count })}
+        </div>
+        <div className="max-h-[60vh] divide-y divide-border overflow-y-auto">
           {items.map((item) => {
             const key = `${item.sessionId}:${item.review.operation?.operationId || ''}`
             return <PendingReviewRow

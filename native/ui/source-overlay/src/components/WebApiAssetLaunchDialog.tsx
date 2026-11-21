@@ -2,9 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Boxes, Check, Minus } from 'lucide-react'
 import { newID } from '@cyber/aop'
-import { Button, Callout, Dialog, DialogContent, DialogTitle, Field, Spinner, Textarea } from '@cyber/ui'
+import { Button, Callout, Dialog, DialogContent, Field, Spinner, Textarea } from '@cyber/ui'
 import { AssetLaunchError, launchWebApiAssetTask, type WebApiAsset, type WebApiLaunchProgress } from '../api'
 import { normalizeWebApiPolicy, WebApiPolicyFields } from './WebApiPolicyShared'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 interface Props {
   open: boolean
@@ -68,17 +69,12 @@ export default function WebApiAssetLaunchDialog({ open, asset, onClose, onLaunch
         closeLabel={t('webapi.close')}
         aria-describedby={undefined}
         onInteractOutside={(event) => event.preventDefault()}
-        className="flex w-[calc(100vw-2rem)] max-w-lg flex-col gap-0 overflow-hidden p-0"
+        className="flex w-[calc(100vw-2rem)] max-w-[640px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <Boxes className="h-4 w-4" />
-          </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('webapi.assetLaunchTitle')}</DialogTitle>
-        </div>
+        <DialogHeaderRow icon={<Boxes className="h-4 w-4" />} title={t('webapi.assetLaunchTitle')} />
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             <Field label={t('webapi.assetLaunchObjective')}>
               <Textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder={t('webapi.objectivePlaceholder')} disabled={saving} />
             </Field>
@@ -104,13 +100,13 @@ export default function WebApiAssetLaunchDialog({ open, asset, onClose, onLaunch
             )}
           </div>
 
-          <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
+          <DialogFooterRow>
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>{t('webapi.close')}</Button>
             <Button type="submit" disabled={saving}>
               {saving && <Spinner className="h-4 w-4" />}
               {error ? t('webapi.assetLaunchRetry') : t('webapi.assetLaunchStart')}
             </Button>
-          </div>
+          </DialogFooterRow>
         </form>
       </DialogContent>
     </Dialog>

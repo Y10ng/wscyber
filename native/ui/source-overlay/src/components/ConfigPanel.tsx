@@ -5,10 +5,11 @@ import { create, equals, type JsonObject } from '@bufbuild/protobuf'
 import { AgentConfigSchema, ConnectionCheckSchema, DistributeConfigSchema, LLMProbeResultSchema } from '../cyber-proto'
 import { getConfigStatus, llmConfigured, saveConfig, testLLM, testConn, listLLMModels } from '../api'
 import type { ConfigView, ConnectionCheck, DistributeConfig, LLMProbeResult, ServerStatus } from '../api'
-import { Button, Input, Select, SelectTrigger, SelectContent, SelectItem, SelectValue, Badge, Spinner, Callout, Field, Switch, ResultLine, Dialog, DialogContent, DialogTitle } from '@cyber/ui'
+import { Button, Input, Select, SelectTrigger, SelectContent, SelectItem, SelectValue, Badge, Spinner, Callout, Field, Switch, ResultLine, Dialog, DialogContent } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { ModelCombobox } from './ModelCombobox'
 import { LOCAL_MODEL_CAPABILITY, MODEL_CAPABILITY } from '../lib/session-agent'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 // ConfigFormState is the panel's editable form model (secrets as typed, blank =
 // keep the stored value). It converts to the proto DistributeConfig at the API
@@ -418,12 +419,7 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
   const content = (
     <>
         {variant === 'dialog' && (
-          <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-              <Settings className="h-4 w-4" />
-            </div>
-            <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('settings')}</DialogTitle>
-          </div>
+          <DialogHeaderRow icon={<Settings className="h-4 w-4" />} title={t('settings')} />
         )}
 
         <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col">
@@ -439,7 +435,7 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
             </div>
           )}
 
-          <div className={cn('min-h-0 flex-1 overflow-y-auto', variant === 'page' ? 'p-4' : 'p-4')}>
+          <div className={cn('min-h-0 flex-1 overflow-y-auto', variant === 'page' ? 'p-4' : 'p-5')}>
             {loading ? (
               <div className="flex h-48 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <Spinner className="h-8 w-8" />
@@ -496,10 +492,10 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
             {error && <Callout tone="destructive" className="mt-3">{error}</Callout>}
           </div>
 
-          <div className={cn('flex shrink-0 flex-row justify-end gap-2 border-t border-border px-4 py-3')}>
+          <DialogFooterRow>
             {variant === 'dialog' && <Button type="button" variant="outline" onClick={onClose}>{t('close')}</Button>}
             <Button type="submit" className="h-9" disabled={loading || saving}>{saving && <Spinner className="mr-1.5 h-4 w-4" />}{t('save')}</Button>
-          </div>
+          </DialogFooterRow>
         </form>
     </>
   )
@@ -530,7 +526,7 @@ export default function ConfigPanel({ open, variant = 'dialog', status, capabili
             returnFocus.current.focus()
           }
         }}
-        className="flex h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0"
+        className="flex h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-[560px] flex-col gap-0 overflow-hidden p-0"
       >
         {content}
       </DialogContent>

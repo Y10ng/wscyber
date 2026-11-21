@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
-import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Spinner } from '@cyber/ui'
+import { Button, Dialog, DialogContent, Input, Spinner } from '@cyber/ui'
 import { getWebApiVulnSLA, saveWebApiVulnSLA, type WebApiVulnSLA } from '../api'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 interface Props {
   open: boolean
@@ -92,48 +93,52 @@ export default function VulnSlaDialog({ open, onClose, onSaved }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent closeLabel={t('webapi.close')} aria-describedby={undefined} className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-[15px] font-semibold text-foreground">{t('shell.triageSlaTitle')}</DialogTitle>
-        </DialogHeader>
-        <p className="text-[12px] text-muted-foreground">{t('shell.triageSlaHint')}</p>
+      <DialogContent closeLabel={t('webapi.close')} aria-describedby={undefined} className="flex w-[calc(100vw-2rem)] max-w-[560px] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeaderRow title={t('shell.triageSlaTitle')} description={t('shell.triageSlaHint')} />
 
-        {loading ? (
-          <div className="flex h-24 items-center justify-center gap-2 text-[13px] text-muted-foreground">
-            <Spinner className="h-5 w-5" />
-            {t('shell.loading')}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {FIELDS.map((field) => (
-              <label key={field.key} className="block space-y-1.5">
-                <span className="block text-[13px] font-medium text-foreground/75">{t(field.labelKey)}</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={365}
-                  step={1}
-                  value={values[field.key]}
-                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
-                  disabled={saving}
-                />
-                <span className="block text-[11px] text-muted-foreground">{t('shell.triageSlaDays')}</span>
-              </label>
-            ))}
-          </div>
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex h-24 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+              <Spinner className="h-5 w-5" />
+              {t('shell.loading')}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {FIELDS.map((field) => (
+                <label key={field.key} className="block space-y-1.5">
+                  <span className="block text-[12px] text-muted-foreground">{t(field.labelKey)}</span>
+                  <span className="relative block">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      step={1}
+                      value={values[field.key]}
+                      onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                      disabled={saving}
+                      className="h-9 pr-9"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">
+                      {t('shell.triageSlaDays')}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
 
-        {(loadError || saveError) && (
-          <p role="alert" className="text-xs text-destructive">{loadError || saveError}</p>
-        )}
+          {(loadError || saveError) && (
+            <p role="alert" className="mt-3 text-xs text-destructive">{loadError || saveError}</p>
+          )}
+        </div>
 
-        <div className="flex justify-end gap-2">
+        <DialogFooterRow>
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>{t('webapi.close')}</Button>
           <Button type="button" onClick={() => void save()} disabled={saving || loading}>
             {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {t('shell.triageSave')}
           </Button>
-        </div>
+        </DialogFooterRow>
       </DialogContent>
     </Dialog>
   )

@@ -20,7 +20,7 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "d02b1d93de1c6c01a9e18dd0f8ca8285f2fd324bcdad5d1b90f74870b40fe841"
+      "sha256": "1ca850ef2f174b3b22a5b9d4bc10bf8310bd047eb95c02a351630237cacb4257"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
@@ -40,11 +40,11 @@
     },
     "src/components/ChatPanel.tsx": {
       "source_sha256": "386b1f68b80a1df3cbdb2f9b6c3b92c42079abf069898ed6708c0df37cc828bc",
-      "sha256": "f361ca6310b5757c3a9127f8c917c6de982c334df47adffd22fbad701f958529"
+      "sha256": "15f24581d2b660766d96d5eb22bbd5721855f2bed582e1082450ed4a7605eaeb"
     },
     "src/components/ConfigPanel.tsx": {
       "source_sha256": "0bb622868c9864363cc4fce61fe471af76873d1c6aa598851d031720abbbce95",
-      "sha256": "b44eaf9393e5a5b03f58a45c4af32355ab61d8522938cbbf79665010e0b2de8b"
+      "sha256": "1b57645e96b2d35e1c6950c311333c89021e0c47d542b687cae271b383900562"
     },
     "src/components/IntegrationsPage.tsx": {
       "source_sha256": null,
@@ -72,11 +72,11 @@
     },
     "src/components/VulnSlaDialog.tsx": {
       "source_sha256": null,
-      "sha256": "fa2b0e3e50fbdd791a96a94c4d657a286ae6b01ca20c155a88c4b9342365b414"
+      "sha256": "3a92f2a48acd9f9caa2db503670cfd77fd5315366bb7048a4730ce33094e5860"
     },
     "src/components/VulnTriageSheet.tsx": {
       "source_sha256": null,
-      "sha256": "9202ba023a2a7d769138960ee8a4b79057cef8ff6f5b649aa56fa92b58b75580"
+      "sha256": "54283dd433ebb4628af973da7589e7c9999a643544405b9006e6c45f8a794c9c"
     },
     "src/components/VulnsPage.tsx": {
       "source_sha256": null,
@@ -84,7 +84,7 @@
     },
     "src/components/WebApiAssetLaunchDialog.tsx": {
       "source_sha256": null,
-      "sha256": "64db8f756e4ddc9a43a51995d25436864d86f9a2433e47bc1197485a32e1692c"
+      "sha256": "ba800f8b86695d02aaf023d9d13841671deae7aa8c0e6b8258060d43d898a1b8"
     },
     "src/components/WebApiAssetVulns.tsx": {
       "source_sha256": null,
@@ -104,11 +104,11 @@
     },
     "src/components/WebApiBoardPanel.tsx": {
       "source_sha256": null,
-      "sha256": "38ab82f9f746ce2e26a1a8eb0bcbc8c8c67c5ccd2425be519f14e0eb1b2635b1"
+      "sha256": "36138d5fc49fe1877a5d4260f5bcaa08fe9427896881e3cbdff2beb472d79d58"
     },
     "src/components/WebApiEvidenceImageDialog.tsx": {
       "source_sha256": null,
-      "sha256": "f467a596bfe25fec1523ccfd7933ec23df6b716e26e7bbd825e7ccc24811d1e5"
+      "sha256": "4ed3d03b05e757f930fb5f524daf1a3a632cfa051cba2d383f88dc96bc8d6a3f"
     },
     "src/components/WebApiEvidencePanel.tsx": {
       "source_sha256": null,
@@ -120,11 +120,11 @@
     },
     "src/components/WebApiExecutionTimeline.css": {
       "source_sha256": null,
-      "sha256": "1449c72ef63f808bc3bdbbfe0cf057013373bfe107fb4ffe9192e575874d3822"
+      "sha256": "993013ce981a532faf866078c1a2f18fa81f7515ce50ff47eb114dafb4665a08"
     },
     "src/components/WebApiExecutionTimeline.tsx": {
       "source_sha256": null,
-      "sha256": "972a62daef42fba3d0fd866b986e2a17dc943bdf8f3a61ee862465d95fea0f93"
+      "sha256": "76f8d7b1c9e2de40ffd261c4cc7a4d2b94090232998e47c491247ba76a6bf411"
     },
     "src/components/WebApiFindingsPanel.css": {
       "source_sha256": null,
@@ -136,19 +136,19 @@
     },
     "src/components/WebApiPendingApprovals.tsx": {
       "source_sha256": null,
-      "sha256": "4c7732094b2e574fd7a98fae8628d0ac70e02f6a68b473541cc3c253f9872f2e"
+      "sha256": "c3d1bee5e868150c85ccdd0ac1ba244d07bb2ff14d3f6a71ed822b51026e4abd"
     },
     "src/components/WebApiPolicyShared.tsx": {
       "source_sha256": null,
-      "sha256": "9d6ef47ac1fa8275dc57079a710b8d4e9fd5cb1ba2f8038ca7b0cd643cf95574"
+      "sha256": "057ca0e1e63aef39fb8e88a5a47f8f3da1bc4d3b39b1d0a27e8c88060e297c93"
     },
     "src/components/WebApiReportBar.tsx": {
       "source_sha256": null,
-      "sha256": "0d7c1bf6e1658faa29839f512f8de7f30eb5b90b8ddb2f606649785b260b7e98"
+      "sha256": "30cfe207289cfc46c5eed321beffeed90902cf4d63f3c41f547ef06e49b10a5d"
     },
     "src/components/WebApiReportDialog.tsx": {
       "source_sha256": null,
-      "sha256": "39e929673143137e99f22d347febbc4c6dbb09533a4280f708fffe3c61180ca5"
+      "sha256": "5c685bd82ce4a440d2b6d2afa2f3aed65065e27a841259517460df1fc0e17389"
     },
     "src/components/WebApiReportsPanel.css": {
       "source_sha256": null,
@@ -160,7 +160,7 @@
     },
     "src/components/WebApiRetest.tsx": {
       "source_sha256": null,
-      "sha256": "5afc906393eb8f94ad16041520c8636262541a94deef3a2a4d506126298bc609"
+      "sha256": "3dbc4c5a70f0dc0276e6694c7f5d330e9404d3338e1faac228c60334b17293d3"
     },
     "src/components/WebApiScenarioPicker.tsx": {
       "source_sha256": null,
@@ -168,11 +168,11 @@
     },
     "src/components/WebApiTaskBar.tsx": {
       "source_sha256": null,
-      "sha256": "2c9065e3013668313e563e9fa9e0c8aa3a6961658c439ccd6bf55111c53887eb"
+      "sha256": "45eaea0dfccf45f858361c6e2a00ab8aaae49b878989e0ba81a0b7b730e69f64"
     },
     "src/components/WebApiTaskDialog.tsx": {
       "source_sha256": null,
-      "sha256": "50aa1daab80450525a1fa5559e4ce88dc32d22153708fb95de6734629a0d9deb"
+      "sha256": "68829584c61d391ef72385f6c7655578bc14d0ad8a2e77ec5c45df3b2da30f61"
     },
     "src/components/WebApiTaskNav.tsx": {
       "source_sha256": null,
@@ -180,7 +180,7 @@
     },
     "src/components/WebApiUsageDialog.tsx": {
       "source_sha256": null,
-      "sha256": "e2a248d9c42b848cef85b5afefd74c423609c05b75e228ef6c868c544393a40d"
+      "sha256": "c514fdfd00dc4a465854d65f679a834b102eddb8a43c775e889c559fb35f54c1"
     },
     "src/components/WebApiUsagePanel.tsx": {
       "source_sha256": null,
@@ -188,11 +188,11 @@
     },
     "src/components/WebApiUsageShared.tsx": {
       "source_sha256": null,
-      "sha256": "df80d8bc4c3440821833f5b104b9d063954d984e7f76ad1350ed687d0561046b"
+      "sha256": "8a39d4b4efd20871c6310ec782aca8d029dd33efa9f0a1ae0e40bdbd950dbceb"
     },
     "src/components/WebApiVerification.tsx": {
       "source_sha256": null,
-      "sha256": "288b7371446ebc555262cb793fdf7f5c08a5f13b02845522e0597607493de517"
+      "sha256": "8bb38fe76de788b10832ea56d75778d36844f660c6d1beb675a23593cc91ae91"
     },
     "src/components/chat/JEVControlFlow.css": {
       "source_sha256": "9d5036b6ee73315357ce0192a6c4441ba1afd8644fa877ecbcafff3489d076f6",
@@ -228,7 +228,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "7c49e8cc0d6382ed48c8465c6d413d35c21c4dd92870e09bee7bbb0c0f56b6a5"
+      "sha256": "dda313a537dd22260aeafb2927df42941e18047f31323a33d2a7e00610158764"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -244,7 +244,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "65d8ebafdbfb4fe2f17b42b99b2d86c95a8acd56eb89cc6eb6b43a0296be8b7d"
+      "sha256": "46d51487c16e5288070cbfb0e782149b96a4cb8a3eace4f9c1bcee470a530fee"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -288,11 +288,11 @@
     },
     "src/components/VulnTriageForm.tsx": {
       "source_sha256": null,
-      "sha256": "a311e7af0be8b595cb45561c541645f33bc7e4d99144e99a2887f5815ac91f80"
+      "sha256": "ed58018c71b934961532de933e8bf915ffa6a69f88c14d6cfea7dbc704f76d80"
     },
     "src/components/VulnCardPage.tsx": {
       "source_sha256": null,
-      "sha256": "d14ba5e72b84e2c876fbb34823f2b3469cc42b50baf394c586b8ddb67874b4a3"
+      "sha256": "877ceb4c2e73bd57f1551f463eda06eafcd433002c9001a5626cd2f7762fbb7d"
     },
     "src/components/HttpPairBlock.tsx": {
       "source_sha256": null,
@@ -301,6 +301,14 @@
     "src/lib/time.ts": {
       "source_sha256": null,
       "sha256": "238649bb09a50eb89c3fddd0e9dd80e3b470feafabbbefc0a0e5cf18c025c387"
+    },
+    "src/components/ui-dialog.tsx": {
+      "source_sha256": null,
+      "sha256": "32cc0851aec9e1fc0aa58d0e27c61e52d46ba60cf8124b7031bf99283bc44301"
+    },
+    "cyber-ui/packages/ui/src/confirm-dialog.tsx": {
+      "source_sha256": "b26c8a9b7f26babf02c2ea88e87791e2b7c3c1d6f303834f4234259f61e0c717",
+      "sha256": "a30a3e9914712fb16e87b8e24378c1428bf3e23bd8f3bd09a9693ce87ae1f541"
     }
   }
 }

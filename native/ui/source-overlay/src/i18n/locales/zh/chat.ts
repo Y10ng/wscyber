@@ -418,6 +418,7 @@ export default {
   webapi: {
     newTask: '新建 Web/API 任务',
     newTaskTitle: '新建 Web/API 探索任务',
+    newTaskDescription: '填写已知信息与测试目标，并确认授权范围和测试策略。',
     knownInfo: '目标／已知信息',
     knownInfoHint: '已知的目标地址、环境或背景，不扩大授权范围。',
     knownInfoPlaceholder: '例如：https://example.com 的登录接口及已知账号',
@@ -685,6 +686,7 @@ export default {
     execReportPending: '写入报告草稿…',
     execViewInTraffic: '在流量中查看',
     execViewFinding: '查看候选',
+    execRequestResponse: '请求 / 响应',
     // 测试策略（B1）：建任务与任务顶栏共用；只由人设置，默认 仅授权 origins + 仅高危。
     policySection: '测试策略',
     policyScope: '范围',

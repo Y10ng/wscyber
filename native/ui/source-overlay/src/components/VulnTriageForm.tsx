@@ -35,7 +35,7 @@ function errorText(err: unknown): string {
  * 显式“保存”，保存后用后端返回的 Triage View 回填并通知调用方刷新。
  */
 export default function VulnTriageForm({
-  vulnKey, triage, assetName, status, suggestedSeverity, onSaved, className,
+  vulnKey, triage, assetName, status, suggestedSeverity, onSaved, className, padded = false,
 }: {
   vulnKey: string
   triage: WebApiVulnTriage | null
@@ -44,6 +44,8 @@ export default function VulnTriageForm({
   suggestedSeverity?: WebApiVulnSeverity
   onSaved?: (next: WebApiVulnTriage) => void
   className?: string
+  /** Sheet 模式：内容区自身滚动，底部保存行固定在 Sheet 底部。 */
+  padded?: boolean
 }) {
   const { t } = useTranslation('chat')
   const [severity, setSeverity] = useState<WebApiVulnSeverity>('')
@@ -108,11 +110,11 @@ export default function VulnTriageForm({
 
   return (
     <form
-      className={`flex min-h-0 flex-col gap-3 ${className || ''}`}
+      className={`flex min-h-0 flex-col ${padded ? 'gap-0' : 'gap-3'} ${className || ''}`}
       data-vuln-status={status || ''}
       onSubmit={(event) => { event.preventDefault(); void save() }}
     >
-      <div className="min-h-0 flex-1 space-y-3">
+      <div className={padded ? 'min-h-0 flex-1 space-y-3 overflow-y-auto p-5' : 'min-h-0 flex-1 space-y-3'}>
         {assetName ? <p className="-mt-1 truncate text-[11px] text-muted-foreground" title={assetName}>{assetName}</p> : null}
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-2">
@@ -194,7 +196,7 @@ export default function VulnTriageForm({
         </label>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border pt-3">
+      <div className={padded ? 'flex shrink-0 items-center justify-end gap-3 border-t border-border px-5 py-3' : 'flex shrink-0 items-center justify-end gap-3 border-t border-border pt-3'}>
         {saveError && <span role="alert" className="mr-auto text-[11px] text-destructive">{saveError}</span>}
         {saved && <span className="mr-auto text-[12px] text-success">{t('shell.triageSaved')}</span>}
         <Button type="submit" disabled={saving}>

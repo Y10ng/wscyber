@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, ExternalLink, Loader2 } from 'lucide-react'
-import { Button, Dialog, DialogContent, DialogTitle, Switch } from '@cyber/ui'
+import { Button, Dialog, DialogContent, Switch } from '@cyber/ui'
 import { cn } from '@cyber/theme'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 interface Props {
   open: boolean
@@ -41,31 +42,16 @@ export default function WebApiEvidenceImageDialog({ open, onClose, url, filename
       <DialogContent
         closeLabel={t('webapi.close')}
         aria-describedby={undefined}
-        className="flex w-[calc(100vw-2rem)] max-w-[1260px] flex-col gap-0 overflow-hidden p-0"
+        className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-[1260px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('webapi.evidenceImageTitle')}</DialogTitle>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2">
+        <DialogHeaderRow title={t('webapi.evidenceImageTitle')} />
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-5 py-2">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
             <span>{t('webapi.evidenceImageMask')}</span>
           </label>
-          <span className="ml-auto" />
-          <Button asChild size="xs" className="gap-1">
-            <a href={currentUrl} download={filename}>
-              <Download className="h-3.5 w-3.5" />
-              {t('webapi.evidenceImageDownload')}
-            </a>
-          </Button>
-          <Button asChild variant="ghost" size="xs" className="gap-1 text-muted-foreground">
-            <a href={currentUrl} target="_blank" rel="noopener">
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t('webapi.evidenceImageOpenNewTab')}
-            </a>
-          </Button>
         </div>
-        <div className="mx-4 mb-4 mt-3 max-h-[75vh] min-h-40 overflow-auto rounded border border-border/60 bg-white">
+        <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-white p-4">
           <div className="relative">
             {status === 'error' ? (
               <div className="flex min-h-40 items-center justify-center p-6 text-sm text-destructive">
@@ -76,7 +62,7 @@ export default function WebApiEvidenceImageDialog({ open, onClose, url, filename
                 <img
                   src={currentUrl}
                   alt=""
-                  className={cn('block max-w-none', status === 'loading' && 'invisible')}
+                  className={cn('mx-auto block max-w-full', status === 'loading' && 'invisible')}
                   onLoad={() => setStatus('loaded')}
                   onError={() => setStatus('error')}
                 />
@@ -89,6 +75,21 @@ export default function WebApiEvidenceImageDialog({ open, onClose, url, filename
             )}
           </div>
         </div>
+        <DialogFooterRow>
+          <Button asChild variant="outline" className="gap-1">
+            <a href={currentUrl} target="_blank" rel="noopener">
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t('webapi.evidenceImageOpenNewTab')}
+            </a>
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>{t('webapi.close')}</Button>
+          <Button asChild className="gap-1">
+            <a href={currentUrl} download={filename}>
+              <Download className="h-3.5 w-3.5" />
+              {t('webapi.evidenceImageDownload')}
+            </a>
+          </Button>
+        </DialogFooterRow>
       </DialogContent>
     </Dialog>
   )

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, FileText, Loader2 } from 'lucide-react'
 import { cn } from '@cyber/theme'
-import { Button, Callout, Dialog, DialogContent, DialogTitle, Spinner } from '@cyber/ui'
+import { Button, Callout, Dialog, DialogContent, Spinner } from '@cyber/ui'
 import {
   listWebApiFindings,
   listWebApiVerifications,
@@ -12,6 +12,7 @@ import {
   type WebApiTask,
   type WebApiVerificationSummary,
 } from '../api'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 export interface StartReportInput {
   taskID: string
@@ -264,16 +265,11 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit, onSt
           }
         }}
         overlayClassName="z-[70]"
-        className="z-[80] flex h-[min(90dvh,40rem)] w-[calc(100vw-2rem)] max-w-xl flex-col gap-0 overflow-hidden p-0"
+        className="z-[80] flex max-h-[min(90dvh,44rem)] w-[calc(100vw-2rem)] max-w-[640px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <FileText className="h-4 w-4" />
-          </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('webapi.newReportTitle')}</DialogTitle>
-        </div>
+        <DialogHeaderRow icon={<FileText className="h-4 w-4" />} title={t('webapi.newReportTitle')} />
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
           {loadingFindings && findings.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
           ) : findingsError ? (
@@ -353,13 +349,13 @@ export default function WebApiReportDialog({ open, task, onClose, onSubmit, onSt
           {error && <Callout tone="destructive">{error}</Callout>}
         </div>
 
-        <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
+        <DialogFooterRow>
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>{t('webapi.close')}</Button>
           <Button type="button" onClick={handleConfirm} disabled={saving || selectedCount === 0}>
             {saving && <Spinner className="h-4 w-4" />}
             {t('webapi.reportConfirm')}（{selectedCount}）
           </Button>
-        </div>
+        </DialogFooterRow>
       </DialogContent>
     </Dialog>
   )

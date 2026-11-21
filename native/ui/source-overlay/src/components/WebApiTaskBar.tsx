@@ -165,17 +165,19 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
               <span>{scenarioName}</span>
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 space-y-3 p-3">
-            <div className="space-y-0.5">
-              <p className="text-[13px] font-medium text-foreground">{t('scenario.title')}</p>
-              <p className="text-[11px] text-muted-foreground">{t('scenario.hint')}</p>
+          <PopoverContent align="end" className="w-[min(22.5rem,calc(100vw-2rem))] rounded-lg border border-border p-0 shadow-md">
+            <div className="border-b border-border px-3 py-2.5">
+              <p className="text-[14px] font-semibold text-foreground">{t('scenario.title')}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{t('scenario.hint')}</p>
             </div>
-            <WebApiScenarioPicker value={scenarioDraft} onChange={setScenarioDraft} disabled={scenarioSaving} />
-            {scenarioError && <Callout tone="destructive">{scenarioError}</Callout>}
-            <div className="flex justify-end">
-              <Button type="button" size="xs" disabled={scenarioSaving || !scenarioChanged} onClick={() => { void saveScenario() }}>
-                {scenarioSaving && <Spinner className="h-3.5 w-3.5" />}{t('scenario.save')}
-              </Button>
+            <div className="space-y-3 px-3 py-3">
+              <WebApiScenarioPicker value={scenarioDraft} onChange={setScenarioDraft} disabled={scenarioSaving} />
+              {scenarioError && <Callout tone="destructive">{scenarioError}</Callout>}
+              <div className="flex justify-end">
+                <Button type="button" className="h-8 text-[12px]" disabled={scenarioSaving || !scenarioChanged} onClick={() => { void saveScenario() }}>
+                  {scenarioSaving && <Spinner className="h-3.5 w-3.5" />}{t('scenario.save')}
+                </Button>
+              </div>
             </div>
           </PopoverContent>
         </Popover>
@@ -194,40 +196,42 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
               <span>{summaryView.text}</span>
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 space-y-3 p-3">
-            <div className="space-y-0.5">
-              <p className="text-[13px] font-medium text-foreground">{t('webapi.policyTitle')}</p>
-              <p className="text-[11px] text-muted-foreground">
+          <PopoverContent align="end" className="w-[min(22.5rem,calc(100vw-2rem))] rounded-lg border border-border p-0 shadow-md">
+            <div className="border-b border-border px-3 py-2.5">
+              <p className="text-[14px] font-semibold text-foreground">{t('webapi.policyTitle')}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {draft.updated_at
                   ? t('webapi.policyUpdatedAt', { time: formatDateTime(draft.updated_at) })
                   : t('webapi.policyDefaultSince')}
               </p>
             </div>
-            {reloadError && <p role="status" className="text-[11px] text-warning">{t('webapi.policyReloadFailed')}：{reloadError}</p>}
-            <WebApiPolicyFields
-              scope={draft.scope}
-              approval={draft.approval}
-              onScopeChange={(scope) => setDraft((current) => ({ ...current, scope }))}
-              onApprovalChange={(approval) => setDraft((current) => ({ ...current, approval }))}
-              compact
-            />
-            {/* 终端出口的边界如实写明：scope 决定终端经代理的请求是否被拦截。 */}
-            <p className="text-[11px] text-muted-foreground">
-              {draft.scope === 'unrestricted' ? t('webapi.egressScopeNoteUnrestricted') : t('webapi.egressScopeNoteOrigins')}
-            </p>
-            {/* 保存仅对之后的调用生效；保存成功即关闭并回写 App 任务状态。 */}
-            <WebApiPolicySaver
-              taskID={task.id}
-              scope={draft.scope}
-              approval={draft.approval}
-              current={saved}
-              onSaved={(next) => {
-                setSaved(next)
-                setDraft(next)
-                setOpen(false)
-                onPolicySaved({ ...task, policy: next })
-              }}
-            />
+            <div className="space-y-3 px-3 py-3">
+              {reloadError && <p role="status" className="text-[11px] text-warning">{t('webapi.policyReloadFailed')}：{reloadError}</p>}
+              <WebApiPolicyFields
+                scope={draft.scope}
+                approval={draft.approval}
+                onScopeChange={(scope) => setDraft((current) => ({ ...current, scope }))}
+                onApprovalChange={(approval) => setDraft((current) => ({ ...current, approval }))}
+                compact
+              />
+              {/* 终端出口的边界如实写明：scope 决定终端经代理的请求是否被拦截。 */}
+              <p className="text-[11px] text-muted-foreground">
+                {draft.scope === 'unrestricted' ? t('webapi.egressScopeNoteUnrestricted') : t('webapi.egressScopeNoteOrigins')}
+              </p>
+              {/* 保存仅对之后的调用生效；保存成功即关闭并回写 App 任务状态。 */}
+              <WebApiPolicySaver
+                taskID={task.id}
+                scope={draft.scope}
+                approval={draft.approval}
+                current={saved}
+                onSaved={(next) => {
+                  setSaved(next)
+                  setDraft(next)
+                  setOpen(false)
+                  onPolicySaved({ ...task, policy: next })
+                }}
+              />
+            </div>
           </PopoverContent>
         </Popover>
       </div>

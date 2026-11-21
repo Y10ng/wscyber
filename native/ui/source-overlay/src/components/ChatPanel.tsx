@@ -730,7 +730,7 @@ export default function ChatPanel({
     <ToolResultsProvider sessionID={activeSessionID}>
     <ViewerChatPanel
       timeline={composerOnly ? [] : viewerTimeline as unknown as CyberTimelineItem[]}
-      className={cn('min-w-0 bg-transparent', composerOnly && 'justify-end')}
+      className={cn('min-w-0 bg-transparent', composerOnly && 'flex-none justify-end')}
     >
       {!composerOnly && (error || attachmentError) && (
         <ViewerChatPanel.ErrorBar>

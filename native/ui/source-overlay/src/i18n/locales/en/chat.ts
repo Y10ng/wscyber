@@ -423,6 +423,7 @@ export default {
   webapi: {
     newTask: 'New Web/API task',
     newTaskTitle: 'New Web/API task',
+    newTaskDescription: 'Describe what is known and the objective, then confirm authorized origins and test policy.',
     knownInfo: 'Target / known info',
     knownInfoHint: 'Known target address, environment, or context. This does not widen authorization.',
     knownInfoPlaceholder: 'e.g. login endpoint and known accounts at https://example.com',
@@ -689,6 +690,7 @@ export default {
     execReportPending: 'Writing report draft…',
     execViewInTraffic: 'View in traffic',
     execViewFinding: 'View candidate',
+    execRequestResponse: 'Request / response',
     // Task policy (B1): shared by the create-task dialog and the task bar.
     // Set by humans only; defaults to authorized origins + high-risk approvals.
     policySection: 'Test policy',

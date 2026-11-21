@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Gauge, Loader2 } from 'lucide-react'
-import { Button, Dialog, DialogContent, DialogTitle } from '@cyber/ui'
+import { Button, Dialog, DialogContent } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiUsage, type WebApiUsageReport } from '../api'
 import {
@@ -9,6 +9,7 @@ import {
   UsageTotalsRow,
   compactRowFrom,
 } from './WebApiUsageShared'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 interface Props {
   open: boolean
@@ -131,12 +132,7 @@ export default function WebApiUsageDialog({ open, onClose, onOpenTask }: Props) 
         overlayClassName="z-[70]"
         className="z-[80] flex h-[min(80dvh,48rem)] w-[calc(100vw-2rem)] max-w-[960px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <Gauge className="h-4 w-4" />
-          </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t('webapi.usageTitle')}</DialogTitle>
-        </div>
+        <DialogHeaderRow icon={<Gauge className="h-4 w-4" />} title={t('webapi.usageTitle')} />
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2">
           <div role="group" aria-label={t('webapi.usageTitle')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
@@ -196,14 +192,14 @@ export default function WebApiUsageDialog({ open, onClose, onOpenTask }: Props) 
               <UsageTotalsRow totals={report.totals} skippedEvents={report.skipped_events} />
               <div className="space-y-5 px-4 pb-4">
                 <section aria-label={t('webapi.usageByDate')} className="space-y-1.5">
-                  <h2 className="text-[13px] font-medium text-foreground">{t('webapi.usageByDate')}</h2>
+                  <h2 className="text-[14px] font-semibold text-foreground">{t('webapi.usageByDate')}</h2>
                   <UsageCompactTable
                     nameKey="webapi.usageDay"
                     rows={daysDesc.map((day) => compactRowFrom(day.day, day.day, day))}
                   />
                 </section>
                 <section aria-label={t('webapi.usageByTask')} className="space-y-1.5">
-                  <h2 className="text-[13px] font-medium text-foreground">{t('webapi.usageByTask')}</h2>
+                  <h2 className="text-[14px] font-semibold text-foreground">{t('webapi.usageByTask')}</h2>
                   <UsageCompactTable
                     nameKey="webapi.usageTask"
                     rows={(report.by_task ?? []).map((task) =>
@@ -213,7 +209,7 @@ export default function WebApiUsageDialog({ open, onClose, onOpenTask }: Props) 
                   />
                 </section>
                 <section aria-label={t('webapi.usageByModel')} className="space-y-1.5">
-                  <h2 className="text-[13px] font-medium text-foreground">{t('webapi.usageByModel')}</h2>
+                  <h2 className="text-[14px] font-semibold text-foreground">{t('webapi.usageByModel')}</h2>
                   <UsageCompactTable
                     nameKey="webapi.usageModel"
                     rows={report.by_model.map((model) => compactRowFrom(model.model, model.model, model))}
@@ -223,6 +219,9 @@ export default function WebApiUsageDialog({ open, onClose, onOpenTask }: Props) 
             </div>
           )}
         </div>
+        <DialogFooterRow>
+          <Button type="button" variant="outline" onClick={onClose}>{t('webapi.close')}</Button>
+        </DialogFooterRow>
       </DialogContent>
     </Dialog>
   )

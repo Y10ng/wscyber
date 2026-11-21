@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
 import type { TrafficFlow } from '@cyber/aop'
 import { aopFlowToHttpView, type TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
-import { Button, Callout, Dialog, DialogContent, DialogTitle, Spinner } from '@cyber/ui'
+import { Button, Callout, Dialog, DialogContent, Spinner } from '@cyber/ui'
 import {
   getWebApiEvidence,
   getWebApiRetest,
@@ -18,6 +18,8 @@ import {
 import type { RetestLaunchView } from '../hooks/useChatSession'
 import { usePolling } from '../hooks/usePolling'
 import { decodeFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
+import { RetestBadge } from './ui-badges'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
 export type StartRetest = (input: {
   taskID: string
@@ -440,16 +442,11 @@ function RetestLaunchDialog({
           }
         }}
         overlayClassName="z-[70]"
-        className="z-[80] flex max-h-[min(80dvh,32rem)] w-[calc(100vw-2rem)] max-w-lg flex-col gap-0 overflow-hidden p-0"
+        className="z-[80] flex max-h-[min(90dvh,36rem)] w-[calc(100vw-2rem)] max-w-[560px] flex-col gap-0 overflow-hidden p-0"
       >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 px-4 py-3 pr-12">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
-            <RefreshCw className="h-4 w-4" />
-          </div>
-          <DialogTitle className="truncate text-sm font-semibold text-foreground">{t(retrying ? 'webapi.retestRetry' : 'webapi.retestStartTitle')}</DialogTitle>
-        </div>
+        <DialogHeaderRow icon={<RefreshCw className="h-4 w-4" />} title={t(retrying ? 'webapi.retestRetry' : 'webapi.retestStartTitle')} />
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           <div className="space-y-1">
             <div className="text-[13px] font-medium text-foreground">{finding.number} · {finding.content.title || t('webapi.untitledFinding')}</div>
             <div className="text-xs text-muted-foreground">
@@ -470,11 +467,11 @@ function RetestLaunchDialog({
           {error && <Callout tone="destructive">{error}</Callout>}
         </div>
 
-        <div className="flex shrink-0 flex-row justify-end gap-2 border-t border-border/60 px-4 py-3">
+        <DialogFooterRow>
           {canStartFresh && <Button type="button" variant="outline" onClick={onReset} disabled={launching}>{t('webapi.retestReloadSource')}</Button>}
           <Button type="button" variant="outline" onClick={onClose} disabled={launching}>{t('webapi.close')}</Button>
           <Button type="button" onClick={onConfirm} disabled={launching}>{launching && <Spinner className="h-4 w-4" />}{t(retrying ? 'webapi.retestRetryConfirm' : 'webapi.retestConfirm')}</Button>
-        </div>
+        </DialogFooterRow>
       </DialogContent>
     </Dialog>
   )
@@ -496,12 +493,15 @@ export function WebApiRetestBar({ retest, onReturnToFinding, onBack }: { retest:
         </span>
         <span className="shrink-0 text-muted-foreground">{t('webapi.revision')} {retest.source.revision}</span>
         {result ? (
-          <span className={cn('shrink-0 font-medium', conclusionTone(result.payload.conclusion))}>{t(conclusionKey(result.payload.conclusion))} · {t('webapi.verdictModelLabel')}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            <RetestBadge conclusion={result.payload.conclusion} />
+            <span className="ws-model-label">{t('webapi.verdictModelLabel')}</span>
+          </span>
         ) : (
           <span className="shrink-0 text-muted-foreground">{t('webapi.retestNoResult')}</span>
         )}
       </div>
-      <Button type="button" variant="outline" size="xs" onClick={onReturnToFinding} className="shrink-0 gap-1 text-[12px]">
+      <Button type="button" variant="outline" onClick={onReturnToFinding} className="h-8 shrink-0 gap-1 text-[12px]">
         <ArrowLeft className="h-3.5 w-3.5" />
         {t('webapi.retestReturnToFinding')}
       </Button>

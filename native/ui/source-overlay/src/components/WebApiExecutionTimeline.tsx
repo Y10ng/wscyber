@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
   Check,
+  ChevronRight,
   Copy,
   FileText,
   Globe,
@@ -18,8 +19,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@cyber/theme'
-import { Button } from '@cyber/ui'
+import { Button, Sheet, SheetContent, SheetTitle, Switch } from '@cyber/ui'
 import { MarkdownContent } from '@/markdown'
+import { formatClock, formatShortDateTime } from '../lib/time'
+import HttpPairBlock, { useEvidenceHttpView } from './HttpPairBlock'
 import type {
   ExecutionApproval,
   ExecutionBiz,
@@ -43,6 +46,8 @@ type FilterKey = 'all' | 'model' | 'tool' | 'http' | 'biz'
 
 interface TimelineProps {
   data: ExecutionTimelineData
+  /** 证据取号所属任务：验证/复测/报告会话的 http 条目可能不带 taskId。 */
+  taskId?: string
   onViewEvidence: (taskId: string, evidenceId: string) => void
   onViewFinding: (findingId: string) => void
   /** 本任务各会话待审批审批行（App 由 useGuardrailReviews 聚合传入）。 */
@@ -60,13 +65,13 @@ interface HeaderProps {
 function clockOf(ts: number): string {
   const date = new Date(ts)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return formatClock(date.toISOString())
 }
 
 function clockMinuteOf(ts: number): string {
   const date = new Date(ts)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' })
+  return formatShortDateTime(date.toISOString())
 }
 
 function formatDuration(ms?: number): string {
@@ -330,15 +335,15 @@ function FilterButtons({ filter, onFilter, data, layout }: {
             className={cn(
               'relative shrink-0 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset',
               layout === 'side'
-                ? 'flex h-[34px] items-center gap-2 px-3'
-                : 'flex h-7 items-center gap-1.5 rounded px-2',
+                ? 'flex h-[34px] items-center gap-2 rounded-md px-3'
+                : 'flex h-7 items-center gap-1.5 rounded-md px-2',
               active
-                ? layout === 'side' ? 'bg-primary/10 text-primary' : 'bg-primary/10 font-medium text-primary'
+                ? 'bg-[var(--brand-soft)] font-medium text-[var(--brand-primary)]'
                 : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
             )}
           >
             {layout === 'side' && (
-              <span aria-hidden className={cn('absolute inset-y-0 left-0 w-0.5 bg-primary transition-opacity', active ? 'opacity-100' : 'opacity-0')} />
+              <span aria-hidden className={cn('absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-[var(--brand-primary)] transition-opacity', active ? 'opacity-100' : 'opacity-0')} />
             )}
             <span className="min-w-0 truncate">{labels[key]}</span>
             <span className="ml-auto font-mono text-[11px] tabular-nums opacity-80">{filterCount(key, data)}</span>
@@ -403,26 +408,90 @@ function prettyJson(text: string | undefined): string {
   }
 }
 
-function JsonSection({ title, text, empty }: { title: string; text: string; empty?: string }) {
+// 参数/结果：默认折叠，标题行可点开；JSON 等宽 12px、最大高度 320px 自身滚动。
+function JsonCard({ title, text, empty }: { title: string; text: string; empty: string }) {
+  const { t } = useTranslation('chat')
+  const [open, setOpen] = useState(false)
   return (
-    <section className="min-w-0">
-      <div className="flex h-7 items-center justify-between gap-2">
-        <h4 className="text-[12px] font-medium text-foreground">{title}</h4>
-        {text && <CopyButton text={text} />}
+    <section className="rounded-lg border border-border bg-card p-3">
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-w-0 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden />
+          <span className="truncate text-[12px] font-semibold text-foreground">{title}</span>
+        </button>
+        {text && <span className="ml-auto shrink-0">{open ? <CopyButton text={text} /> : null}</span>}
       </div>
-      {text ? (
-        <pre className="whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 font-mono text-[13px] leading-[1.45] text-foreground" data-testid="execution-json">
-          {text}
-        </pre>
-      ) : (
-        <div className="rounded-md border border-dashed border-border/60 px-2 py-1.5 text-[12px] text-muted-foreground">{empty}</div>
+      {open && (
+        text ? (
+          <pre className="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-[var(--bg-code-light)] px-2 py-1.5 font-mono text-[12px] leading-[1.5] text-foreground" data-testid="execution-json">
+            {text}
+          </pre>
+        ) : (
+          <div className="mt-2 rounded-md border border-dashed border-border/60 px-2 py-1.5 text-[12px] text-muted-foreground">{empty}</div>
+        )
       )}
     </section>
   )
 }
 
-function EntryDetail({ entry, onViewEvidence, onViewFinding }: {
+// HTTP 条目的请求/响应原文：与漏洞卡同一组件与取数（证据 → HTTP 视图）。
+function HttpExchangeCard({ taskId, evidenceId }: { taskId: string; evidenceId: string }) {
+  const { t } = useTranslation('chat')
+  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId)
+  const [masked, setMasked] = useState(true)
+  return (
+    <section className="rounded-lg border border-border bg-card p-3">
+      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+        <h4 className="text-[12px] font-semibold text-foreground">{t('webapi.execRequestResponse')}</h4>
+        <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
+          <span>{t('vulnCard.maskSensitive')}</span>
+        </label>
+      </div>
+      <HttpPairBlock
+        view={view}
+        loading={loading}
+        error={error}
+        retry={reload}
+        requestMarks={[]}
+        responseMarks={[]}
+        masked={masked}
+        foldHeaders
+        stacked
+      />
+    </section>
+  )
+}
+
+function DetailHeader({ label, toolName, timestamp, durationMs, pending, error }: {
+  label: string
+  toolName?: string
+  timestamp: number
+  durationMs?: number
+  pending: boolean
+  error: boolean
+}) {
+  const { t } = useTranslation('chat')
+  return (
+    <div className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="text-[14px] font-semibold text-foreground">{label}</span>
+      {toolName && <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{toolName}</span>}
+      <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{clockOf(timestamp)}</span>
+      {durationMs != null && <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{formatDuration(durationMs)}</span>}
+      {pending && <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />{t('webapi.execRunning')}</span>}
+      {error && <span className="text-[12px] text-red-600 dark:text-red-400">{t('webapi.execFailed')}</span>}
+    </div>
+  )
+}
+
+function EntryDetail({ entry, taskId, onViewEvidence, onViewFinding }: {
   entry: ExecutionEntry
+  taskId?: string
   onViewEvidence: (taskId: string, evidenceId: string) => void
   onViewFinding: (findingId: string) => void
 }) {
@@ -433,38 +502,52 @@ function EntryDetail({ entry, onViewEvidence, onViewFinding }: {
   if (entry.type === 'model') {
     const usage = entry.usage
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3">
-        <div className="flex h-7 shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
-          <span className="font-medium text-foreground">{t('webapi.execModelMessage')}</span>
-          <span className="font-mono tabular-nums">{clockOf(entry.timestamp)}</span>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+        <div className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[14px] font-semibold text-foreground">{t('webapi.execModelMessage')}</span>
+          <span className="ml-auto font-mono text-[12px] tabular-nums text-muted-foreground">{clockOf(entry.timestamp)}</span>
+          {usage && (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground" title={`${t('tokenInput', { count: usage.input_tokens || 0 })} · ${t('tokenOutput', { count: usage.output_tokens || 0 })}`}>
+              ↓ {(usage.input_tokens || 0).toLocaleString()} ↑ {(usage.output_tokens || 0).toLocaleString()} tokens
+            </span>
+          )}
         </div>
-        {usage && (
-          <div className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground" title={`${t('tokenInput', { count: usage.input_tokens || 0 })} · ${t('tokenOutput', { count: usage.output_tokens || 0 })}`}>
-            ↓ {(usage.input_tokens || 0).toLocaleString()} ↑ {(usage.output_tokens || 0).toLocaleString()} tokens
+        <section className="rounded-lg border border-border bg-card p-3">
+          <div className="min-w-0 text-[14px] leading-[1.6]">
+            {(entry.content || '').trim()
+              ? <MarkdownContent content={entry.content || ''} />
+              : <span className="text-muted-foreground">—</span>}
           </div>
-        )}
-        <div className="min-w-0 text-[13px] leading-relaxed">
-          {(entry.content || '').trim()
-            ? <MarkdownContent content={entry.content || ''} />
-            : <span className="text-muted-foreground">—</span>}
-        </div>
+        </section>
       </div>
     )
   }
 
+  const evidenceTaskId = http?.taskId || taskId || ''
+  const evidenceId = http?.evidenceId || ''
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3">
-      <div className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
-        <span className="font-medium text-foreground">{t('webapi.execToolCall')}</span>
-        {entry.toolName && <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{entry.toolName}</span>}
-        <span className="font-mono tabular-nums">{clockOf(entry.timestamp)}</span>
-        {entry.durationMs != null && <span className="font-mono tabular-nums">{formatDuration(entry.durationMs)}</span>}
-        {entry.pending && <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />{t('webapi.execRunning')}</span>}
-        {entry.error && <span className="text-red-600 dark:text-red-400">{t('webapi.execFailed')}</span>}
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+      <DetailHeader
+        label={t('webapi.execToolCall')}
+        toolName={entry.toolName}
+        timestamp={entry.timestamp}
+        durationMs={entry.durationMs}
+        pending={!!entry.pending}
+        error={!!entry.error}
+      />
+
+      {biz && biz.kind !== 'http' && (
+        <section className="rounded-lg border border-border bg-card p-3">
+          <p className="min-w-0 break-words text-[14px] leading-[1.6] text-foreground">{entrySummary(entry, t)}</p>
+          {biz.kind === 'finding' && entry.error && (
+            <p className="mt-1 min-w-0 break-all text-[12px] text-red-600 dark:text-red-400">{biz.errorMessage}</p>
+          )}
+        </section>
+      )}
 
       {http && (
-        <div className="flex shrink-0 flex-col gap-1 rounded-md border border-border/60 px-2 py-1.5 text-[12px]">
+        <section className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3 text-[12px]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono">
             <span className={cn('font-semibold', methodTone(http.method))}>{http.method || '?'}</span>
             <span className="min-w-0 break-all text-foreground" title={http.url}>{http.url}</span>
@@ -475,28 +558,31 @@ function EntryDetail({ entry, onViewEvidence, onViewFinding }: {
             {http.sent === false && <span>{t('webapi.notSent')}</span>}
             {http.sent === true && <span>{t('webapi.sent')}</span>}
           </div>
-        </div>
+        </section>
+      )}
+
+      {http && evidenceId && evidenceTaskId && (
+        <HttpExchangeCard taskId={evidenceTaskId} evidenceId={evidenceId} />
       )}
 
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        {biz?.kind === 'http' && http?.evidenceId && http.taskId && (
-          <Button type="button" variant="outline" size="xs" onClick={() => onViewEvidence(http.taskId!, http.evidenceId!)}>
+        {biz?.kind === 'http' && evidenceId && http?.taskId && (
+          <Button type="button" variant="outline" size="xs" className="h-8" onClick={() => onViewEvidence(http.taskId!, evidenceId)}>
             {t('webapi.execViewInTraffic')}
           </Button>
         )}
-        {biz?.kind === 'finding' && entry.error && <span className="min-w-0 break-all text-[12px] text-red-600 dark:text-red-400">{biz.errorMessage}</span>}
         {biz?.kind === 'finding' && !entry.pending && biz.findingId && (
-          <Button type="button" variant="outline" size="xs" onClick={() => onViewFinding(biz.findingId!)}>
+          <Button type="button" variant="outline" size="xs" className="h-8" onClick={() => onViewFinding(biz.findingId!)}>
             {t('webapi.execViewFinding')}
           </Button>
         )}
       </div>
 
-      <JsonSection title={t('toolCard.arguments')} text={prettyJson(entry.argsText)} empty={entry.pending ? t('webapi.execRunning') : '—'} />
+      <JsonCard title={t('toolCard.arguments')} text={prettyJson(entry.argsText)} empty={entry.pending ? t('webapi.execRunning') : '—'} />
       {entry.pending ? (
-        <div className="rounded-md border border-dashed border-border/60 px-2 py-1.5 text-[12px] text-muted-foreground">{t('webapi.execRunning')}…</div>
+        <div className="rounded-lg border border-dashed border-border px-3 py-2 text-[12px] text-muted-foreground">{t('webapi.execRunning')}…</div>
       ) : (
-        <JsonSection title={t('toolCard.result')} text={prettyJson(entry.resultText)} empty="—" />
+        <JsonCard title={t('toolCard.result')} text={prettyJson(entry.resultText)} empty="—" />
       )}
     </div>
   )
@@ -585,16 +671,28 @@ function ApprovalRow({ approval }: { approval: ExecutionApproval }) {
 
 // ── 主组件：三栏 / 堆叠 ────────────────────────────────────────────────────
 
-export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFinding, onResolveApproval }: TimelineProps) {
+export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, onViewFinding, onResolveApproval }: TimelineProps) {
   const { t } = useTranslation('chat')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // <1024：详情改为右侧滑出 Sheet（与行内展开互斥）；1024–1279 行内展开。
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [newCount, setNewCount] = useState(0)
   const [approvalBusy, setApprovalBusy] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
   const prevCountRef = useRef(data.entries.length)
   const turnRefs = useRef(new Map<string, HTMLDivElement>())
+
+  // 视口 <1024 用 Sheet，≥1024 用右栏/行内详情；跨断点时关闭 Sheet。
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1023px)')
+    const update = () => { setNarrow(media.matches); if (!media.matches) setSheetOpen(false) }
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
 
   // 待审批解析：每条 live pending 找回 useGuardrailReviews 的原 Review 对象，
   // 批准/拒绝经 App 的 guardrails.resolve 走（不在本组件另造请求路径）。
@@ -763,7 +861,14 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
           type="button"
           role="row"
           aria-selected={selectedEntry}
-          onClick={() => setSelectedId(selectedEntry ? null : entry.id)}
+          onClick={() => {
+            if (narrow) {
+              setSelectedId(entry.id)
+              setSheetOpen(true)
+            } else {
+              setSelectedId(selectedEntry ? null : entry.id)
+            }
+          }}
           title={summary}
           className={cn(
             'webapi-exec-row h-[34px] w-full items-center gap-2 px-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset',
@@ -799,7 +904,7 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
         {selectedEntry && (
           <div className="webapi-exec-detail-inline border-b border-border/60 bg-muted/20" data-testid="execution-detail-inline">
             <div className="flex max-h-[60vh] min-h-0 flex-col overflow-hidden">
-              <EntryDetail entry={entry} onViewEvidence={onViewEvidence} onViewFinding={onViewFinding} />
+              <EntryDetail entry={entry} taskId={taskId} onViewEvidence={onViewEvidence} onViewFinding={onViewFinding} />
             </div>
           </div>
         )}
@@ -871,12 +976,25 @@ export default function WebApiExecutionTimeline({ data, onViewEvidence, onViewFi
         {/* 宽屏右详情栏。 */}
         <aside className="webapi-exec-detail-side min-h-0 min-w-0 flex-col overflow-hidden border-l border-border/60 bg-background" aria-label={t('webapi.execSelectEntry')}>
           {selected ? (
-            <EntryDetail entry={selected} onViewEvidence={onViewEvidence} onViewFinding={onViewFinding} />
+            <EntryDetail entry={selected} taskId={taskId} onViewEvidence={onViewEvidence} onViewFinding={onViewFinding} />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">{t('webapi.execSelectEntry')}</div>
           )}
         </aside>
       </div>
+
+      {/* <1024：点击条目后从右侧滑出的详情 Sheet。 */}
+      <Sheet open={narrow && sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          side="right"
+          closeLabel={t('webapi.close')}
+          aria-describedby={undefined}
+          className="flex w-[calc(100vw-32px)] max-w-[440px] flex-col gap-0 p-0 sm:max-w-[440px]"
+        >
+          <SheetTitle className="sr-only">{t('webapi.execSelectEntry')}</SheetTitle>
+          {selected && <EntryDetail entry={selected} taskId={taskId} onViewEvidence={onViewEvidence} onViewFinding={onViewFinding} />}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -24,10 +24,10 @@ export default function VulnTriageSheet({ open, item, onClose, onSaved }: Props)
         side="right"
         closeLabel={t('webapi.close')}
         aria-describedby={undefined}
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[420px]"
+        className="flex w-[calc(100vw-32px)] max-w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]"
       >
         <div className="shrink-0 border-b border-border px-5 py-4 pr-12">
-          <SheetTitle className="truncate text-[15px] font-semibold text-foreground" title={item?.title}>
+          <SheetTitle className="truncate text-[16px] font-semibold text-foreground" title={item?.title}>
             {item?.title || ''}
           </SheetTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -46,7 +46,7 @@ export default function VulnTriageSheet({ open, item, onClose, onSaved }: Props)
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {open && item ? (
             <VulnTriageForm
               vulnKey={item.id}
@@ -55,6 +55,7 @@ export default function VulnTriageSheet({ open, item, onClose, onSaved }: Props)
               suggestedSeverity={item.suggested_severity}
               onSaved={() => onSaved()}
               className="h-full"
+              padded
             />
           ) : null}
         </div>

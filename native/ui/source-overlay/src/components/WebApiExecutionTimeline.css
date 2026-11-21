@@ -1,8 +1,7 @@
 /* ── 执行时间线（R2）──────────────────────────────────────────────────────
-   布局断点用容器查询而不是视口媒体查询：本视图嵌在任务导航右侧的 flex 行里，
-   外层宽度取决于侧栏/导航开合，视口断点会误判。容器宽 ≥1240px：三栏
-   （筛选 200 | 时间线 | 详情 420）。<1240：筛选收为上方分段行、详情在所选行
-   下方原地展开（<860 同为单列，行内展开）。 */
+   版式按视口断点（UI-C ③ 规格）：≥1280 三栏（筛选 200 | 时间线 | 详情 380），
+   ≥1440 详情 440；1024–1279 单列 + 所选行下方原地展开；<1024 详情改为右侧
+   Sheet（由组件按 matchMedia 控制）。三栏各自滚动，整体撑满到 composer 上沿。 */
 .webapi-exec {
   container: webapi-exec / inline-size;
 }
@@ -26,7 +25,12 @@
 }
 .webapi-exec .webapi-exec-dur-col { display: none; }
 
-@container webapi-exec (min-width: 1240px) {
+@media (max-width: 1023px) {
+  /* <1024：详情在 Sheet 中，行内展开关闭。 */
+  .webapi-exec-detail-inline { display: none; }
+}
+
+@media (min-width: 1280px) {
   .webapi-exec-layout {
     flex-direction: row;
   }
@@ -39,7 +43,7 @@
   }
   .webapi-exec-detail-side {
     display: flex;
-    flex-basis: 420px;
+    flex-basis: 380px;
     flex-shrink: 0;
     overflow: hidden;
   }
@@ -47,6 +51,10 @@
     grid-template-columns: 72px 52px 20px minmax(0, 1fr) auto;
   }
   .webapi-exec .webapi-exec-dur-col { display: block; }
-  /* 三栏模式详情只在右栏展示；行内展开仅用于 <1240 的堆叠版式。 */
+  /* 三栏模式详情只在右栏展示；行内展开仅用于 1024–1279 的堆叠版式。 */
   .webapi-exec-detail-inline { display: none; }
+}
+
+@media (min-width: 1440px) {
+  .webapi-exec-detail-side { flex-basis: 440px; }
 }

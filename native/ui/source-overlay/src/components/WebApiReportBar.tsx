@@ -25,7 +25,7 @@ export default function WebApiReportBar({ report, onReturnToReport, onBack }: { 
           <span className="shrink-0 text-muted-foreground">{t('webapi.reportNoDraft')}</span>
         )}
       </div>
-      <Button type="button" variant="outline" size="xs" onClick={onReturnToReport} className="shrink-0 gap-1 text-[12px]">
+      <Button type="button" variant="outline" onClick={onReturnToReport} className="h-8 shrink-0 gap-1 text-[12px]">
         <ArrowLeft className="h-3.5 w-3.5" />
         {t('webapi.reportReturnToReports')}
       </Button>
