@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-21 05:25 从 a6ded39 构建，含 UI-C 三批与 K2 一键重放；升级前备份 `var/preview/state.bak-20261121b`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-21 从 e4088c0 构建，含 K2 一键重放与统一出口；升级前备份 `var/preview/state.bak-20261121c`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -57,13 +57,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 10）：K2 统一出口后端（65070d7，契约 `native/NOTIFY.md`、`native/VULN_CARD.md`）：推送标题/链接以漏洞卡为准；卡上人工推送 kind=manual（直接入队、终态后复用同行再推、409 not_configured/false_positive/no_supported/in_flight）与逐字预览；卡片 notify 段；按漏洞卡确定性导出单条/多条报告（MD/JSON `wscyber.vuln_report.v1`，遮盖版）。记下：manual 推过后该键不再自动登记 new；manual 与 new 并发登记可能多推一条（未加锁）。
 
-进行中：**K2 统一出口前端**（`var/k2-out-frontend/task.md`，ds-flash）：漏洞卡推送对话框（预览/图片/发送）、右栏推送记录卡、导出 MD/JSON；漏洞列表多选导出。
+已提交（续 11）：K2 统一出口前端（e4088c0，经一轮纠正：轮询刷新卡片会覆盖处置表单未保存输入 → 表单只在切换条目或服务端 updated_at 变化时回填）：漏洞卡“推送到企业微信”对话框（逐字预览+证据图、四种提示、409 文案）、“更多”菜单所有卡片可用（推送/导出 MD/JSON）、右栏推送卡（最近 5 条、确认/重试/忽略、未完成时 10s 刷新）；漏洞列表多选导出。主会话演示环境走过：多选导出按显示顺序、未配置只预览、待确认时禁推、忽略后人工推送入队、未保存输入经轮询保留、390/深色。**K2 完成。** 验收记下：@cyber/ui Checkbox 无半选态（部分选中显示未选）；>50 条上限未在演示触发。
+
+进行中：无。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. K2 统一出口前端 → M5 → D3（需 SDL 接口文档）。
+1. M5 → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -76,4 +78,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `k2-out-frontend`（wangsu-ds-flash-latest，11-21 启动，日志 `var/k2-out-frontend/exec.log`）。
+无。
