@@ -994,7 +994,17 @@ export interface WebApiVulnCardRetest {
   at: string
 }
 
-export type WebApiVulnCardLifecycleKind = 'candidate' | 'verification' | 'triage' | 'notify' | 'replay' | 'retest' | 'fixed'
+/** V3：该键最近一次成功的“申请复测”及其会话状态（native/VULN_CARD.md）。 */
+export interface WebApiVulnRetestRequest {
+  retest_id: string
+  session_id: string
+  task_id: string
+  finding_id: string
+  started_at: string
+  status: 'running' | 'done'
+}
+
+export type WebApiVulnCardLifecycleKind = 'candidate' | 'verification' | 'triage' | 'notify' | 'replay' | 'retest_request' | 'retest' | 'fixed'
 export type WebApiVulnCardActor = 'ai' | 'user' | 'system'
 
 export interface WebApiVulnCardEvent {
@@ -1186,6 +1196,8 @@ export interface WebApiVulnCard {
   repro: WebApiVulnCardRepro | null
   repro_missing_reason: WebApiVulnCardMissingReason | null
   retest: WebApiVulnCardRetest | null
+  /** V3：最近一次成功的申请复测；无则 null。 */
+  retest_request: WebApiVulnRetestRequest | null
   lifecycle: WebApiVulnCardEvent[]
   appendix: WebApiVulnCardAppendix
   related: WebApiVulnCardRelated[]
@@ -1231,6 +1243,50 @@ export async function replayWebApiVulnStep(key: string, step: number): Promise<W
     throw new ReplayAPIError(body?.error || 'Failed to replay step', res.status, body)
   }
   return res.json() as Promise<WebApiReplayResult>
+}
+
+// --- V3 漏洞卡“申请复测”（native/VULN_CARD.md「申请复测」）---
+export interface WebApiVulnRetestError {
+  error?: string
+  code?: 'archived' | 'false_positive' | 'no_member' | 'in_flight' | 'no_model'
+  retest_id?: string
+  session_id?: string
+  stage?: string
+}
+
+/** 带 HTTP 状态与已解析错误体的申请复测失败；供 UI 区分 409 原因。 */
+export class VulnRetestAPIError extends APIError {
+  constructor(message: string, public readonly httpStatus: number, public readonly body: WebApiVulnRetestError | null) {
+    super(message, httpStatus)
+    this.name = 'VulnRetestAPIError'
+  }
+}
+
+/** 申请复测：后端在代表候选的原任务下新建复测并启动会话（无需打开原任务）。 */
+export async function requestWebApiVulnRetest(key: string): Promise<{
+  retest_id: string
+  session_id: string
+  task_id: string
+  finding_id: string
+  revision_id: string
+}> {
+  const res = await authenticatedFetch(`/api/webapi/vulns/${encodeURIComponent(key)}/card/retest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    let body: WebApiVulnRetestError | null = null
+    try {
+      const parsed = await res.json()
+      if (parsed && typeof parsed === 'object') body = parsed as WebApiVulnRetestError
+    } catch {
+      body = null
+    }
+    throw new VulnRetestAPIError(body?.error || 'Failed to request retest', res.status, body)
+  }
+  return res.json() as Promise<{ retest_id: string; session_id: string; task_id: string; finding_id: string; revision_id: string }>
 }
 
 // --- K2 漏洞卡人工推送与漏洞报告导出（native/NOTIFY.md、VULN_CARD.md） ---

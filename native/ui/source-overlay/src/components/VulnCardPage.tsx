@@ -15,8 +15,8 @@ import { cn } from '@cyber/theme'
 import {
   actWebApiNotification, APIError, exportWebApiVulnCard,
   getWebApiVulnCard, getWebApiVulnCardCurl, listWebApiAssetVulns, mergeWebApiVulns,
-  moveWebApiVulnMember, replayWebApiVulnStep, saveWebApiVulnTitle,
-  ReplayAPIError, webApiEvidenceImageURL, webApiVulnExportFilename,
+  moveWebApiVulnMember, replayWebApiVulnStep, requestWebApiVulnRetest, saveWebApiVulnTitle,
+  ReplayAPIError, VulnRetestAPIError, webApiEvidenceImageURL, webApiVulnExportFilename,
   type WebApiNotification, type WebApiReplayResult, type WebApiVuln, type WebApiVulnCard,
   type WebApiVulnCardContrast, type WebApiVulnCardEvent, type WebApiVulnCardEvidence,
   type WebApiVulnCardMember, type WebApiVulnCardReplay, type WebApiVulnCardRepro,
@@ -44,6 +44,8 @@ interface VulnCardPageProps {
   onOpenTaskFinding: (taskId: string, findingId: string) => void
   /** 在任务工作区流量视图定位某条证据（一键重放结果“在流量中查看”）。 */
   onOpenTaskEvidence: (taskId: string, evidenceId: string) => void
+  /** 打开复测会话（进行中行与 in_flight 错误里的链接）。 */
+  onOpenSession: (sessionId: string) => void
   /** 推送对话框“前往集成”（未配置时）。 */
   onOpenIntegrations: () => void
   onOpenMenu: () => void
@@ -101,6 +103,7 @@ const LIFECYCLE_DOT: Record<string, string> = {
   triage: '#64748B',
   notify: '#0891B2',
   replay: '#D97706',
+  retest_request: '#D97706',
   retest: '#D97706',
   fixed: '#059669',
 }
@@ -285,6 +288,45 @@ function ReplayErrorPanel({ message, onClose }: { message: string; onClose: () =
         size="icon-xs"
         className="ml-auto shrink-0 text-amber-700/80 hover:text-amber-800 dark:text-amber-300/80 dark:hover:text-amber-200"
         aria-label={t('vulnCard.replayClose')}
+        onClick={onClose}
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+/** 申请复测失败提示条（不弹窗），与重放错误同为卡内琥珀提示；in_flight 可打开复测会话。 */
+function RetestErrorPanel({ message, sessionId, onOpenSession, onClose }: {
+  message: string
+  sessionId?: string
+  onOpenSession: (sessionId: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation('chat')
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300"
+    >
+      <span className="min-w-0 break-words">{message}</span>
+      {sessionId ? (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto shrink-0 p-0 text-[11.5px] text-amber-700 underline-offset-2 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+          onClick={() => onOpenSession(sessionId)}
+        >
+          {t('vulnCard.openRetestSession')}
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="ml-auto shrink-0 text-amber-700/80 hover:text-amber-800 dark:text-amber-300/80 dark:hover:text-amber-200"
+        aria-label={t('vulnCard.retestClose')}
         onClick={onClose}
       >
         <X className="h-3.5 w-3.5" />
@@ -874,7 +916,7 @@ function LifecycleTimeline({ events }: { events: WebApiVulnCardEvent[] }) {
 }
 
 export default function VulnCardPage({
-  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenTaskEvidence, onOpenIntegrations, onOpenMenu,
+  vulnKey, onBack, onSwitch, onOpenAssetVuln, onOpenTaskFinding, onOpenTaskEvidence, onOpenSession, onOpenIntegrations, onOpenMenu,
 }: VulnCardPageProps) {
   const { t } = useTranslation('chat')
   const [card, setCard] = useState<WebApiVulnCard | null>(null)
@@ -904,6 +946,9 @@ export default function VulnCardPage({
   const [exporting, setExporting] = useState<'markdown' | 'json' | null>(null)
   const [notifyActing, setNotifyActing] = useState<string | null>(null)
   const [notifyRowError, setNotifyRowError] = useState<{ id: string; message: string } | null>(null)
+  // V3 申请复测：请求进行中与失败提示（in_flight 带会话 id）。
+  const [retestBusy, setRetestBusy] = useState(false)
+  const [retestError, setRetestError] = useState<{ message: string; sessionId?: string } | null>(null)
   const seq = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const toastTimer = useRef<number | null>(null)
@@ -956,6 +1001,7 @@ export default function VulnCardPage({
     setExporting(null)
     setNotifyActing(null)
     setNotifyRowError(null)
+    setRetestError(null)
     void loadCard()
   }, [loadCard])
 
@@ -974,6 +1020,43 @@ export default function VulnCardPage({
     const member = card.appendix.members.find((item) => item.finding_id === findingId) || card.appendix.members[0]
     const taskId = card.repro?.task_id || card.retest?.task_id || member?.task_id || card.appendix.verifications[0]?.task_id || ''
     if (findingId && taskId) onOpenTaskFinding(taskId, findingId)
+  }
+
+  // V3 申请复测：后端在代表候选的原任务下新建复测并启动会话。
+  const requestRetest = async () => {
+    const key = card?.header.key
+    if (!key || retestBusy || card?.retest_request?.status === 'running') return
+    setRetestBusy(true)
+    setRetestError(null)
+    try {
+      await requestWebApiVulnRetest(key)
+      notify(t('vulnCard.retestRequested'))
+    } catch (err) {
+      let message = errorText(err)
+      let sessionId: string | undefined
+      if (err instanceof VulnRetestAPIError) {
+        const body = err.body
+        if (body?.code === 'archived') {
+          message = t('vulnCard.retestErrArchived')
+        } else if (body?.code === 'false_positive') {
+          message = t('vulnCard.retestErrFalsePositive')
+        } else if (body?.code === 'no_member') {
+          message = t('vulnCard.retestErrNoMember')
+        } else if (body?.code === 'in_flight') {
+          message = t('vulnCard.retestErrInFlight')
+          sessionId = body.session_id
+        } else if (body?.code === 'no_model') {
+          message = t('vulnCard.retestErrNoModel', { error: body.error || err.message })
+        } else {
+          message = body?.error || err.message
+        }
+      }
+      setRetestError({ message, sessionId })
+    } finally {
+      // 成功或失败都刷新卡片：更新 retest_request、最近复测与生命周期。
+      setRetestBusy(false)
+      void loadCard(true)
+    }
   }
 
   const copyCurl = async () => {
@@ -1060,6 +1143,8 @@ export default function VulnCardPage({
     : 0
 
   const isAssetVuln = Boolean(card?.header.asset && !card.header.key.startsWith('finding:'))
+  const retestRequest = card?.retest_request ?? null
+  const retestRunning = retestRequest?.status === 'running'
 
   // 推送记录里还有未完成项时每 10s 静默刷新（离开页面由 effect 清理）。
   const notifyHasPending = Boolean(card?.notify.items.some(
@@ -1070,6 +1155,13 @@ export default function VulnCardPage({
     const timer = window.setInterval(() => { void loadCard(true) }, 10000)
     return () => window.clearInterval(timer)
   }, [notifyHasPending, loadCard])
+
+  // 复测进行中每 10s 静默刷新，出结论后 retest_request 变 done 自动停止（卸载清理）。
+  useEffect(() => {
+    if (!retestRunning) return
+    const timer = window.setInterval(() => { void loadCard(true) }, 10000)
+    return () => window.clearInterval(timer)
+  }, [retestRunning, loadCard])
 
   const exportCard = async (format: 'markdown' | 'json') => {
     if (!card || exporting !== null) return
@@ -1426,6 +1518,23 @@ export default function VulnCardPage({
                         <Send className="mr-2 h-4 w-4" />
                         {t('vulnCard.notifyMenu')}
                       </DropdownMenuItem>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="block">
+                            <DropdownMenuItem
+                              disabled={retestRunning || retestBusy}
+                              className={cn(retestRunning && 'pointer-events-none')}
+                              onSelect={() => { void requestRetest() }}
+                            >
+                              {retestBusy
+                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                : <RotateCw className="mr-2 h-4 w-4" />}
+                              {retestBusy ? t('vulnCard.retestRequesting') : t('vulnCard.startRetest')}
+                            </DropdownMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        {retestRunning ? <TooltipContent>{t('vulnCard.retestInFlight')}</TooltipContent> : null}
+                      </Tooltip>
                       <DropdownMenuItem onSelect={() => { void exportCard('markdown') }}>
                         <Download className="mr-2 h-4 w-4" />
                         {t('vulnCard.notifyExportMarkdown')}
@@ -1560,6 +1669,23 @@ export default function VulnCardPage({
                           </SectionTitle>
                           <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-secondary-foreground">{repro.retest_method || '—'}</p>
                         </div>
+                        {retestRunning && retestRequest ? (
+                          <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+                            <span aria-hidden className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+                            <span className="text-amber-700 dark:text-amber-300">
+                              {t('vulnCard.retestRunningAt', { time: formatShort(retestRequest.started_at) })}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="link"
+                              size="sm"
+                              className="ml-auto h-auto p-0 text-[11.5px]"
+                              onClick={() => onOpenSession(retestRequest.session_id)}
+                            >
+                              {t('vulnCard.openRetestSession')}
+                            </Button>
+                          </div>
+                        ) : null}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2.5 text-[11.5px]">
                           <span>
                             <span className="text-muted-foreground">{t('vulnCard.lastRetest')}</span>
@@ -1569,11 +1695,35 @@ export default function VulnCardPage({
                                 : t('vulnCard.noRetest')}
                             </span>
                           </span>
-                          <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={openInTask}>
-                            <RotateCw className="h-3 w-3" />
-                            {t('vulnCard.startRetest')}
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex" tabIndex={retestRunning ? 0 : -1}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className={cn('h-7 gap-1', retestRunning && 'pointer-events-none')}
+                                  disabled={retestRunning || retestBusy}
+                                  onClick={() => void requestRetest()}
+                                >
+                                  {retestBusy
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <RotateCw className="h-3 w-3" />}
+                                  {retestBusy ? t('vulnCard.retestRequesting') : t('vulnCard.startRetest')}
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            {retestRunning ? <TooltipContent>{t('vulnCard.retestInFlight')}</TooltipContent> : null}
+                          </Tooltip>
                         </div>
+                        {retestError ? (
+                          <RetestErrorPanel
+                            message={retestError.message}
+                            sessionId={retestError.sessionId}
+                            onOpenSession={onOpenSession}
+                            onClose={() => setRetestError(null)}
+                          />
+                        ) : null}
                         {card.replays[0] ? (
                           <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2.5 text-[11.5px]">
                             <span className="text-muted-foreground">{t('vulnCard.lastReplay')}</span>
@@ -1591,6 +1741,14 @@ export default function VulnCardPage({
                 ) : (
                   <Card className="space-y-3">
                     <SectionTitle>{t('vulnCard.keyRequestsTitle')}</SectionTitle>
+                    {retestError ? (
+                      <RetestErrorPanel
+                        message={retestError.message}
+                        sessionId={retestError.sessionId}
+                        onOpenSession={onOpenSession}
+                        onClose={() => setRetestError(null)}
+                      />
+                    ) : null}
                     <div className="space-y-2.5 rounded-md bg-muted/40 p-6 text-center">
                       <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-card text-muted-foreground">
                         <Sparkles className="h-4 w-4" />
