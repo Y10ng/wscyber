@@ -67,13 +67,13 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 15）：M5b 后端（d0c91d9，契约 `native/AUTHZ.md`；o-latest 执行会话读码时被安全分类器拦截 5 次〔cyber〕，用户决定改派 kimi 完成）：账号占位符 `{{cred:<id>.username|secret}}`（发送前替换、工具结果回替 secret；首条消息与计划验证/复测只给凭据 ID + 占位符，**测试账号明文进入会话事件的缺口已关**）；`webapi_authz_compare`（已发送证据换身份/匿名 1–4 变体、同一策略与存证、需审批不发送、hint 只作线索）；`GET /tasks/{id}/authz-compares`；补 M5a 旧库阶段 {41,37}。行为变化：关联资产的口令密钥读不出时该任务 `webapi_http` 全部不发送（无法替换/回替）。
 
-已提交：M5b 演示剧本 `authz-demo`（演示目标加登录与订单接口，fix off/on 两种模式 PASS，原剧本回归通过）。进行中：**M5b 前端**（`var/m5b-frontend/task.md` 已写，ds-flash：资产凭据 ID/复制占位符、手动验证/复测账号块、流量身份对比小节与 hint 徽标）。M5 后续：M5c 浏览器/爬虫纳入出口（浏览器需新依赖 go-rod+Chromium，需用户确认）。
+已提交：M5b 演示剧本 `authz-demo`（演示目标加登录与订单接口，fix off/on 两种模式 PASS，原剧本回归通过）。进行中：**M5b 前端**（`var/m5b-frontend/task.md` 已写，ds-flash：资产凭据 ID/复制占位符、手动验证/复测账号块、流量身份对比小节与 hint 徽标）。并行：**M5c 浏览器/爬虫纳入出口与审批后端**（`var/m5c-browser-backend/task.md`，o-latest；11-21 用户授权直接新增依赖 go-rod/katana/Chromium）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. M5b 多账号越权对比 → M5c（需确认依赖）→ D3（需 SDL 接口文档）。
+1. M5b 前端、M5c → D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -87,3 +87,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 ## 执行会话
 
 - `m5b-frontend`（wangsu-ds-flash-latest，11-21 启动，日志 `var/m5b-frontend/exec.log`）。
+- `m5c`（wangsu-o-latest，11-21 启动，日志 `var/m5c-browser-backend/exec.log`）。
