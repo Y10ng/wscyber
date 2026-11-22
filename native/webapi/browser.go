@@ -76,6 +76,8 @@ func launchChromium(proxy string) (*chromiumInstance, error) {
 		Set("disable-gpu").Set("no-sandbox").Set("disable-dev-shm-usage").Set("ignore-certificate-errors").Set("allow-insecure-localhost").
 		// 出口：全部经中继；<-loopback> 取消 Chrome 对 localhost/127.0.0.1 的隐式直连。
 		Set("proxy-server", proxy).Set("proxy-bypass-list", "<-loopback>").
+		// 通用后台服务联网开关；launcher.New 已默认设置，此处显式保留，并非本次降噪的新增效果。
+		Set("disable-background-networking").
 		// 尽量关闭旁路与后台网络：QUIC、DNS 预取、超链接审计 ping、组件更新、域可靠性上报、WebRTC 非代理 UDP。
 		Set("disable-quic").Set("dns-prefetch-disable").Set("no-pings").Set("disable-component-update").
 		Set("disable-domain-reliability").Set("force-webrtc-ip-handling-policy", "disable_non_proxied_udp").
@@ -86,7 +88,9 @@ func launchChromium(proxy string) (*chromiumInstance, error) {
 		Set("disable-features", "site-per-process", "TranslateUI", "Translate", "OptimizationHints", "OptimizationHintsFetching",
 			"OptimizationGuideModelDownloading", "MediaRouter", "DialMediaRouteProvider", "AutofillServerCommunication",
 			"CertificateTransparencyComponentUpdater", "InterestFeedContentSuggestions", "PrivacySandboxSettings4", "HttpsUpgrades",
-			"NetworkTimeServiceQuerying", "SafeBrowsing").
+			"NetworkTimeServiceQuerying", "SafeBrowsing",
+			// 搜索引擎预连接：netlog 中 www.google.com 的 is_preconnect=true；禁用后本机测试不再出现。
+			"PreconnectToSearch").
 		Set("disable-field-trial-config").Set("disable-sync").Set("disable-extensions").Set("disable-default-apps").
 		Set("disable-search-engine-choice-screen").Set("safebrowsing-disable-auto-update").Set("no-service-autorun").
 		Set("password-store", "basic").Set("google-base-url", unreachableURL).Set("gaia-url", unreachableURL).

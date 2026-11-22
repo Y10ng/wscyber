@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -207,6 +208,50 @@ func (f *browserFixture) waitRows(t *testing.T, want int, where string, args ...
 			return rows
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// 同时统计启动/调用中的出口及调用间的后台拒绝记录，避免只查 call_id 漏掉噪声。
+func TestBrowserBackgroundNetworkingNoise(t *testing.T) {
+	f := newBrowserFixture(t, true)
+	page := newEgressTestTarget(t, false, `<html><head><title>Local browser fixture</title></head><body>local page</body></html>`)
+	saved, err := f.capability.store.Save(t.Context(), "task-browser-noise", "浏览器降噪", "本机静态页面", []string{originOf(t, page.url(""))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := operation.Invocation{SessionID: saved.Task.InitialSessionID, TurnID: "noise-turn", CallID: "noise-open"}
+	if out, err := f.run(t, inv, "playwright", "open", page.url("/"), "--session", "noise"); err != nil {
+		t.Fatalf("open = %q %v", out, err)
+	}
+	inv.CallID = "noise-title"
+	if out, err := f.run(t, inv, "playwright", "evaluate", "noise", "document.title"); err != nil || !strings.Contains(out, "Local browser fixture") {
+		t.Fatalf("title = %q %v", out, err)
+	}
+	// 保留页面和浏览器，覆盖调用结束后的后台联网窗口。
+	time.Sleep(3 * time.Second)
+	rows := f.rows(t, "session_id = ?", inv.SessionID)
+	target, err := url.Parse(page.url("/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nonTarget []string
+	var targetAllowed bool
+	for _, row := range rows {
+		if row.Host != target.Hostname() {
+			nonTarget = append(nonTarget, row.Host+" "+row.Method+" "+row.URL)
+			// 当前 Chromium 仍有一条 GCM checkin；不能用数量上限掩盖新增主机或放行。
+			if row.Host != "android.clients.google.com" || row.Decision != "denied" {
+				t.Errorf("unexpected background request: host=%s decision=%s url=%s", row.Host, row.Decision, row.URL)
+			}
+		}
+		targetAllowed = targetAllowed || row.URL == page.url("/") && row.Decision == "allowed" && row.HTTPStatus.Int64 == http.StatusOK
+	}
+	t.Logf("session egress: total=%d non-target=%d requests=%v", len(rows), len(nonTarget), nonTarget)
+	if !targetAllowed {
+		t.Error("missing allowed target page record")
+	}
+	if len(nonTarget) > 1 {
+		t.Errorf("background non-target requests = %v, want at most one denied checkin", nonTarget)
 	}
 }
 

@@ -52,7 +52,8 @@
 - 仍是代理强制：浏览器页面 JS 不能改代理，但 Chromium 自身仍可能有不经代理的连接——DNS 解析（Chrome 在代理模式下通常不本地解析，但未逐项验证）、WebRTC（已设 `disable_non_proxied_udp`）、QUIC（已禁用）。WebSocket 经 CONNECT 走代理，但 ProxyHub 对 WebSocket 不记内层帧；`ws://` 升级请求本身是否单独记录以上游 mitmproxy 为准（未专门测试）。
 - 已建立的 CONNECT 隧道内的请求不再复核（同 B2）；调用结束时中继会关闭隧道，所以隧道寿命不超过一次调用。
 - 上游 playwright 的 `route --fulfill`、`state-load`、`set-input-files` 等读写工作区文件；路径相对节点工作区，不额外限制（与终端相同）。
-- 关闭参数后 Chromium 仍会尝试少量 Google 后台请求（测试中观察到 `https://www.google.com`）：在任务会话里按策略被拒并记录（`origins` 下为 denied），在 `unrestricted` 或普通对话中会被放行并记录。
+- 后台联网降噪不是零后台请求保证。Chromium 145.0.7632.159 的本机静态页测试（打开页面、读取标题、等待 3 秒）原有 4 条非目标出口记录；netlog 显示其中 3 条 `www.google.com:443` 是 `is_preconnect=true` 的搜索预连接，新增 `disable-features=PreconnectToSearch` 后这 3 条消失，标题读取正常。`disable-background-networking` 原已由 go-rod 默认启用，现显式保留，不能把它算作新增修复。
+- 同一测试仍有 1 条 `android.clients.google.com:443`，netlog 为 `POST https://android.clients.google.com/checkin`、traffic annotation hash `65957842`、initiator `not an origin`，符合 GCM checkin；未定位其浏览器服务层的具体触发者，也未将 hash 映射为官方 annotation 名。回归断言非目标记录 ≤1、只能是该 host 且全部 `denied`。未为压到 0 而改写推送服务端点或禁用页面推送能力；更长时间/其他 Chromium 版本的后台请求数不由此测试保证。调用内后台请求仍按任务策略处理（未授权 origin 拒绝，`unrestricted` 或普通对话可放行），调用间则由中继直接拒绝并记录。
 - ProxyHub 对每次拒绝在 Hub 标准错误打一条 logrus 日志（同 B2）；浏览器的后台请求会让该日志变多。
 - 浏览器会话内存在于节点进程：节点重启后会话页面丢失。
 - 每个会话一个 Chromium 进程，资源随并发会话数增长；本片未加上限（会话结束即释放）。
