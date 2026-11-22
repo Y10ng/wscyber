@@ -1,0 +1,1684 @@
+{
+ "scope": "2026-11-22 Linux/amd64 M5c 浏览器与爬虫 cmd/wscyber-hub 实际 go list -deps 增量（引入上游 tools/playwright、tools/katana 及其依赖 go-rod、katana fork）；不代表全模块图/扫描发行版/UI",
+ "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+ "reachable_module_count": 220,
+ "new_module_count": 107,
+ "baseline": {
+  "files": [
+   {
+    "file": "dependency-licenses.json",
+    "sha256": "650f1217cbb16def18397753d04dc5df32685fc53a49797bd760fe369465668a"
+   },
+   {
+    "file": "hub-dependency-licenses.json",
+    "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+   },
+   {
+    "file": "node-dependency-licenses.json",
+    "sha256": "a01642fcc776ecab4f62847f3143a8776575daad7e3c209a9c1a368a215ca674"
+   },
+   {
+    "file": "egress-dependency-licenses.json",
+    "sha256": "e87ef3dc3b3149fd5a5eb246af6800fac5706f95a600ed2c295fea246ec4ea0d"
+   },
+   {
+    "file": "evidence-image-dependency-licenses.json",
+    "sha256": "72efb2d752d79bb103704b418117d62f5b82ba37df609cdd2a108240fb269565"
+   }
+  ],
+  "same_version_modules": [
+   "connectrpc.com/connect",
+   "dario.cat/mergo",
+   "github.com/alecthomas/chroma/v2",
+   "github.com/andybalholm/brotli",
+   "github.com/anytls/sing-anytls",
+   "github.com/apernet/hysteria/core/v2",
+   "github.com/apernet/quic-go",
+   "github.com/atotto/clipboard",
+   "github.com/aymanbagabas/go-osc52/v2",
+   "github.com/aymanbagabas/go-pty",
+   "github.com/aymerick/douceur",
+   "github.com/bahlo/generic-list-go",
+   "github.com/buger/jsonparser",
+   "github.com/carapace-sh/carapace",
+   "github.com/carapace-sh/carapace-shlex",
+   "github.com/chainreactors/cyber",
+   "github.com/chainreactors/cyber/aop",
+   "github.com/chainreactors/logs",
+   "github.com/chainreactors/proxyclient",
+   "github.com/chainreactors/proxyclient/extra",
+   "github.com/chainreactors/tui/console",
+   "github.com/chainreactors/tui/readline",
+   "github.com/chainreactors/utils",
+   "github.com/chainreactors/utils/cert",
+   "github.com/chainreactors/utils/mitmproxy",
+   "github.com/chainreactors/utils/parsers",
+   "github.com/chainreactors/utils/proc",
+   "github.com/charmbracelet/bubbles",
+   "github.com/charmbracelet/bubbletea",
+   "github.com/charmbracelet/colorprofile",
+   "github.com/charmbracelet/glamour",
+   "github.com/charmbracelet/lipgloss",
+   "github.com/charmbracelet/x/ansi",
+   "github.com/charmbracelet/x/cellbuf",
+   "github.com/charmbracelet/x/exp/slice",
+   "github.com/charmbracelet/x/term",
+   "github.com/clipperhouse/displaywidth",
+   "github.com/clipperhouse/uax29/v2",
+   "github.com/creack/pty",
+   "github.com/dlclark/regexp2/v2",
+   "github.com/dop251/goja",
+   "github.com/dustin/go-humanize",
+   "github.com/facebookincubator/nvdtools",
+   "github.com/go-dedup/megophone",
+   "github.com/go-dedup/simhash",
+   "github.com/go-dedup/text",
+   "github.com/go-sourcemap/sourcemap",
+   "github.com/go-viper/mapstructure/v2",
+   "github.com/goccy/go-yaml",
+   "github.com/gofrs/uuid/v5",
+   "github.com/golang/groupcache",
+   "github.com/google/pprof",
+   "github.com/google/uuid",
+   "github.com/gookit/config/v2",
+   "github.com/gookit/goutil",
+   "github.com/gorilla/css",
+   "github.com/gorilla/websocket",
+   "github.com/invopop/jsonschema",
+   "github.com/jessevdk/go-flags",
+   "github.com/jinzhu/inflection",
+   "github.com/kballard/go-shellquote",
+   "github.com/klauspost/compress",
+   "github.com/lucasb-eyer/go-colorful",
+   "github.com/mattn/go-isatty",
+   "github.com/mattn/go-runewidth",
+   "github.com/microcosm-cc/bluemonday",
+   "github.com/muesli/ansi",
+   "github.com/muesli/cancelreader",
+   "github.com/muesli/reflow",
+   "github.com/muesli/termenv",
+   "github.com/pb33f/ordered-map/v2",
+   "github.com/puzpuzpuz/xsync/v3",
+   "github.com/quic-go/qpack",
+   "github.com/remyoudompheng/bigfft",
+   "github.com/rivo/uniseg",
+   "github.com/sagernet/sing",
+   "github.com/sagernet/sing-vmess",
+   "github.com/sahilm/fuzzy",
+   "github.com/santhosh-tekuri/jsonschema/v6",
+   "github.com/satori/go.uuid",
+   "github.com/sirupsen/logrus",
+   "github.com/spf13/cobra",
+   "github.com/spf13/pflag",
+   "github.com/stretchr/objx",
+   "github.com/stretchr/testify",
+   "github.com/tmthrgd/go-hex",
+   "github.com/twmb/murmur3",
+   "github.com/u-root/u-root",
+   "github.com/uptrace/bun",
+   "github.com/uptrace/bun/dialect/sqlitedialect",
+   "github.com/vmihailenco/msgpack/v5",
+   "github.com/vmihailenco/tagparser/v2",
+   "github.com/xo/terminfo",
+   "github.com/yuin/goldmark",
+   "github.com/yuin/goldmark-emoji",
+   "go.uber.org/atomic",
+   "go.yaml.in/yaml/v3",
+   "go.yaml.in/yaml/v4",
+   "golang.org/x/crypto",
+   "golang.org/x/exp",
+   "golang.org/x/image",
+   "golang.org/x/net",
+   "golang.org/x/sync",
+   "golang.org/x/sys",
+   "golang.org/x/term",
+   "golang.org/x/text",
+   "google.golang.org/protobuf",
+   "gopkg.in/yaml.v3",
+   "modernc.org/libc",
+   "modernc.org/mathutil",
+   "modernc.org/memory",
+   "modernc.org/sqlite",
+   "mvdan.cc/sh/v3"
+  ]
+ },
+ "modules": [
+  {
+   "module": "github.com/adrianbrad/queue",
+   "version": "v1.3.0",
+   "source": "https://pkg.go.dev/github.com/adrianbrad/queue@v1.3.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "60f0ce81ceffb2ef8e6395e3104d57afcfb0a8dbcd0034bdc8825dbc3ac62fc2"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/akrylysov/pogreb",
+   "version": "v0.10.1",
+   "source": "https://pkg.go.dev/github.com/akrylysov/pogreb@v0.10.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/andybalholm/cascadia",
+   "version": "v1.3.3",
+   "source": "https://pkg.go.dev/github.com/andybalholm/cascadia@v1.3.3",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-2-Clause",
+     "sha256": "04a8e475337d6b9959a8c47956bf713dd3362d3aadf839e74b376afb07487167"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/asaskevich/govalidator",
+   "version": "v0.0.0-20230301143203-a9d515a09cc2",
+   "source": "https://pkg.go.dev/github.com/asaskevich/govalidator@v0.0.0-20230301143203-a9d515a09cc2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "e1a36eac3f3109d06869f57127cc32683f70a170dcefe5f143ee378ff313ddfe"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/config",
+   "version": "v1.32.7",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/config@v1.32.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/credentials",
+   "version": "v1.19.7",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/credentials@v1.19.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/feature/ec2/imds",
+   "version": "v1.18.17",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/feature/ec2/imds@v1.18.17",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/internal/configsources",
+   "version": "v1.4.23",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/internal/configsources@v1.4.23",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/internal/endpoints/v2",
+   "version": "v2.7.23",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/internal/endpoints/v2@v2.7.23",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/internal/ini",
+   "version": "v1.8.4",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/internal/ini@v1.8.4",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/iam",
+   "version": "v1.53.10",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/iam@v1.53.10",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding",
+   "version": "v1.13.7",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding@v1.13.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/internal/presigned-url",
+   "version": "v1.13.21",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/internal/presigned-url@v1.13.21",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/signin",
+   "version": "v1.0.5",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/signin@v1.0.5",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/ssooidc",
+   "version": "v1.35.13",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/ssooidc@v1.35.13",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/sso",
+   "version": "v1.30.9",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sso@v1.30.9",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2/service/sts",
+   "version": "v1.41.6",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/sts@v1.41.6",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/aws-sdk-go-v2",
+   "version": "v1.41.7",
+   "source": "https://pkg.go.dev/github.com/aws/aws-sdk-go-v2@v1.41.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+     "file": "NOTICE.txt",
+     "license_text": "版权/第三方通知文件（非许可正文，已记录哈希）",
+     "sha256": "a6e830174d62dafad3a718384772ea1f4c0e27989f050932dc442a5e3ddad080"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/aws/smithy-go",
+   "version": "v1.25.1",
+   "source": "https://pkg.go.dev/github.com/aws/smithy-go@v1.25.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+    },
+    {
+     "file": "NOTICE",
+     "license_text": "版权/第三方通知文件（非许可正文，已记录哈希）",
+     "sha256": "d4290ed64c2edd0fce1d84e3f9dfb2881240fe534def76b8cd29ed6af683e287"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
+   "version": "v1.20.0",
+   "source": "https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.20.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT",
+     "sha256": "646f8936b8ddcd14e13e578ff6857e368780b0d1a4f6066bee89211923a373e2"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Azure/azure-sdk-for-go/sdk/internal",
+   "version": "v1.11.2",
+   "source": "https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/internal@v1.11.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT",
+     "sha256": "646f8936b8ddcd14e13e578ff6857e368780b0d1a4f6066bee89211923a373e2"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
+   "version": "v1.6.4",
+   "source": "https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/storage/azblob@v1.6.4",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT",
+     "sha256": "a096a435e19bb6b631da46992c011a39be563e97ce7366879ad516c772904632"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/chainreactors/neutron",
+   "version": "v0.1.1-0.20260714062907-716c6b167cb6",
+   "source": "https://pkg.go.dev/github.com/chainreactors/neutron@v0.1.1-0.20260714062907-716c6b167cb6",
+   "root_license_files": [],
+   "license": "UNKNOWN（模块根未找到 LICENSE/LICENCE/COPYING/NOTICE/COPYRIGHT 文件）",
+   "purpose": "上游 tools/headless 与 playwright template（nuclei 兼容无头模板）可达",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/cnf/structhash",
+   "version": "v0.0.0-20250313080605-df4c6cc74a9a",
+   "source": "https://pkg.go.dev/github.com/cnf/structhash@v0.0.0-20250313080605-df4c6cc74a9a",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "ISC",
+     "sha256": "4a3959b2bdb4c09fdcb9a8390ba09651eeff6646b6129dee36c4f01e3adf6a31"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/dimchansky/utfbom",
+   "version": "v1.1.1",
+   "source": "https://pkg.go.dev/github.com/dimchansky/utfbom@v1.1.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "76d031db3924c26849d42a8c676b4faf2e2e294c2de4238e54964c9510e762a5"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ditashi/jsbeautifier-go",
+   "version": "v0.0.0-20141206144643-2520a8026a9c",
+   "source": "https://pkg.go.dev/github.com/ditashi/jsbeautifier-go@v0.0.0-20141206144643-2520a8026a9c",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "7239dc7de4032183d6cd38026aa8038308bdf3e62deb27351f8d365db642579c"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/djherbis/times",
+   "version": "v1.6.0",
+   "source": "https://pkg.go.dev/github.com/djherbis/times@v1.6.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "079087ce194827595700a925b01d911f465565d96c5ed2716bcc50ce76855fd5"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/dlclark/regexp2",
+   "version": "v1.12.0",
+   "source": "https://pkg.go.dev/github.com/dlclark/regexp2@v1.12.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "9be5d04bb4d706914d5bf943710da4afeb42048f7c529902fb57c82762a991a9"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/docker/go-units",
+   "version": "v0.5.0",
+   "source": "https://pkg.go.dev/github.com/docker/go-units@v0.5.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "ba3065d2f4b11bb42a0f7b708b021d1c28fa45d097b3eab3e7db9ab4745040d1"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/dominikbraun/graph",
+   "version": "v0.23.0",
+   "source": "https://pkg.go.dev/github.com/dominikbraun/graph@v0.23.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/dsnet/compress",
+   "version": "v0.0.2-0.20230904184137-39efe44ab707",
+   "source": "https://pkg.go.dev/github.com/dsnet/compress@v0.0.2-0.20230904184137-39efe44ab707",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "BSD-3-Clause",
+     "sha256": "9e09d454c08e049297536ef33801bd13590f39d91beb7ec86fbf30aa529706a7"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/gaissmai/bart",
+   "version": "v0.29.1",
+   "source": "https://pkg.go.dev/github.com/gaissmai/bart@v0.29.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "8fc2dc86e3a004c34bf613d4f72365ca4c16a35d26fbc4ce1d8deac83c6eae15"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/golang/snappy",
+   "version": "v1.0.0",
+   "source": "https://pkg.go.dev/github.com/golang/snappy@v1.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "f69f157b0be75da373605dbc8bbf142e8924ee82d8f44f11bcaf351335bf98cf"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/google/go-github/v57",
+   "version": "v57.0.0",
+   "source": "https://pkg.go.dev/github.com/google/go-github/v57@v57.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "8461c85d96b70f125b738d807b362b50d1014f16fd4ee549215eaa03d4a809a1"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/google/go-querystring",
+   "version": "v1.2.0",
+   "source": "https://pkg.go.dev/github.com/google/go-querystring@v1.2.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "d906c9396b6805d16bbaaa8844c58a44c46159bfe494443c1e4cfbc791103dcc"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/google/shlex",
+   "version": "v0.0.0-20191202100458-e7afc7fbc510",
+   "source": "https://pkg.go.dev/github.com/google/shlex@v0.0.0-20191202100458-e7afc7fbc510",
+   "root_license_files": [
+    {
+     "file": "COPYING",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/go-rod/rod",
+   "version": "v0.116.2",
+   "source": "https://pkg.go.dev/github.com/go-rod/rod@v0.116.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+    }
+   ],
+   "purpose": "浏览器 CDP 驱动：上游 tools/playwright 与本项目启动/连接无头 Chromium（launcher）；直接依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/go-rod/stealth",
+   "version": "v0.4.9",
+   "source": "https://pkg.go.dev/github.com/go-rod/stealth@v0.4.9",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "7d5de7f4923f2bfc3c3254539ebf39d76e422875c4bf5747e474b1329d907de6"
+    }
+   ],
+   "purpose": "上游 playwright 页面注入的反检测脚本",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/happyhackingspace/dit",
+   "version": "v0.0.25",
+   "source": "https://pkg.go.dev/github.com/happyhackingspace/dit@v0.0.25",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "b65de1a18a2e1cf1e22e00ee39c43ba696d0a9d538243d5abbc87baa3b6c567a"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/hashicorp/golang-lru/v2",
+   "version": "v2.0.7",
+   "source": "https://pkg.go.dev/github.com/hashicorp/golang-lru/v2@v2.0.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MPL-2.0",
+     "sha256": "6c7088eb877b5d7e6e0e9d27e822ea25fcda2e83f9eba59bb5f1418a656796e0"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/hashicorp/go-version",
+   "version": "v1.9.0",
+   "source": "https://pkg.go.dev/github.com/hashicorp/go-version@v1.9.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MPL-2.0",
+     "sha256": "b31266a0a4ade23e6c0cb5a6ae1c7933b390f30b80550a715579989639b4f55e"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/jackc/pgpassfile",
+   "version": "v1.0.0",
+   "source": "https://pkg.go.dev/github.com/jackc/pgpassfile@v1.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "adb1663fda031df8f4344aa68f299fd87d80353e31339406742ded21dae65702"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/jackc/pgservicefile",
+   "version": "v0.0.0-20240606120523-5a60cdf6a761",
+   "source": "https://pkg.go.dev/github.com/jackc/pgservicefile@v0.0.0-20240606120523-5a60cdf6a761",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "fc505773403fe869ed64cc2235cdd13988a427bb7e3a7e7004a3f4b27420f8fc"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/jackc/pgx/v5",
+   "version": "v5.7.2",
+   "source": "https://pkg.go.dev/github.com/jackc/pgx/v5@v5.7.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "467f95e074fe23079a5623ed652619682692041b8551da27e3c2ddb9659a1507"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/json-iterator/go",
+   "version": "v1.1.12",
+   "source": "https://pkg.go.dev/github.com/json-iterator/go@v1.1.12",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "3247931083f058b00760a3c32a9ca0962c05e4d562ad2ffcc1753451fa8d4486"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Knetic/govaluate",
+   "version": "v3.0.1-0.20171022003610-9aa49832a739+incompatible",
+   "source": "https://pkg.go.dev/github.com/Knetic/govaluate@v3.0.1-0.20171022003610-9aa49832a739+incompatible",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "454316e69743fb6796f1ba5f7ec815a06cbdf21a7a9ee5d2aecdea2e17b03059"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/lmittmann/tint",
+   "version": "v1.0.6",
+   "source": "https://pkg.go.dev/github.com/lmittmann/tint@v1.0.6",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "97c4eab39597a7ddc24765e2e45e901f217f9ad9ef83cf38243318796d774292"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/logrusorgru/aurora",
+   "version": "v2.0.3+incompatible",
+   "source": "https://pkg.go.dev/github.com/logrusorgru/aurora@v2.0.3+incompatible",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Unlicense",
+     "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/logrusorgru/aurora/v4",
+   "version": "v4.0.0",
+   "source": "https://pkg.go.dev/github.com/logrusorgru/aurora/v4@v4.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Unlicense",
+     "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/lukasbob/srcset",
+   "version": "v0.0.0-20190730101422-86b742e617f3",
+   "source": "https://pkg.go.dev/github.com/lukasbob/srcset@v0.0.0-20190730101422-86b742e617f3",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "e9f89705a4d12fbafab09d11f98d1c5565fca3a226cb637cf03bc29739f73181"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/mfonda/simhash",
+   "version": "v0.0.0-20151007195837-79f94a1100d6",
+   "source": "https://pkg.go.dev/github.com/mfonda/simhash@v0.0.0-20151007195837-79f94a1100d6",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "49be4fbb5cf1f2e28c1257080a65466280a01e20957403e491ee327dfa022ccd"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/miekg/dns",
+   "version": "v1.1.72",
+   "source": "https://pkg.go.dev/github.com/miekg/dns@v1.1.72",
+   "root_license_files": [
+    {
+     "file": "COPYRIGHT",
+     "license_text": "版权/第三方通知文件（非许可正文，已记录哈希）",
+     "sha256": "66550c0ad5ca7ec1e08683e5f872cc45c741f311eee3b8ee484206ecbf9c740d"
+    },
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "f200ff9bad73385db2ed81e23ee2c1fe069eb5776e17fae4ee85ad0a9e1361a5"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/mitchellh/mapstructure",
+   "version": "v1.5.0",
+   "source": "https://pkg.go.dev/github.com/mitchellh/mapstructure@v1.5.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "22adc4abdece712a737573672f082fd61ac2b21df878efb87ffcff4354a07f26"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/modern-go/concurrent",
+   "version": "v0.0.0-20180306012644-bacd9c7ef1dd",
+   "source": "https://pkg.go.dev/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/modern-go/reflect2",
+   "version": "v1.0.2",
+   "source": "https://pkg.go.dev/github.com/modern-go/reflect2@v1.0.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Mzack9999/gcache",
+   "version": "v0.0.0-20230410081825-519e28eab057",
+   "source": "https://pkg.go.dev/github.com/Mzack9999/gcache@v0.0.0-20230410081825-519e28eab057",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "e847927b342ecf2e2385073a5658bf5a912d004cb368466063d07e4280284a19"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Mzack9999/go-http-digest-auth-client",
+   "version": "v0.6.1-0.20220414142836-eb8883508809",
+   "source": "https://pkg.go.dev/github.com/Mzack9999/go-http-digest-auth-client@v0.6.1-0.20220414142836-eb8883508809",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "BSD-2-Clause",
+     "sha256": "09fc23f09807149f01e708ccbb96684b7d5a99c5da990e45ffbdb1ee26ceb24f"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/Mzack9999/jsluice",
+   "version": "v0.0.0-20260306161058-30114a312f98",
+   "source": "https://pkg.go.dev/github.com/Mzack9999/jsluice@v0.0.0-20260306161058-30114a312f98",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "fe045b39d4537b4397659f42f295670470bce4d5a28e10c1b1a3a0a9d91b7680"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/odvcencio/gotreesitter",
+   "version": "v0.6.1-0.20260306002001-fbe5983c6f41",
+   "source": "https://pkg.go.dev/github.com/odvcencio/gotreesitter@v0.6.1-0.20260306002001-fbe5983c6f41",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "b174fbe1e1cffafb096528de3e8361c90a0d97e7e3f1a32061aae51e983a7cfc"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/pkg/errors",
+   "version": "v0.9.1",
+   "source": "https://pkg.go.dev/github.com/pkg/errors@v0.9.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-2-Clause",
+     "sha256": "8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/praetorian-inc/titus",
+   "version": "v1.2.0",
+   "source": "https://pkg.go.dev/github.com/praetorian-inc/titus@v1.2.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "c79772859956ceea1389d4f13fc6791d66cf67057cdfda13e137f7e4fe1e5b08"
+    },
+    {
+     "file": "NOTICE",
+     "license_text": "Apache-2.0",
+     "sha256": "41574fe14c49157b42e167d69d0ccf796fe733c501148c6dd380b921678d44e7"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/blackrock",
+   "version": "v0.0.2",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/blackrock@v0.0.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "ff44b937d537916a91459c8932f57a8b31b545410f7b0e7f640821523cda7f3f"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/fastdialer",
+   "version": "v0.5.23",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/fastdialer@v0.5.23",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/goflags",
+   "version": "v0.2.1",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/goflags@v0.2.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "katana 参数解析（含用户配置文件读取）",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/gologger",
+   "version": "v1.1.73",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/gologger@v1.1.73",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/hmap",
+   "version": "v0.0.102",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/hmap@v0.0.102",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/katana",
+   "version": "v1.7.0",
+   "source_module": "github.com/chainreactors/katana",
+   "source_version": "v1.7.0-aiscan.1",
+   "source": "https://pkg.go.dev/github.com/chainreactors/katana@v1.7.0-aiscan.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "49982116f64385bdf8582a379e591a19d6040dec22e50e29dc311596d357af23"
+    }
+   ],
+   "purpose": "爬虫引擎（standard/headless/hybrid）；版本化 replace 到 chainreactors/katana v1.7.0-aiscan.1（与上游 f4b1fb2 相同映射）",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/networkpolicy",
+   "version": "v0.1.52",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/networkpolicy@v0.1.52",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cf01ad0ba33613c4264877a365428678451a48135f2e6560a8b1e7ac3b7dd67a"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/ratelimit",
+   "version": "v0.0.88",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/ratelimit@v0.0.88",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "49982116f64385bdf8582a379e591a19d6040dec22e50e29dc311596d357af23"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/retryabledns",
+   "version": "v1.0.116",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/retryabledns@v1.0.116",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/retryablehttp-go",
+   "version": "v1.3.29",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/retryablehttp-go@v1.3.29",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MPL-2.0",
+     "sha256": "af175b9d96ee93c21a036152e1b905b0b95304d4ae8c2c921c7609100ba8df7e"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/utils",
+   "version": "v0.11.9",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/utils@v0.11.9",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cf01ad0ba33613c4264877a365428678451a48135f2e6560a8b1e7ac3b7dd67a"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/projectdiscovery/wappalyzergo",
+   "version": "v0.2.91",
+   "source": "https://pkg.go.dev/github.com/projectdiscovery/wappalyzergo@v0.2.91",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "cbcdaab87df3175107aa28915bd253cebdd618a49c9ac5d6c669c0b1cbebcacb"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/PuerkitoBio/goquery",
+   "version": "v1.12.0",
+   "source": "https://pkg.go.dev/github.com/PuerkitoBio/goquery@v1.12.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "ab79785bfa235ac1c5e16f75e0f85eb7ce0402fb72f4667fffa0729e694579b8"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/refraction-networking/utls",
+   "version": "v1.8.2",
+   "source": "https://pkg.go.dev/github.com/refraction-networking/utls@v1.8.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/remeh/sizedwaitgroup",
+   "version": "v1.0.0",
+   "source": "https://pkg.go.dev/github.com/remeh/sizedwaitgroup@v1.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "1f523fe163e6c69fa82cad090b84a8239a1ac87521a485245c6b832ff0788f95"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/rs/xid",
+   "version": "v1.5.0",
+   "source": "https://pkg.go.dev/github.com/rs/xid@v1.5.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c480873f0ff2b7e2c539bdd84fb4da4178d8d02479c94924f7bffeafb7add358"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/saintfish/chardet",
+   "version": "v0.0.0-20230101081208-5e3ef4b5456d",
+   "source": "https://pkg.go.dev/github.com/saintfish/chardet@v0.0.0-20230101081208-5e3ef4b5456d",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "44699611628b82dec802229cd039c401b6df44808eeb5dc873698255a0642d04"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/shirou/gopsutil/v4",
+   "version": "v4.26.3",
+   "source": "https://pkg.go.dev/github.com/shirou/gopsutil/v4@v4.26.3",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "ad1e64b82c04fb2ee6bfe521bff01266971ffaa70500024d4ac767c6033aafb9"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/spaolacci/murmur3",
+   "version": "v1.1.0",
+   "source": "https://pkg.go.dev/github.com/spaolacci/murmur3@v1.1.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "acf8baa6169d044dcde836a61d652452f55be0ec5eb22f2cdf2ff69c8c45fc38"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/stoewer/go-strcase",
+   "version": "v1.3.0",
+   "source": "https://pkg.go.dev/github.com/stoewer/go-strcase@v1.3.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "73524a55beda60fc1a5fcdb2a790652154a6d1e6a090e15f61c92e7dd9360438"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/syndtr/goleveldb",
+   "version": "v1.0.0",
+   "source": "https://pkg.go.dev/github.com/syndtr/goleveldb@v1.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-2-Clause",
+     "sha256": "7df695202f82a52f8891a9913438c7fde15bd71034fd1853b9ed46503ea52a19"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/btree",
+   "version": "v1.6.0",
+   "source": "https://pkg.go.dev/github.com/tidwall/btree@v1.6.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "144307e5049646f9bcfba8ef92095d0a8e223fc88d0e339106877071341898ee"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/buntdb",
+   "version": "v1.3.0",
+   "source": "https://pkg.go.dev/github.com/tidwall/buntdb@v1.3.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "be83ad53208d03a9fe08c7fac231cabf79422989ef5706bff217bd35104ebf07"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/gjson",
+   "version": "v1.18.0",
+   "source": "https://pkg.go.dev/github.com/tidwall/gjson@v1.18.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "be83ad53208d03a9fe08c7fac231cabf79422989ef5706bff217bd35104ebf07"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/grect",
+   "version": "v0.1.4",
+   "source": "https://pkg.go.dev/github.com/tidwall/grect@v0.1.4",
+   "root_license_files": [
+    {
+     "file": "LICENSE.md",
+     "license_text": "MIT",
+     "sha256": "be83ad53208d03a9fe08c7fac231cabf79422989ef5706bff217bd35104ebf07"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/match",
+   "version": "v1.2.0",
+   "source": "https://pkg.go.dev/github.com/tidwall/match@v1.2.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "be83ad53208d03a9fe08c7fac231cabf79422989ef5706bff217bd35104ebf07"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/pretty",
+   "version": "v1.2.1",
+   "source": "https://pkg.go.dev/github.com/tidwall/pretty@v1.2.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "0ca70311227fe097c662dece3f359e3317fa7f9d41f8d29eb45fc5135e216139"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/rtred",
+   "version": "v0.1.2",
+   "source": "https://pkg.go.dev/github.com/tidwall/rtred@v0.1.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "53c0bef3bda4a49d9e482712cf86860b1703b13c8bcc34bc8d9fecb643fc8bf4"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tidwall/tinyqueue",
+   "version": "v0.1.1",
+   "source": "https://pkg.go.dev/github.com/tidwall/tinyqueue@v0.1.1",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "ISC",
+     "sha256": "780453e05abdc22307ee01c706a2e73f508d3e484fc4c804485ebf6fe0964694"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tklauser/go-sysconf",
+   "version": "v0.3.16",
+   "source": "https://pkg.go.dev/github.com/tklauser/go-sysconf@v0.3.16",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "fdaaa923d83d44f8b2ed1185600c5aa8c10673f11fba9feb78bd2816786fd6be"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/tklauser/numcpus",
+   "version": "v0.11.0",
+   "source": "https://pkg.go.dev/github.com/tklauser/numcpus@v0.11.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/valyala/bytebufferpool",
+   "version": "v1.0.0",
+   "source": "https://pkg.go.dev/github.com/valyala/bytebufferpool@v1.0.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c4c2923938be3bf985290743398835cb6097d277663eeb1addec34b4df28d806"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/valyala/fasttemplate",
+   "version": "v1.2.2",
+   "source": "https://pkg.go.dev/github.com/valyala/fasttemplate@v1.2.2",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "8a314211011ad9257fa38302e8bbfe4b137a583b2b6555c61a92713b07b0b124"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/weppos/publicsuffix-go",
+   "version": "v0.50.3-0.20260104170930-90713dec78f2",
+   "source": "https://pkg.go.dev/github.com/weppos/publicsuffix-go@v0.50.3-0.20260104170930-90713dec78f2",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT",
+     "sha256": "a96cc75b417b7fedb0a92984a92df6e1ad894855f2ba2923376963b198ba3d4e"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ysmood/fetchup",
+   "version": "v0.2.3",
+   "source": "https://pkg.go.dev/github.com/ysmood/fetchup@v0.2.3",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "08f8534b43ad1d1259b15d7bccd8ab3fc0177985eeea19e2a497e5f89b41ba22"
+    }
+   ],
+   "purpose": "go-rod 浏览器下载器可达（本项目始终指定 Bin，不触发下载）",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ysmood/goob",
+   "version": "v0.4.0",
+   "source": "https://pkg.go.dev/github.com/ysmood/goob@v0.4.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ysmood/got",
+   "version": "v0.40.0",
+   "source": "https://pkg.go.dev/github.com/ysmood/got@v0.40.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "884c2ea69c142776a1c27cf3f284f5ecdf8d07b9560722939438d9827cd65416"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ysmood/gson",
+   "version": "v0.7.3",
+   "source": "https://pkg.go.dev/github.com/ysmood/gson@v0.7.3",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "884c2ea69c142776a1c27cf3f284f5ecdf8d07b9560722939438d9827cd65416"
+    }
+   ],
+   "purpose": "go-rod 及上游 playwright 的 JSON 工具",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/ysmood/leakless",
+   "version": "v0.9.0",
+   "source": "https://pkg.go.dev/github.com/ysmood/leakless@v0.9.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+    }
+   ],
+   "purpose": "go-rod launcher 可达（本项目 Leakless(false)，不运行其辅助进程）",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/zmap/rc2",
+   "version": "v0.0.0-20190804163417-abaa70531248",
+   "source": "https://pkg.go.dev/github.com/zmap/rc2@v0.0.0-20190804163417-abaa70531248",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "a529ca70e3bcd135a46a140316b2321fd2184c838a4ae33f091863fb6c94b2ff"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "github.com/zmap/zcrypto",
+   "version": "v0.0.0-20240803002437-3a861682ac77",
+   "source": "https://pkg.go.dev/github.com/zmap/zcrypto@v0.0.0-20240803002437-3a861682ac77",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "258b115cbe303d0db633ec3660e05a6e382b630e2217a48d81ffc24f063d9f78"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "go.etcd.io/bbolt",
+   "version": "v1.3.7",
+   "source": "https://pkg.go.dev/go.etcd.io/bbolt@v1.3.7",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "MIT",
+     "sha256": "c15d721c37e277a11584547de6d618541501f7aa10c4e32a945a4f9ff36cb0f6"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "golang.org/x/oauth2",
+   "version": "v0.36.0",
+   "source": "https://pkg.go.dev/golang.org/x/oauth2@v0.36.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "golang.org/x/time",
+   "version": "v0.15.0",
+   "source": "https://pkg.go.dev/golang.org/x/time@v0.15.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "BSD-3-Clause",
+     "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+     "file": "PATENTS",
+     "license_text": "Go 附加专利授权",
+     "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "gopkg.in/yaml.v2",
+   "version": "v2.4.0",
+   "source": "https://pkg.go.dev/gopkg.in/yaml.v2@v2.4.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE",
+     "license_text": "Apache-2.0",
+     "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+    },
+    {
+     "file": "LICENSE.libyaml",
+     "license_text": "MIT",
+     "sha256": "a94710b55e03b5285f77d048c5ba61bb9d6ee04a06c0eb90e68821e11b0c707a"
+    },
+    {
+     "file": "NOTICE",
+     "license_text": "Apache-2.0",
+     "sha256": "f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  },
+  {
+   "module": "go.uber.org/multierr",
+   "version": "v1.11.0",
+   "source": "https://pkg.go.dev/go.uber.org/multierr@v1.11.0",
+   "root_license_files": [
+    {
+     "file": "LICENSE.txt",
+     "license_text": "MIT",
+     "sha256": "dcdabe03bef2382a130640d1c3a4cd5ec42aba1035095c38272fde694eb72405"
+    }
+   ],
+   "purpose": "上游 tools/playwright、tools/katana 或 katana 引擎的可达传递依赖",
+   "review": "模块根文本核对（按文本特征分类），非完整嵌套/资产/组合许可审查"
+  }
+ ],
+ "limitations": [
+  "模块获取：proxy.golang.org 与 sum.golang.org 本次直连不可达、指定代理 192.168.1.2:9567 不可达，改用 goproxy.cn 镜像下载模块，GOSUMDB 仍为 sum.golang.org（经 goproxy.cn/sumdb 转发，签名树按 sum.golang.org 公钥校验）；新增 329 行 go.sum 中 328 行与上游 f4b1fb2 go.sum 逐字一致，另 1 行 github.com/hashicorp/golang-lru v0.5.4 h1（上游只有 /go.mod 行；该版本不在可达包中）。原 113 个可达模块版本全不变。",
+  "github.com/chainreactors/neutron 模块根无许可文件、README 未提及许可：UNKNOWN，不推断。",
+  "三个 MPL-2.0 文本模块（hashicorp/golang-lru/v2、hashicorp/go-version、projectdiscovery/retryablehttp-go）为文件级弱 copyleft，分发时须提供其源代码文件；与既有 AGPL/GPL 组合的义务未处理。",
+  "许可分类按根文件文本特征自动判定（MIT/Apache-2.0/BSD/ISC/MPL/Unlicense），NOTICE/COPYRIGHT 只记哈希；不是逐文件或嵌套资产审查。katana fork、neutron 内嵌模板/JS 资产未审查。",
+  "Chromium 是系统包（本机 Debian chromium 145.0.7632.159-1，版本以 `chromium --version` / `dpkg -s chromium` 获取），BSD-3-Clause 系主许可 + 大量第三方组件许可（见 /usr/share/doc/chromium/copyright），不随仓库或 Hub 二进制分发；运行时用 CYBER_BROWSER_PATH 或系统查找，不自动下载。"
+ ]
+}

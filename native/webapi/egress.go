@@ -26,14 +26,14 @@ import (
 	proxytool "github.com/chainreactors/cyber/tools/proxy"
 )
 
-// 全工具出口（B2）：终端（bash/tmux）子进程经上游 MITM ProxyHub 出网。
+// 全工具出口（B2）：终端（bash/tmux）子进程、浏览器 playwright 与爬虫 katana（M5c，见 browser.go）经上游 MITM ProxyHub 出网。
 // 本扩展只做三件事：按调用登记出口令牌、在代理连目标之前按任务策略放行/拒绝、
 // 把放行后的完整 flow 与拒绝记录写入 webapi_egress_flows。代理本身、令牌生成、
 // 进程环境注入和进程结束释放全部复用上游。只是代理强制：进程可以刻意绕开代理。
 
 const (
 	egressCADirName = "egress-ca"
-	egressToolName  = "terminal" // 上游终端扩展（bash 与 tmux 共用）是唯一借用出口的工具。
+	egressToolName  = "terminal" // 上游终端扩展（bash 与 tmux 共用）；浏览器/爬虫用 egressFor 显式登记 browser/katana。
 	egressFlowRing  = 256        // 上游内存环只做中转；持久记录在本库。
 )
 
@@ -69,16 +69,22 @@ func (e *egressEndpoint) CAPath() string { return e.hub.CAPath() }
 
 // Egress 为一次执行取上游令牌，并按调用上下文登记归属；release 在进程真正结束时由上游调用。
 func (e *egressEndpoint) Egress(ctx context.Context) (string, string, func()) {
+	tool := egressToolName
+	if info := operation.FromContext(ctx); info.Kind != "" && info.Kind != "process" {
+		tool = info.Kind
+	}
+	return e.egressFor(ctx, tool)
+}
+
+// egressFor 与 Egress 相同，但由调用方给出工具名（浏览器 browser、爬虫 katana）。
+func (e *egressEndpoint) egressFor(ctx context.Context, tool string) (string, string, func()) {
 	proxyURL, caPath, release := e.hub.Egress(ctx)
 	token := egressTokenFromURL(proxyURL)
 	if token == "" {
 		return proxyURL, caPath, release
 	}
 	info := operation.FromContext(ctx)
-	route := egressRoute{sessionID: info.Invocation.SessionID, turnID: info.Invocation.TurnID, callID: info.Invocation.CallID, tool: egressToolName}
-	if info.Kind != "" && info.Kind != "process" {
-		route.tool = info.Kind
-	}
+	route := egressRoute{sessionID: info.Invocation.SessionID, turnID: info.Invocation.TurnID, callID: info.Invocation.CallID, tool: tool}
 	e.mu.Lock()
 	e.byToken[token] = route
 	if info.OperationID != "" {
@@ -232,6 +238,16 @@ func (e *egressEndpoint) authorize(req *http.Request) error {
 		return e.deny(ctx, task.ID, route, req, target, "不在任务授权 origins 内："+target.display)
 	}
 	return nil
+}
+
+// denyUnrouted 记录一条未带令牌、由本地中继直接拒绝的请求（浏览器在两次调用之间的后台请求）。
+func (e *egressEndpoint) denyUnrouted(sessionID, tool string, req *http.Request, reason string) {
+	ctx := context.WithoutCancel(req.Context())
+	taskID := ""
+	if task, err := e.store.egressTaskForSession(ctx, sessionID); err == nil && task != nil {
+		taskID = task.ID
+	}
+	_ = e.deny(ctx, taskID, egressRoute{sessionID: sessionID, tool: tool}, req, egressTargetOf(req), reason)
 }
 
 func (e *egressEndpoint) deny(ctx context.Context, taskID string, route egressRoute, req *http.Request, target egressTarget, reason string) error {

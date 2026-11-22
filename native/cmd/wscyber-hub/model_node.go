@@ -179,7 +179,7 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 			Provider: provider.StartupConfig{Mode: provider.StartupDisabled}, Egress: capability.EgressExtension(),
 			Terminal: terminalext.Config{Timeout: 5, MaximumTimeout: 5 * time.Second},
 		},
-		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension(), capability.SubagentExtension()}, Session: &session,
+		Extensions: []extension.Extension{modelNodeAdmissionExtension(), capability.ToolExtension(), capability.ApprovalExtension(), capability.SubagentExtension(), capability.BrowserExtension(directory)}, Session: &session,
 	})
 	if err != nil {
 		return nil, err

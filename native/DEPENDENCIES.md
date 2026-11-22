@@ -165,3 +165,27 @@ H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIG
 | `golang.org/x/image` | `v0.47.0` | `font/opentype`、`font/sfnt` 字体解析，内嵌 `font/gofont/gomono`、`gomonobold` 等宽字体，`math/fixed`；BSD-3-Clause 根文本 + Go PATENTS；Go 字体 README 为同款 BSD 式许可 |
 
 CJK 回退字体只在运行时从系统读取（`WSCYBER_EVIDENCE_FONT` → `/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf` → `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc` → `/usr/share/fonts/truetype/wqy/wqy-microhei.ttc`），不打包进仓库或二进制；本机为 Debian `fonts-droid-fallback`（Apache-2.0）。部署机器的字体由其系统包授权；没有可用回退字体时非 ASCII 字符画方框并在图片页脚说明。既有许可缺口不因本增量改变。
+
+## M5c：浏览器（go-rod）与爬虫（katana）的可达依赖增量
+
+核验日期：2026-11-22。同一固定 Cyber/AOP 版本；本项目注册并包装上游 `tools/playwright`（go-rod 驱动 Chromium）与 `tools/katana`（不装 `exts/browser`、`exts/katana`，原因见 [BROWSER.md](BROWSER.md)），用户已授权新增这些依赖。唯一 Hub 入口 `go list -deps` 得到 **220 个模块：原 113 个版本全不变，新增 107 个**。版本、公开来源与模块根许可文件 SHA-256 见 [browser-dependency-licenses.json](browser-dependency-licenses.json)。
+
+模块获取：`proxy.golang.org`、`sum.golang.org` 本次直连不可达，指定代理 `192.168.1.2:9567` 不可达；改用 `goproxy.cn` 镜像下载，`GOSUMDB` 仍为 `sum.golang.org`（经镜像的 sumdb 转发，按 sum.golang.org 公钥校验签名树）。新增 329 行 `go.sum` 中 328 行与上游 f4b1fb2 的 `go.sum` 逐字一致；另 1 行为 `github.com/hashicorp/golang-lru v0.5.4` 的 h1（上游只有其 `/go.mod` 行，该版本不在可达包中）。未改上游。
+
+| 新增直接依赖 / 关键模块 | 固定版本 | 用途 / 模块根实际文本 |
+|---|---|---|
+| `github.com/go-rod/rod` | `v0.116.2` | 直接依赖：本项目用其 `lib/launcher` 启动无头 Chromium；上游 playwright 经 CDP 驱动；MIT |
+| `github.com/projectdiscovery/katana` ⇒ `github.com/chainreactors/katana` | `v1.7.0` ⇒ `v1.7.0-aiscan.1` | 爬虫引擎；`go.mod` 已有的版本化 `replace`（与上游相同映射），本片起实际可达；fork 根 `LICENSE.md` 为 MIT 文本 |
+| `github.com/go-rod/stealth` | `v0.4.9` | 上游 playwright 页面反检测脚本；MIT |
+| `github.com/chainreactors/neutron` | `v0.1.1-0.20260714062907-716c6b167cb6` | 上游 tools/headless 与 playwright `template`（nuclei 兼容无头模板）可达；**模块根无许可文件、README 未提许可，UNKNOWN** |
+| `github.com/projectdiscovery/*`（goflags、gologger、utils、fastdialer、retryablehttp-go、hmap、wappalyzergo 等 12 个，含 katana 自身） | 见 JSON | katana 传递依赖；MIT，`retryablehttp-go` 为 **MPL-2.0** |
+| `github.com/ysmood/*`（gson、leakless、fetchup、goob、got） | 见 JSON | go-rod 传递依赖；MIT。`fetchup`（浏览器下载）可达但本项目始终指定 Bin、不触发下载；`leakless` 可达但 `Leakless(false)` |
+| AWS SDK v2（15 个）、Azure SDK（3 个） | 见 JSON | katana 引擎/上游 utils 的可达传递依赖（对象存储等），本片不调用；AWS 为 Apache-2.0（另有 NOTICE），Azure 为 MIT |
+
+新增 107 个模块的根许可文本分类（按文本特征，非人工逐字确认）：MIT 56、Apache-2.0 27、BSD-3-Clause 12、BSD-2-Clause 4、MPL-2.0 3、ISC 2、Unlicense 2、UNKNOWN 1（neutron）（每模块取首个许可正文文件；aws-sdk-go-v2 计 Apache-2.0）；NOTICE/COPYRIGHT 文件只记哈希。
+
+**Chromium（系统包，不随仓库/二进制分发）：** 运行时由 `CYBER_BROWSER_PATH` 或系统查找确定，不自动下载。本机 Debian 包 `chromium 145.0.7632.159-1`，版本用 `chromium --version` 或 `dpkg -s chromium` 获取；许可为 BSD-3-Clause 系主许可 + 大量第三方组件许可（Debian 版本见 `/usr/share/doc/chromium/copyright`，514 个 License 段），由部署机器的系统包负责。
+
+**二进制体积：** Hub 由 69,811,760 字节增至 123,977,849 字节（+54,166,089，约 +78%）。
+
+**新增待核实事项：** neutron 根无许可文本，保持 UNKNOWN；三个 MPL-2.0 模块（`hashicorp/golang-lru/v2`、`hashicorp/go-version`、`projectdiscovery/retryablehttp-go`）为文件级 copyleft；katana fork 与 neutron 内嵌的 JS/模板资产未审查。与既有 AGPL/GPL 组合及源代码/通知义务未处理；本增量不作法律结论或可部署声明。

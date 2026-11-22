@@ -187,6 +187,10 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 		config.Extensions = append(config.Extensions, modelProbeDenialExtension())
 	}
 	if opts.modelNode {
+		// katana（上游 goflags）在用户配置目录生成默认配置；未设 XDG_CONFIG_HOME 时指到 state-dir 下（见 native/BROWSER.md）。
+		if err := webapi.EnsureToolConfigHome(stateDir); err != nil {
+			return err
+		}
 		if opts.modelEndpoint == "" {
 			return serveProductModelNode(ctx, config, stateDir, key, opts.modelReport, webapiCapability)
 		}

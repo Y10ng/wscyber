@@ -47,7 +47,11 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 \
 - `approval-demo`：经 Hub API 跑“审批演示”剧本（模拟模型并行发一条测试 DELETE 与一条命中高危规则的无害命令），一轮全部批准、一轮全部拒绝，输出审批与请求状态。页面上首条目标文本含“审批演示”即触发同一剧本。
 - 模拟模型按首条消息识别会话类型（研究/独立验证/报告/复测，复测首行须含“复测”），在原生 3 回合上限内推进：同一阶段的工具调用并行发出。不读写 `var/preview`，不连接真实模型。
 
-## 5. 限制
+## 5. 浏览器依赖（M5c）
 
-- `webapi_http` 按任务测试策略：scope=origins（默认）只发授权 origins，unrestricted 不限；危险操作审批见 `native/POLICY.md`。原生终端等工具无强制出口（审批只按命令静态规则挂起）。
+模型节点的 `playwright`/`katana -headless` 需要本机 Chrome/Chromium（系统包，不随仓库分发，**不自动下载**）。路径：环境变量 `CYBER_BROWSER_PATH`（显式优先，须可执行）→ 系统查找（go-rod `launcher.LookPath`，含 `/usr/bin/chromium`、`chromium-browser`、`google-chrome` 等）。找不到时命令返回“未找到 Chromium 可执行文件…”。本机：Debian `chromium 145.0.7632.159-1`（`chromium --version`）。上面 `env -i` 启动方式需要时加 `CYBER_BROWSER_PATH=/usr/bin/chromium`。katana 的配置目录：未设 `XDG_CONFIG_HOME` 时 Hub 用 `STATE_DIR/tool-config`。见 `native/BROWSER.md`。
+
+## 6. 限制
+
+- `webapi_http` 按任务测试策略：scope=origins（默认）只发授权 origins，unrestricted 不限；危险操作审批见 `native/POLICY.md`。终端、浏览器、爬虫经全工具出口代理强制（非系统级隔离，见 `native/POLICY.md`、`native/BROWSER.md`）。
 - 正式入口不自动恢复/重放历史任务。

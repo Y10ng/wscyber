@@ -73,6 +73,8 @@ var commandRules = []commandRule{
 		}
 		return false
 	}},
+	{"浏览器动作含破坏性信号（playwright 点击/填写/提交/导航/脚本等参数命中）", playwrightDestructive},
+	{"爬虫主动交互（katana 无头/混合点击、自动填表或自动登录）", katanaActive},
 	{"find 删除（-delete）", func(w []string) bool {
 		if program(w) != "find" {
 			return false
@@ -224,7 +226,7 @@ func isAssignment(word string) bool {
 // dynamicSensitive 是参数含动态展开时无法静态排除高危的程序（及解释执行文本的命令）。
 var dynamicSensitive = map[string]bool{"rm": true, "dd": true, "shred": true, "wipefs": true, "mkswap": true, "find": true,
 	"curl": true, "wget": true, "mysql": true, "psql": true, "sqlite3": true, "mongo": true, "mongosh": true, "redis-cli": true,
-	"systemctl": true, "init": true, "telinit": true, "eval": true, "sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true, "tmux": true}
+	"systemctl": true, "init": true, "telinit": true, "eval": true, "playwright": true, "katana": true, "sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true, "tmux": true}
 
 // dynamicReason：命令名本身是动态展开，或敏感程序的参数含动态展开时，静态规则无法核对，按需审批处理。
 // （本固定上游版本中外部程序不经 command.before，展开后无法再拦截，所以只能在执行前保守判定。）
@@ -270,4 +272,48 @@ func wordText(word *syntax.Word) (string, bool) {
 	}
 	parts(word.Parts)
 	return out.String(), literal
+}
+
+// playwrightActions 是会向目标发请求或在页面上触发动作的子命令；只读提取（inner-text、snapshot 等）不在内。
+var playwrightActions = map[string]bool{"open": true, "goto": true, "content": true, "screenshot": true, "pdf": true, "network": true,
+	"tab-new": true, "click": true, "dblclick": true, "tap": true, "press": true, "type": true, "fill": true, "select-option": true,
+	"check": true, "uncheck": true, "dispatch-event": true, "autofill": true, "set-input-files": true, "upload": true,
+	"evaluate": true, "set-extra-headers": true, "template": true}
+
+// playwrightDestructive：动作类子命令的任一参数（选择器、URL、填入值、脚本、头）命中破坏性信号。
+// 纯导航/截图/提取（参数无破坏性信号）不审批。
+func playwrightDestructive(w []string) bool {
+	if program(w) != "playwright" {
+		return false
+	}
+	args := w[1:]
+	index := playwrightSubcommandIndex(args)
+	if index < 0 || !playwrightActions[args[index]] {
+		return false
+	}
+	for _, arg := range args[index+1:] {
+		if dangerousText(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+// katanaActive：无头（-headless 会点击页面按钮含提交按钮）、混合（-hybrid 点击 onclick 链接）、
+// 自动填表（-aff，会提交表单）、自动登录（-al）。普通只读爬取不审批。
+func katanaActive(w []string) bool {
+	if program(w) != "katana" {
+		return false
+	}
+	for _, arg := range w[1:] {
+		name, value, ok := katanaFlag(arg)
+		if !ok || value == "false" {
+			continue
+		}
+		switch name {
+		case "headless", "hl", "hybrid", "hh", "automatic-form-fill", "aff", "auto-login", "al":
+			return true
+		}
+	}
+	return false
 }
