@@ -67,7 +67,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 15）：M5b 后端（d0c91d9，契约 `native/AUTHZ.md`；o-latest 执行会话读码时被安全分类器拦截 5 次〔cyber〕，用户决定改派 kimi 完成）：账号占位符 `{{cred:<id>.username|secret}}`（发送前替换、工具结果回替 secret；首条消息与计划验证/复测只给凭据 ID + 占位符，**测试账号明文进入会话事件的缺口已关**）；`webapi_authz_compare`（已发送证据换身份/匿名 1–4 变体、同一策略与存证、需审批不发送、hint 只作线索）；`GET /tasks/{id}/authz-compares`；补 M5a 旧库阶段 {41,37}。行为变化：关联资产的口令密钥读不出时该任务 `webapi_http` 全部不发送（无法替换/回替）。
 
-已提交：M5b 演示剧本 `authz-demo`（演示目标加登录与订单接口，fix off/on 两种模式 PASS，原剧本回归通过）。进行中：**M5b 前端**（`var/m5b-frontend/task.md` 已写，ds-flash：资产凭据 ID/复制占位符、手动验证/复测账号块、流量身份对比小节与 hint 徽标）。并行：**M5c 浏览器/爬虫纳入出口与审批后端**（`var/m5c-browser-backend/task.md`，o-latest；11-21 用户授权直接新增依赖 go-rod/katana/Chromium）。
+已提交：M5b 演示剧本 `authz-demo`（71fb97d）、M5b 前端（20264a4，经一轮纠正：账号 ID 挤占用户名）：资产凭据 ID 与复制占位符、手动验证/复测账号占位符块（与后端逐字一致，6 组夹具核对）、流量身份对比小节与变体反查、时间线摘要。主会话演示环境走过：资产账号卡、流量“身份对比”标签、原请求小节（匿名被拒绝 401 / 用户 B 与原请求相同 200）、变体反查。**验收发现**：流量视图“遮盖敏感值”只遮敏感头，登录请求正文口令仍明文显示（既有缺口，M5b 后更显眼）→ 小修进行中（`var/mask-secrets/task.md`，gpt-6-astra：证据接口 `mask=1` 把资产口令替换为占位符，随后前端接开关）。未验：hint 其余三态与 replay 标签（演示无数据）；构建脚本 Node 堆 768MB 在 Vite 阶段 OOM（执行者临时调大后还原，需另处理）。
+
+并行：**M5c 浏览器/爬虫纳入出口与审批后端**（`var/m5c-browser-backend/task.md`，o-latest；11-21 用户授权直接新增依赖 go-rod/katana/Chromium）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -86,5 +88,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `m5b-frontend`（wangsu-ds-flash-latest，11-21 启动，日志 `var/m5b-frontend/exec.log`）。
+- `mask`（gpt-6-astra，11-21 启动，日志 `var/mask-secrets/exec.log`）。
 - `m5c`（wangsu-o-latest，11-21 启动，日志 `var/m5c-browser-backend/exec.log`）。
