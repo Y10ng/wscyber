@@ -77,7 +77,10 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 17）：V3 后端（5596eb8）：`POST /vulns/{key}/card/retest` 在代表候选（repro 来源→最近 supported→最近成员）原任务下按当前修订新建复测并由后端启动（与计划后续共用 `startPinnedSession`），409 archived/false_positive/no_member/in_flight（任何来源未出结论且运行中）/no_model，审计 `vuln.retest_request`（申请记录即审计，不新表），卡片 `retest_request` 段与 lifecycle。
 
-进行中（并行）：**V3 前端**（`var/v3-retest-frontend/task.md`，ds-flash：复测卡“申请复测”真实发起、更多菜单入口、进行中行与打开会话、错误文案）；**V4 运营通知后端**（`var/v4-ops-notify-backend/task.md`，o-latest：企业微信推送待审批〔链接 `/sessions/<研究会话>`，请求摘要遮盖口令〕、计划运行失败、每周一 09:00 摘要；三个开关默认关；不受 require_confirm）。
+**断点（11-22，网关“今日使用额度已达上限”〔400〕，两个执行会话中止，未换型）：**
+- V3 前端：会话 `d026ceef-a1e3-4181-8eec-2db349f2e0f0`，已改未提交（`api.ts`、`VulnCardPage.tsx`、`App.tsx`、i18n、`source-overlay.json`，约 250 行），未构建/未截图。续跑：`scripts/claude-exec-loop.py wangsu-ds-flash-latest v3-fe var/v3-retest-frontend --session d026ceef-a1e3-4181-8eec-2db349f2e0f0`。
+- V4 运营通知后端：会话 `4ee96428-f317-42b2-9d86-6ed37a0835ec`，只读了代码，未改文件。续跑：`scripts/claude-exec-loop.py wangsu-o-latest v4 var/v4-ops-notify-backend --session 4ee96428-f317-42b2-9d86-6ed37a0835ec`（或重新派发）。
+- 两片并行无文件冲突；恢复后先续 V3 前端（有半成品），再 V4。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -96,5 +99,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `v3-fe`（wangsu-ds-flash-latest，日志 `var/v3-retest-frontend/exec.log`）
-- `v4`（wangsu-o-latest，日志 `var/v4-ops-notify-backend/exec.log`）
+无（额度用尽中止，见上方断点）。
