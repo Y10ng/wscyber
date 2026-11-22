@@ -31,3 +31,10 @@ export function formatClock(iso: string | null | undefined): string {
   if (!date) return ''
   return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
 }
+
+/** 'MM-DD HH:mm:ss'（审计表等需要秒级时间）。 */
+export function formatShortDateTimeSeconds(iso: string | null | undefined): string {
+  const date = parse(iso)
+  if (!date) return ''
+  return `${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
+}

@@ -27,6 +27,7 @@ import WebApiAssetsPanel from './components/WebApiAssetsPanel'
 import WebApiUsagePanel from './components/WebApiUsagePanel'
 import WebApiUsageDialog from './components/WebApiUsageDialog'
 import IntegrationsPage from './components/IntegrationsPage'
+import AuditPage from './components/AuditPage'
 import { assetMentionables } from './components/AssetPanel'
 import MentionPicker from './components/MentionPicker'
 import { useObservations } from '@/viewer'
@@ -49,10 +50,10 @@ import { useObservable, WorkbenchSlots } from './runtime/react'
 import type { HubServices } from './runtime/services'
 import type { CapabilityManifest } from './runtime/capabilities'
 
-export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations'
+export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations' | 'audit'
 
-// 已实现页面：总览/任务/资产/漏洞/报告/集成/模型/节点；URL 里出现未实现的占位入口时归一为总览。
-const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'vulns', 'reports', 'models', 'nodes', 'integrations']
+// 已实现页面：总览/任务/资产/漏洞/报告/集成/审计/模型/节点；URL 里出现未实现的占位入口时归一为总览。
+const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'vulns', 'reports', 'models', 'nodes', 'integrations', 'audit']
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
@@ -646,6 +647,17 @@ export default function App({ services }: { services: HubServices }) {
     }
   }, [chat.selectSession])
 
+  // 审计页展开行“打开任务”：按 task_id 解析初始会话后打开（同用量对话框）。
+  const handleOpenAuditTask = useCallback(async (taskID: string) => {
+    if (!taskID) return
+    try {
+      const task = await getWebApiTask(taskID)
+      void chat.selectSession(task.initial_session_id)
+    } catch (err) {
+      setWebApiTaskError(err instanceof Error ? err.message : String(err))
+    }
+  }, [chat.selectSession])
+
   // 全局漏洞页打开任务候选：按 task_id 解析初始会话，再经 pendingFindingIdRef
   // 在任务工作区切到候选视图并定位（同 handleReturnToFinding）。
   const handleOpenTaskFinding = useCallback(async (taskID: string, findingID: string) => {
@@ -1115,6 +1127,20 @@ export default function App({ services }: { services: HubServices }) {
                 ) : (
                   <Page>
                     <PageHeader title={tc('shell.integrationsTitle')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
+                  </Page>
+                )
+              )}
+              {page === 'audit' && (
+                webapiEnabled ? (
+                  <AuditPage
+                    webapiEnabled={webapiEnabled}
+                    onOpenTask={(taskId) => { void handleOpenAuditTask(taskId) }}
+                    onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
+                    onOpenMenu={() => setSidebarOpen(true)}
+                  />
+                ) : (
+                  <Page>
+                    <PageHeader title={tc('shell.navAudit')} onOpenMenu={() => setSidebarOpen(true)} menuLabel={tc('shell.openMenu')} />
                   </Page>
                 )
               )}

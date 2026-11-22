@@ -2786,3 +2786,48 @@ export async function actWebApiNotification(id: string, action: 'confirm' | 'dis
     { method: 'POST' },
   )
 }
+
+// --- 审计（B3，只读）：GET /audit，字段见 native/AUDIT.md ---
+export interface WebApiAuditEvent {
+  id: string
+  at: string
+  actor: 'user' | 'system'
+  action: string
+  target_kind: string
+  target_id: string
+  task_id: string
+  asset_id: string
+  summary: string
+  detail: Record<string, unknown>
+}
+
+export interface WebApiAuditList {
+  items: WebApiAuditEvent[]
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export async function listWebApiAudit(params: {
+  action?: string
+  actor?: 'user' | 'system'
+  task_id?: string
+  asset_id?: string
+  q?: string
+  from?: string
+  to?: string
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiAuditList> {
+  const query = new URLSearchParams()
+  if (params.action) query.set('action', params.action)
+  if (params.actor) query.set('actor', params.actor)
+  if (params.task_id) query.set('task_id', params.task_id)
+  if (params.asset_id) query.set('asset_id', params.asset_id)
+  if (params.q) query.set('q', params.q)
+  if (params.from) query.set('from', params.from)
+  if (params.to) query.set('to', params.to)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiAuditList>(`/api/webapi/audit${suffix ? `?${suffix}` : ''}`, 'Failed to load audit log')
+}

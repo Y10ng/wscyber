@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Boxes, Cpu, FileText, Gauge, LayoutDashboard, ListChecks, LogOut,
-  PanelLeftClose, PanelLeftOpen, Server, ShieldAlert, ShieldCheck, Webhook,
+  PanelLeftClose, PanelLeftOpen, ScrollText, Server, ShieldAlert, ShieldCheck, Webhook,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -52,6 +52,7 @@ const CONFIG_NAV: NavDef[] = [
   { key: 'models', icon: Cpu, labelKey: 'shell.navModels', enabled: true },
   { key: 'nodes', icon: Server, labelKey: 'shell.navNodes', enabled: true, count: 'agents' },
   { key: 'integrations', icon: Webhook, labelKey: 'shell.navIntegrations', enabled: true },
+  { key: 'audit', icon: ScrollText, labelKey: 'shell.navAudit', enabled: true },
 ]
 
 interface AppSidebarProps {
@@ -143,8 +144,8 @@ export default function AppSidebar({
     return null
   }
   // 漏洞计数在有新发现时用红色圆形徽章（NavGroup 内渲染）。
-  // 集成（企业微信推送）依赖 webapi capability；未启用时不显示入口。
-  const configNav = webapiEnabled ? CONFIG_NAV : CONFIG_NAV.filter(item => item.key !== 'integrations')
+  // 集成（企业微信推送）与审计依赖 webapi capability；未启用时不显示入口。
+  const configNav = webapiEnabled ? CONFIG_NAV : CONFIG_NAV.filter(item => item.key !== 'integrations' && item.key !== 'audit')
   // 漏洞 / 报告依赖 webapi capability；未启用时不显示入口。
   const operationsNav = webapiEnabled
     ? OPERATIONS_NAV
