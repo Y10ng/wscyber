@@ -77,13 +77,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 17）：V3 后端（5596eb8）：`POST /vulns/{key}/card/retest` 在代表候选（repro 来源→最近 supported→最近成员）原任务下按当前修订新建复测并由后端启动（与计划后续共用 `startPinnedSession`），409 archived/false_positive/no_member/in_flight（任何来源未出结论且运行中）/no_model，审计 `vuln.retest_request`（申请记录即审计，不新表），卡片 `retest_request` 段与 lifecycle。
 
-进行中（并行，11-22 额度恢复后按断点续跑同一会话）：**V3 前端**（`var/v3-retest-frontend/task.md`，ds-flash，会话 `d026ceef…`，已有约 250 行半成品）；**V4 运营通知后端**（`var/v4-ops-notify-backend/task.md`，o-latest，会话 `4ee96428…`）。
+已提交：V3 前端（b040e66）：复测卡按钮改为真实“申请复测”、更多菜单入口、进行中行与打开会话、10s 自动刷新至结论、五种 409 卡内提示。执行会话演示环境实测：fix on 后申请→进行中→自动转“本次范围内已修复”，lifecycle“申请复测→复测→已修复”；in_flight、误报提示实测。**V3 完成。** 未实测：archived/no_member/no_model 文案（代码核对）。
+
+进行中：**V4 运营通知后端**（`var/v4-ops-notify-backend/task.md`，o-latest，会话 `4ee96428…`，已在写 `notify_ops*.go`）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. V3 → V4（D3 需 SDL 接口文档）。
+1. V4 后端 → V4 前端（集成页开关与运营通知记录）→ D3（需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -96,5 +98,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `v3-fe`（wangsu-ds-flash-latest，日志 `var/v3-retest-frontend/exec.log`）
 - `v4`（wangsu-o-latest，日志 `var/v4-ops-notify-backend/exec.log`）
