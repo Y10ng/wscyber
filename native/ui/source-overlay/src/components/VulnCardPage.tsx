@@ -123,6 +123,9 @@ const NOTIFY_KIND_KEYS: Record<WebApiNotification['kind'], string> = {
   new: 'vulnCard.notifyKindNew',
   regression: 'vulnCard.notifyKindRegression',
   manual: 'vulnCard.notifyKindManual',
+  approval_pending: 'vulnCard.notifyKindApprovalPending',
+  schedule_failed: 'vulnCard.notifyKindScheduleFailed',
+  weekly_digest: 'vulnCard.notifyKindWeeklyDigest',
 }
 
 function retestText(t: (key: string) => string, conclusion: string | null | undefined): string {

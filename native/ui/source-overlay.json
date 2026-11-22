@@ -24,7 +24,7 @@
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "e48f0be929970a77d2fddecb650cf8538f195d3f4446d05bc87f7d53738ab28d"
+      "sha256": "e6f1ea9805655f4f2dd246d3f491705707a17c2312624cc7e074b3b2cbd49e33"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -48,7 +48,7 @@
     },
     "src/components/IntegrationsPage.tsx": {
       "source_sha256": null,
-      "sha256": "4245068bb985580f907f2065bbf438a76186483eb994f860fce6e37cd941d862"
+      "sha256": "fca1206c91fb2cbb0194f37792f062cc5c1e8ff065f9ce3a4047e3daf3a23909"
     },
     "src/components/OverviewPage.tsx": {
       "source_sha256": null,
@@ -228,7 +228,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "3a06fa30f07d81e7f5b1e2af71fa77955c5df85b00da91593be7b4465ae3cfad"
+      "sha256": "3b9ce0870516372093eea8995faf7a40066b21e451f6b6c446cdcc3b640a2ca4"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -244,7 +244,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "99532d606a3508e2214845dfb970eea4b1eadf5c1de3329009e03df2b4f902ab"
+      "sha256": "aadf8f0b775b743b914cfca6641b76467f65dc6030b98a8375c10b71a039e7a7"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
@@ -292,7 +292,7 @@
     },
     "src/components/VulnCardPage.tsx": {
       "source_sha256": null,
-      "sha256": "12181d319632b4cc00e6eceaadb7a58b4e071baf08831b09f378764b605a042b"
+      "sha256": "a4241fc4cbf560538bd44fd1001dc94509484094c6bd652ebcd3fb731d99a89a"
     },
     "src/components/HttpPairBlock.tsx": {
       "source_sha256": null,

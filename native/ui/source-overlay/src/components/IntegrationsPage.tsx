@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, HelpCircle, Inbox, Loader2, RefreshCw } from 'lucide-react'
 import {
-  Button, Callout, Field, Input, Spinner, Switch,
+  Button, Callout, Field, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Switch,
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
@@ -13,12 +13,30 @@ import { usePolling } from '../hooks/usePolling'
 import {
   actWebApiNotification, APIError, getWebApiWecomSettings, listWebApiNotifications,
   saveWebApiWecomSettings, testWebApiWecom,
-  type WebApiNotification, type WebApiNotificationStatus, type WebApiWecomSettings,
+  type WebApiNotification, type WebApiNotificationKind, type WebApiNotificationStatus, type WebApiWecomSettings,
 } from '../api'
 
 const PAGE_LIMIT = 50
 
 type NotificationFilter = 'all' | WebApiNotificationStatus
+type NotificationKindFilter = 'all' | 'vuln' | 'approval_pending' | 'schedule_failed' | 'weekly_digest'
+
+const KIND_LABEL_KEYS: Record<WebApiNotificationKind, string> = {
+  new: 'shell.integrationsKindNew',
+  regression: 'shell.integrationsKindRegression',
+  manual: 'shell.integrationsKindManual',
+  approval_pending: 'shell.integrationsKindApprovalPending',
+  schedule_failed: 'shell.integrationsKindScheduleFailed',
+  weekly_digest: 'shell.integrationsKindWeeklyDigest',
+}
+
+const VULN_KINDS: WebApiNotificationKind[] = ['new', 'regression', 'manual']
+
+function matchesKindFilter(kind: WebApiNotificationKind, filter: NotificationKindFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'vuln') return VULN_KINDS.includes(kind)
+  return kind === filter
+}
 
 interface IntegrationsPageProps {
   onOpenSession: (sessionID: string) => void
@@ -37,6 +55,9 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
   // 表单模型：webhook 只保存新输入；已存值仅在 placeholder 里显示 hint，不回显。
   const [enabled, setEnabled] = useState(false)
   const [requireConfirm, setRequireConfirm] = useState(false)
+  const [notifyApproval, setNotifyApproval] = useState(false)
+  const [notifyScheduleFailed, setNotifyScheduleFailed] = useState(false)
+  const [notifyWeeklyDigest, setNotifyWeeklyDigest] = useState(false)
   const [baseURL, setBaseURL] = useState('')
   const [webhook, setWebhook] = useState('')
   const [clearWebhook, setClearWebhook] = useState(false)
@@ -49,6 +70,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
 
   const [items, setItems] = useState<WebApiNotification[]>([])
   const [filter, setFilter] = useState<NotificationFilter>(presetFilter || 'all')
+  const [kindFilter, setKindFilter] = useState<NotificationKindFilter>('all')
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -71,6 +93,9 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
     setSettings(next)
     setEnabled(next.enabled)
     setRequireConfirm(next.require_confirm)
+    setNotifyApproval(next.notify_approval)
+    setNotifyScheduleFailed(next.notify_schedule_failed)
+    setNotifyWeeklyDigest(next.notify_weekly_digest)
     setBaseURL(next.base_url)
     setWebhook('')
     setClearWebhook(false)
@@ -103,6 +128,10 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
       const body: Parameters<typeof saveWebApiWecomSettings>[0] = {
         enabled,
         require_confirm: requireConfirm,
+        // 集成页始终显式带上三项当前值（契约：省略即保留）。
+        notify_approval: notifyApproval,
+        notify_schedule_failed: notifyScheduleFailed,
+        notify_weekly_digest: notifyWeeklyDigest,
         base_url: baseURL.trim(),
       }
       if (clearWebhook) body.webhook = '-'
@@ -214,6 +243,25 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
     { key: 'dismissed', label: t('shell.integrationsFilterDismissed') },
   ]
 
+  const kindFilterItems: Array<{ key: NotificationKindFilter; label: string }> = [
+    { key: 'all', label: t('shell.integrationsKindFilterAll') },
+    { key: 'vuln', label: t('shell.integrationsKindFilterVuln') },
+    { key: 'approval_pending', label: t('shell.integrationsKindApprovalPending') },
+    { key: 'schedule_failed', label: t('shell.integrationsKindScheduleFailed') },
+    { key: 'weekly_digest', label: t('shell.integrationsKindWeeklyDigest') },
+  ]
+  // 类别只过滤已加载的数据，不改后端查询。
+  const visibleItems = kindFilter === 'all' ? items : items.filter((item) => matchesKindFilter(item.kind, kindFilter))
+
+  // 运营通知没有验证会话：待审批用 session_id，计划失败/每周摘要不显示“打开会话”。
+  const sessionIDOf = (item: WebApiNotification): string => {
+    if (item.kind === 'approval_pending') return item.session_id || ''
+    if (item.kind === 'schedule_failed' || item.kind === 'weekly_digest') return ''
+    return item.verification_session_id
+  }
+  const showSessionButton = (item: WebApiNotification): boolean =>
+    item.kind !== 'schedule_failed' && item.kind !== 'weekly_digest'
+
   const configured = !!settings?.has_webhook
 
   // 说明列：发送时间 / 下次尝试 / 错误。
@@ -296,6 +344,35 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
                 </SettingRow>
               </div>
 
+              {/* 运营通知：独立分组，不受“需人工确认”影响；未启用/无 webhook 时仍可编辑。 */}
+              <div className="border-t border-border pt-3">
+                <div className="text-[12px] font-semibold text-foreground">{t('shell.integrationsOpsTitle')}</div>
+                <div className="mt-2 divide-y divide-border border-y border-border">
+                  <SettingRow
+                    label={t('shell.integrationsOpsApprovalLabel')}
+                    hint={t('shell.integrationsOpsApprovalHint')}
+                    hintClassName="text-[11px]"
+                  >
+                    <Switch checked={notifyApproval} onCheckedChange={setNotifyApproval} disabled={saving} aria-label={t('shell.integrationsOpsApprovalLabel')} />
+                  </SettingRow>
+                  <SettingRow
+                    label={t('shell.integrationsOpsScheduleFailedLabel')}
+                    hint={t('shell.integrationsOpsScheduleFailedHint')}
+                    hintClassName="text-[11px]"
+                  >
+                    <Switch checked={notifyScheduleFailed} onCheckedChange={setNotifyScheduleFailed} disabled={saving} aria-label={t('shell.integrationsOpsScheduleFailedLabel')} />
+                  </SettingRow>
+                  <SettingRow
+                    label={t('shell.integrationsOpsWeeklyDigestLabel')}
+                    hint={t('shell.integrationsOpsWeeklyDigestHint')}
+                    hintClassName="text-[11px]"
+                  >
+                    <Switch checked={notifyWeeklyDigest} onCheckedChange={setNotifyWeeklyDigest} disabled={saving} aria-label={t('shell.integrationsOpsWeeklyDigestLabel')} />
+                  </SettingRow>
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">{t('shell.integrationsOpsNote')}</p>
+              </div>
+
               <Field label={t('shell.integrationsWebhookLabel')}>
                 <div className="flex items-center gap-1.5">
                   <Input
@@ -372,8 +449,18 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
             </div>
           </div>
 
-          <div className="border-b border-border px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
             <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+            <Select value={kindFilter} onValueChange={(value) => setKindFilter(value as NotificationKindFilter)}>
+              <SelectTrigger aria-label={t('shell.integrationsKindFilterLabel')} className="ml-auto h-8 w-[128px] shrink-0 bg-card text-[12px]">
+                <SelectValue placeholder={t('shell.integrationsKindFilterAll')} />
+              </SelectTrigger>
+              <SelectContent>
+                {kindFilterItems.map((item) => (
+                  <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {listError && <p role="status" className="border-b border-border px-4 py-2 text-[12px] text-warning">{t('shell.integrationsLoadFailed', { error: listError })}</p>}
@@ -383,7 +470,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
               <Spinner className="h-5 w-5" />
               {t('shell.loading')}
             </div>
-          ) : items.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center gap-1.5 px-6 text-center text-[13px] text-muted-foreground">
               <Inbox className="mb-1 h-6 w-6 text-muted-foreground/60" aria-hidden />
               <span>{t('shell.integrationsEmpty')}</span>
@@ -392,13 +479,15 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
           ) : (
             <>
               <ul className="divide-y divide-border/70">
-                {items.map((item) => {
+                {visibleItems.map((item) => {
                   const busy = acting !== null && acting.startsWith(`${item.id}:`)
                   const rowConflict = rowError?.id === item.id ? rowError.message : ''
+                  const sessionID = sessionIDOf(item)
                   return (
                     <li key={item.id} className="px-4 py-2.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <NotificationStatusBadge status={item.status} />
+                        <span className="shrink-0 text-[12px] text-muted-foreground">{t(KIND_LABEL_KEYS[item.kind])}</span>
                         <span className="min-w-0 flex-1 truncate text-[13px] text-foreground" title={item.title}>
                           {item.title || item.finding_number || '—'}
                         </span>
@@ -425,24 +514,26 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
                               </Button>
                             </>
                           )}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  aria-label={t('shell.integrationsOpenSession')}
-                                  disabled={!item.verification_session_id || busy}
-                                  onClick={() => onOpenSession(item.verification_session_id)}
-                                  className="text-muted-foreground"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </Button>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('shell.integrationsOpenSession')}</TooltipContent>
-                          </Tooltip>
+                          {showSessionButton(item) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label={t('shell.integrationsOpenSession')}
+                                    disabled={!sessionID || busy}
+                                    onClick={() => onOpenSession(sessionID)}
+                                    className="text-muted-foreground"
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>{t('shell.integrationsOpenSession')}</TooltipContent>
+                            </Tooltip>
+                          )}
                         </span>
                       </div>
                       {(rowConflict || item.status === 'queued' || item.last_error) && (
@@ -455,7 +546,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
                 })}
               </ul>
               <div className="flex h-12 items-center border-t border-border px-4">
-                <span className="text-[12px] text-muted-foreground">{t('shell.integrationsShown', { count: items.length })}</span>
+                <span className="text-[12px] text-muted-foreground">{t('shell.integrationsShown', { count: visibleItems.length })}</span>
                 {hasMore && (
                   <Button
                     type="button"
@@ -479,12 +570,12 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
 }
 
 /** 设置行：标签 + 说明左、控件右。 */
-function SettingRow({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
+function SettingRow({ label, hint, hintClassName, children }: { label: ReactNode; hint?: ReactNode; hintClassName?: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <div className="min-w-0">
         <div className="text-[13px] text-foreground">{label}</div>
-        {hint && <div className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{hint}</div>}
+        {hint && <div className={cn('mt-0.5 text-[12px] leading-relaxed text-muted-foreground', hintClassName)}>{hint}</div>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>

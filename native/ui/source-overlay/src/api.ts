@@ -2691,15 +2691,22 @@ export interface WebApiWecomSettings {
   has_webhook: boolean
   webhook_hint: string
   require_confirm: boolean
+  /** 运营通知：待审批提醒 / 计划运行失败 / 每周摘要（不受 require_confirm 影响）。 */
+  notify_approval: boolean
+  notify_schedule_failed: boolean
+  notify_weekly_digest: boolean
   base_url: string
   updated_at: string | null
 }
 
-/** webhook 省略或 "" 保留原值，"-" 清除。 */
+/** webhook 省略或 "" 保留原值，"-" 清除；运营通知三项省略保留原值。 */
 export interface WebApiWecomSaveInput {
   webhook?: string
   enabled: boolean
   require_confirm: boolean
+  notify_approval?: boolean
+  notify_schedule_failed?: boolean
+  notify_weekly_digest?: boolean
   base_url: string
 }
 
@@ -2727,9 +2734,13 @@ export async function testWebApiWecom(): Promise<WebApiWecomTestResult> {
 
 export type WebApiNotificationStatus = 'pending_confirm' | 'queued' | 'sending' | 'sent' | 'failed' | 'dismissed'
 
+export type WebApiNotificationKind =
+  | 'new' | 'regression' | 'manual'
+  | 'approval_pending' | 'schedule_failed' | 'weekly_digest'
+
 export interface WebApiNotification {
   id: string
-  kind: 'new' | 'regression' | 'manual'
+  kind: WebApiNotificationKind
   status: WebApiNotificationStatus
   dedupe_key: string
   task_id: string
@@ -2737,6 +2748,8 @@ export interface WebApiNotification {
   finding_number: string
   verification_id: string
   verification_session_id: string
+  /** 仅 approval_pending 有值（链接所用研究会话）；其余为空串。 */
+  session_id?: string
   vuln_id: string | null
   title: string
   asset: { id: string; name: string } | null
