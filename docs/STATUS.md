@@ -87,7 +87,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **webapi 事务改 IMMEDIATE** 已完成（09d559f）：盘点 27 个事务入口，修复前仅通知去重登记、手动推送入队两处先读后写会立即 BUSY（两连接测试复现），DSN 加 `_txlock=immediate` 后等待成功；无显式只读事务。
 
-**11-22 用户定方向**：全部存储迁 PostgreSQL 并删除 SQLite（全新开始、不导旧数据），共享库 + tenant_id + RLS，两级角色（管理员/普通用户），外部连接串（开发用本机 PG18）。P0 设计进行中（`var/pg-design/task.md`，o-latest，产出 `native/POSTGRES.md` 与拆片）。
+**11-22 用户定方向**：全部存储迁 PostgreSQL 并删除 SQLite（全新开始、不导旧数据），共享库 + tenant_id + RLS，两级角色（管理员/普通用户），外部连接串（开发用本机 PG18）。P0 设计已完成（4cc8684，`native/POSTGRES.md`：原生存储用 overlay 整文件替换为 PG 版、bun/migrate 基线、tenant_id+RLS、P1–P7 拆片）；用户确认：编号/推送/SLA 按租户、模型全局；用户单租户、管理员可切换；口令登录、密钥只给节点。本机 PG18 已启用并建 `wscyber_dev` 角色与演示/预览库。**部署与更新**（用户：要清晰快捷；Docker+compose 与安装包+systemd 两种都提供；可访问外网）设计进行中（`var/deploy-design/task.md`）。P1 PG 基础设施进行中（`var/p1-pg-infra/task.md`，o-latest）。
 
 **B3 审计页前端**已完成（deb1603）：配置组“审计”，操作者/动作类别/资产/日期/关键词筛选、分页、展开 detail 与打开关联任务/资产。预览已升级到 deb1603（state 已备份）。
 
@@ -95,7 +95,7 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 下一步
 
-1. P0 设计 → P 阶段按拆片实施 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
+1. P1 → P2 → P3（Hub 接 PG，演示全链）→ P4 删 SQLite → 部署与更新 → P5 租户/RLS → P6 登录 → P7 管理界面 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -108,4 +108,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `pg-design`（wangsu-o-latest，日志 `var/pg-design/exec.log`）
+- `p1-pg`（wangsu-o-latest，日志 `var/p1-pg-infra/exec.log`）
+- `deploy-design`（wangsu-o-latest，日志 `var/deploy-design/exec.log`）
