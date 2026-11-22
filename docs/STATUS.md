@@ -71,13 +71,13 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 16）：M5c 后端（b8afb6a，契约 `native/BROWSER.md`）：本项目注册 `playwright`/`katana`（复用上游实现），每会话独立无头 Chromium + 本机中继按调用注入出口令牌，流量经 B2 按任务策略放行/拒绝并记 `tool=browser|katana`；调用间后台请求不发送；绕过参数（--proxy-server/--cdp/--headed/attach、katana -proxy/-chrome-ws-url）拒绝；approval=all 挂起、high_risk 新规则；不运行时下载浏览器。依赖新增 107 模块（许可：MPL-2.0 3、UNKNOWN 1〔chainreactors/neutron〕），经 goproxy.cn 镜像获取、sum.golang.org 校验保留；Hub 二进制 69.8MB→124MB。已知限制：DNS/WebRTC/QUIC 只靠启动参数关闭未逐项验证、WebSocket 内层帧不记录、每会话一个 Chromium 无上限。
 
-已提交 M5c 演示剧本 `browser-demo`（浏览器授权页放行、未授权端口拒绝、katana 放行；Chromium 后台 Google 请求与 katana 的 http://burpsuite/ 尝试均被拒并记录）。进行中：**M5c 前端**（`var/m5c-frontend/task.md` 已写，ds-flash：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、说明文案）。
+已提交 M5c 演示剧本 `browser-demo`（3c9ae4a）与 M5c 前端（aa13303：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、详情工具名与拒绝原文、出口说明文案）。**M5 完成**（子 Agent、多账号对比、浏览器/爬虫）。验收记下两处，已派小修：Chromium 后台 CONNECT（www.google.com 等）占浏览器记录大半〔启动参数缺 `--disable-background-networking`，`var/chrome-noise`，gpt-6-astra〕；工具出口 CONNECT 原文显示为 `CONNECT 443 HTTP/1.1` 丢了主机〔前端把 host:port 当 URL 解析，`var/connect-line`，ds-flash〕。构建脚本 Node 堆 768MB 在 Vite 阶段仍时常 OOM。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. M5c 演示剧本与前端 → D3（需 SDL 接口文档）。
+1. 两个 M5c 小修 → 下一阶段（D3 需 SDL 接口文档；V2–V4、B3 审计页前端、U2e 走查可先做）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -90,4 +90,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `m5c-fe`（wangsu-ds-flash-latest，11-22 启动，日志 `var/m5c-frontend/exec.log`）。
+- `chrome-noise`（gpt-6-astra，日志 `var/chrome-noise/exec.log`）
+- `connect-line`（wangsu-ds-flash-latest，日志 `var/connect-line/exec.log`）
