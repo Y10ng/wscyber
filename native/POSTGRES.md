@@ -353,7 +353,9 @@ echo 'export WSCYBER_TEST_DATABASE_URL=postgres://wscyber_dev:<口令>@127.0.0.1
 - 上游无身份 ctx 视为 system：依赖“所有 `/api/` 请求必须带身份”这一中间件不变量；P6 auth 替换必须保持。
 - 演示/测试依赖本机 PG 运行；PG 未起时测试直接失败（按要求不跳过）。
 
-待用户决定（各附推荐）：
+**决定（11-22）**：第 1、2、5 条用户确认按推荐；第 3、4 条主会话按推荐定。本机 PG18 已按 §7.2 就绪（集群原缺 en_US.UTF-8 locale 无法启动，已 locale-gen 补齐；角色 `wscyber_dev` 非超级用户、无 BYPASSRLS、可建库；库 `wscyber_demo`/`wscyber_preview`；连接串在 `~/.config/wscyber/pg-dev.url`、`pg-test.env`，0600，不入库）。
+
+原待决项（均附推荐）：
 1. **编号与设置的作用域**：推荐漏洞编号**租户内**从 1 递增；企业微信 Webhook、运营通知、SLA **每租户一份**；模型（LLM）配置**全局、仅管理员**可改。
 2. **用户与租户关系**：推荐**一个普通用户只属一个租户**；管理员不属任何租户、可切换进入任一租户操作。
 3. **数据库角色与连接串**：推荐**只要一个连接串**，该角色是库属主但**非超级用户、无 BYPASSRLS**（启动校验），靠 `FORCE ROW LEVEL SECURITY` 约束；不强制拆“迁移角色/运行角色”两个连接串（可选 `--database-migrate-url-file`）。
