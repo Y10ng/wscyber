@@ -71,7 +71,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 16）：M5c 后端（b8afb6a，契约 `native/BROWSER.md`）：本项目注册 `playwright`/`katana`（复用上游实现），每会话独立无头 Chromium + 本机中继按调用注入出口令牌，流量经 B2 按任务策略放行/拒绝并记 `tool=browser|katana`；调用间后台请求不发送；绕过参数（--proxy-server/--cdp/--headed/attach、katana -proxy/-chrome-ws-url）拒绝；approval=all 挂起、high_risk 新规则；不运行时下载浏览器。依赖新增 107 模块（许可：MPL-2.0 3、UNKNOWN 1〔chainreactors/neutron〕），经 goproxy.cn 镜像获取、sum.golang.org 校验保留；Hub 二进制 69.8MB→124MB。已知限制：DNS/WebRTC/QUIC 只靠启动参数关闭未逐项验证、WebSocket 内层帧不记录、每会话一个 Chromium 无上限。
 
-进行中：**M5c 演示剧本**（`var/m5c-demo/task.md`，gpt-6-astra：`browser-demo`）→ **M5c 前端**（`var/m5c-frontend/task.md` 已写，ds-flash：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、说明文案）。
+已提交 M5c 演示剧本 `browser-demo`（浏览器授权页放行、未授权端口拒绝、katana 放行；Chromium 后台 Google 请求与 katana 的 http://burpsuite/ 尝试均被拒并记录）。进行中：**M5c 前端**（`var/m5c-frontend/task.md` 已写，ds-flash：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、说明文案）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -90,4 +90,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `m5c-demo`（gpt-6-astra，11-22 启动，日志 `var/m5c-demo/exec.log`）。
+- `m5c-fe`（wangsu-ds-flash-latest，11-22 启动，日志 `var/m5c-frontend/exec.log`）。
