@@ -35,7 +35,7 @@ export interface ExecutionHttpInfo {
 }
 
 export interface ExecutionBiz {
-  kind: 'http' | 'finding' | 'verification' | 'retest' | 'report'
+  kind: 'http' | 'finding' | 'verification' | 'retest' | 'report' | 'authz_compare'
   /** 结果已到达且非 error；pending 条目以 entry.pending 为准 */
   ok: boolean
   errorMessage?: string
@@ -46,6 +46,8 @@ export interface ExecutionBiz {
   /** verification 的 verdict / retest 的 conclusion 原始枚举 */
   verdict?: string
   reportTitle?: string
+  /** authz_compare 参数中的变体数（不解析结果表格） */
+  variantCount?: number
 }
 
 export interface ExecutionEntry {
@@ -355,6 +357,10 @@ function deriveBiz(
       return { kind: 'retest', ok: !error && hasResult, errorMessage, verdict: str(result?.conclusion) }
     case 'webapi_report_draft':
       return { kind: 'report', ok: !error && hasResult, errorMessage, reportTitle: str(result?.title) || str(args?.title) }
+    case 'webapi_authz_compare': {
+      const variants = Array.isArray(args?.variants) ? args.variants : []
+      return { kind: 'authz_compare', ok: !error && hasResult, errorMessage, variantCount: variants.length }
+    }
     default:
       return undefined
   }

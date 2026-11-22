@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Copy,
   FileText,
+  GitCompare,
   Globe,
   ListChecks,
   Loader2,
@@ -161,6 +162,7 @@ function entryIcon(entry: ExecutionEntry): LucideIcon {
   if (biz?.kind === 'verification') return ShieldCheck
   if (biz?.kind === 'retest') return RefreshCw
   if (biz?.kind === 'report') return FileText
+  if (biz?.kind === 'authz_compare') return GitCompare
   return Wrench
 }
 
@@ -197,6 +199,10 @@ function entrySummary(entry: ExecutionEntry, t: TFunction<'chat'>): string {
     if (entry.pending) return t('webapi.execReportPending')
     if (entry.error) return biz.errorMessage || t('webapi.execReportPending')
     return `${t('webapi.execReportDraft')}：${biz.reportTitle || t('webapi.reportUntitled')}`
+  }
+  // 身份对比只按参数里的变体数给摘要，不解析结果表格。
+  if (biz?.kind === 'authz_compare') {
+    return `${t('webapi.execAuthzCompare')} · ${t('webapi.execAuthzVariants', { count: biz.variantCount ?? 0 })}`
   }
   const args = (entry.argsText || '').replace(/\s+/g, ' ').trim()
   return `${entry.toolName || '?'} ${args.slice(0, 80)}`.trimEnd()

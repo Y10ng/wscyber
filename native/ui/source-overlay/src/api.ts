@@ -660,6 +660,24 @@ export interface WebApiEvidence {
   capture_truncated: boolean
   created_at: string
   completed_at?: string
+  // M5b：证据来源（replay=一键重放，authz_compare=多账号身份对比变体）；普通请求省略。
+  source?: 'replay' | 'authz_compare' | string
+}
+
+export type WebApiAuthzCompareStatus = 'sent' | 'review_required' | 'denied' | 'unknown' | 'error'
+export type WebApiAuthzHint = 'same_as_original' | 'denied' | 'not_found' | 'different' | 'not_sent'
+
+export interface WebApiAuthzCompare {
+  id: string
+  task_id: string
+  session_id: string
+  original_evidence_id: string
+  label: string
+  variant_evidence_id: string
+  status: WebApiAuthzCompareStatus
+  hint: WebApiAuthzHint
+  http_status: number | null
+  created_at: string
 }
 
 export interface WebApiEvidenceList {
@@ -1657,6 +1675,18 @@ export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: s
 
 export async function getWebApiEvidence(taskId: string, evidenceId: string): Promise<WebApiEvidenceDetail> {
   return apiJSON<WebApiEvidenceDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}`, 'Failed to load evidence')
+}
+
+// M5b：身份对比记录（新到旧）。带 evidenceId 时按原请求过滤；不带时返回任务全部（变体反查用）。
+export async function listWebApiAuthzCompares(taskId: string, evidenceId?: string): Promise<{ items: WebApiAuthzCompare[] }> {
+  const query = new URLSearchParams()
+  if (evidenceId) query.set('evidence_id', evidenceId)
+  const suffix = query.toString()
+  return apiJSON<{ items: WebApiAuthzCompare[] }>(
+    `/api/webapi/tasks/${encodeURIComponent(taskId)}/authz-compares${suffix ? `?${suffix}` : ''}`,
+    'Failed to load identity comparisons',
+    { cache: 'no-store' },
+  )
 }
 
 // --- Web/API 候选（finding）只读接口 ---

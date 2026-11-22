@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, ArchiveRestore, HelpCircle, Loader2, Pencil, Plus, RefreshCw, Rocket, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Braces, HelpCircle, Loader2, Pencil, Plus, RefreshCw, Rocket, Trash2 } from 'lucide-react'
 import { newID } from '@cyber/aop'
 import { cn } from '@cyber/theme'
 import {
@@ -52,6 +52,29 @@ interface Props {
 }
 
 const EMPTY_CREDENTIAL: WebApiAssetCredentialInput & { secret: string } = { label: '', username: '', secret: '', note: '' }
+
+// 复制到剪贴板（与流量原件复制同样先试异步 Clipboard API，再回退 execCommand）。
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* 回退 */ }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
+  } catch {
+    return false
+  }
+}
 
 const CRON_PRESETS = [
   { value: '0 2 * * *', key: 'webapi.schedulePresetDaily' },
@@ -774,6 +797,26 @@ function CredentialsSection({ asset, onAsset }: { asset: WebApiAsset; onAsset: (
   const [draft, setDraft] = useState<WebApiAssetCredentialInput & { secret: string }>(EMPTY_CREDENTIAL)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // 复制占位符的行内提示：只保留最近一次，2 秒后消失。
+  const [copiedCred, setCopiedCred] = useState('')
+  const copiedTimer = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+  }, [])
+
+  const copyPlaceholder = async (credential: WebApiAssetCredential) => {
+    if (!credential.has_secret) return
+    const ok = await copyText(`{{cred:${credential.id}.secret}}`)
+    if (!ok) {
+      setError(t('webapi.copyFailed'))
+      return
+    }
+    setError('')
+    setCopiedCred(credential.id)
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopiedCred(''), 2000)
+  }
 
   const beginEdit = (credential: WebApiAssetCredential) => {
     setEditingId(credential.id)
@@ -852,6 +895,11 @@ function CredentialsSection({ asset, onAsset }: { asset: WebApiAsset; onAsset: (
         </Button>
       )}
     >
+      {asset.credentials.length > 0 && (
+        <p className="mb-1 text-[11px] leading-4 text-muted-foreground">
+          {t('webapi.assetCredPlaceholderHint', { placeholder: '{{cred:ID.secret}}' })}
+        </p>
+      )}
       {asset.credentials.length === 0 && editingId !== 'new' ? (
         <p className="py-2 text-[12px] text-muted-foreground">{t('webapi.assetCredEmpty')}</p>
       ) : (
@@ -862,16 +910,32 @@ function CredentialsSection({ asset, onAsset }: { asset: WebApiAsset; onAsset: (
             ) : (
               <li key={credential.id} className="flex min-w-0 items-center gap-2 py-2">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-foreground" title={credential.note || undefined}>
-                    {credential.label || '—'}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-[13px] font-medium text-foreground" title={credential.note || undefined}>
+                      {credential.label || '—'}
+                    </span>
+                    {copiedCred === credential.id && (
+                      <span className="shrink-0 text-[11px] text-emerald-600 dark:text-emerald-400">{t('webapi.assetCredCopiedPlaceholder')}</span>
+                    )}
                   </div>
                   <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
                     <span className="truncate font-mono text-[11px] text-secondary-foreground">{credential.username || '—'}</span>
                     <span aria-hidden>·</span>
-                    <span>{credential.has_secret ? t('webapi.assetCredSecretMasked') : t('webapi.assetCredUnset')}</span>
+                    <span className="shrink-0">{credential.has_secret ? t('webapi.assetCredSecretMasked') : t('webapi.assetCredUnset')}</span>
                   </div>
+                  <div className="min-w-0 truncate select-all font-mono text-[11px] text-muted-foreground" title={credential.id}>ID {credential.id}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button type="button" variant="ghost" size="icon-xs" onClick={() => void copyPlaceholder(credential)} disabled={editingId !== null || !credential.has_secret} aria-label={t('webapi.assetCredCopyPlaceholder')} className="text-muted-foreground">
+                          <Braces className="h-3.5 w-3.5" />
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{credential.has_secret ? t('webapi.assetCredCopyPlaceholder') : t('webapi.assetCredNoSecret')}</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button type="button" variant="ghost" size="icon-xs" onClick={() => beginEdit(credential)} disabled={editingId !== null} aria-label={t('webapi.assetCredEdit')} className="text-muted-foreground">

@@ -16,6 +16,8 @@ import {
   getWebApiReport,
   getWebApiRetest,
   getWebApiVerification,
+  getWebApiAsset,
+  getWebApiTask,
   listAgents,
   listChatEvents,
   listChatSessions,
@@ -41,6 +43,25 @@ import {
 import { findAgentByNode, findWebApiHttpNode, isLocalModelAgent } from '../lib/session-agent'
 import { buildWebApiReportFirstMessage } from '../lib/report-message'
 import { buildWebApiRetestFirstMessage } from '../lib/retest-message'
+import { appendCredentialMessage, buildCredentialMessageLines } from '../lib/credential-message'
+
+// 手动验证/复测首条消息的账号块：父任务有关联资产时读取账号，返回与后端逐字一致的
+// 行。读取失败必须让发起失败（错误可见），不能静默去掉账号块；无资产/无账号返回 []。
+async function credentialLinesForTask(taskID: string, action: string): Promise<string[]> {
+  let task: WebApiTask
+  try {
+    task = await getWebApiTask(taskID)
+  } catch (err) {
+    throw new Error(`读取父任务失败，未发起${action}：${err instanceof Error ? err.message : String(err)}`)
+  }
+  if (!task.asset?.id) return []
+  try {
+    const asset = await getWebApiAsset(task.asset.id)
+    return buildCredentialMessageLines(asset.credentials)
+  } catch (err) {
+    throw new Error(`读取资产测试账号失败，未发起${action}（不会静默去掉账号块）：${err instanceof Error ? err.message : String(err)}`)
+  }
+}
 
 function aopExtension(event: AOPEvent): Record<string, unknown> | undefined {
   for (const extension of event.extensions) {
@@ -1018,6 +1039,8 @@ export function useChatSession() {
     }
     submittingVerifications.current.add(findingKey)
     try {
+      // 父任务关联资产时，首条消息追加测试账号块；资产读取失败则不发起。
+      const credentialLines = await credentialLinesForTask(input.taskID, '独立验证')
       // 冻结发起身份：只在此次显式发起时创建；props 变化不替换未决身份。
       let launch = verificationLaunchRef.current.get(findingKey)
       if (!launch) {
@@ -1066,7 +1089,7 @@ export function useChatSession() {
       await activateSession(session.id, 'push')
 
       // 首条消息用冻结来源 + 父 Task 授权组装；Run 签名稳定，不自动载入原研究全部聊天/原件。
-      const sent = await handleSendMessage(webApiVerificationFirstMessage(launch.origins, launch.source), { sessionID: session.id })
+      const sent = await handleSendMessage(appendCredentialMessage(webApiVerificationFirstMessage(launch.origins, launch.source), credentialLines), { sessionID: session.id })
       if (!sent) throw new Error('已保存验证但启动未完成，请重试；不会重复创建会话或盲发新 Run。')
 
       // 已 accepted：本次发起结束，清除身份与视图；下一次显式点击生成新验证/session。
@@ -1286,6 +1309,8 @@ export function useChatSession() {
     }
     submittingRetests.current.add(findingKey)
     try {
+      // 父任务关联资产时，首条消息追加测试账号块；资产读取失败则不发起。
+      const credentialLines = await credentialLinesForTask(input.taskID, '复测')
       // 冻结发起身份：只在此次显式发起时创建；props 变化不替换未决身份。
       let launch = retestLaunchRef.current.get(findingKey)
       if (!launch) {
@@ -1333,7 +1358,7 @@ export function useChatSession() {
 
       // 首条消息用冻结来源 + 父任务授权组装；后台发送（不激活/不跳转），Run 签名稳定，
       // 不自动载入原研究全部聊天/旧原件。复测历史在候选右栏区块轮询呈现。
-      const sent = await handleSendMessage(buildWebApiRetestFirstMessage(launch.origins, launch.source), { sessionID: session.id })
+      const sent = await handleSendMessage(appendCredentialMessage(buildWebApiRetestFirstMessage(launch.origins, launch.source), credentialLines), { sessionID: session.id })
       if (!sent) throw new Error('已保存复测但启动未完成，请重试；不会重复创建会话或盲发新 Run。')
 
       // 已 accepted：本次发起结束，清除身份与视图；下一次显式点击生成新复测/session。

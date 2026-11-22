@@ -2,6 +2,7 @@ import { CircleDashed, ShieldOff, Sparkles, Wrench, XCircle } from 'lucide-react
 import { useTranslation } from 'react-i18next'
 import { cn } from '@cyber/theme'
 import type {
+  WebApiAuthzHint,
   WebApiNotificationStatus,
   WebApiReplayVerdictHint,
   WebApiTaskListStatus,
@@ -316,6 +317,31 @@ export function ScheduleStateBadge({ enabled, className }: { enabled: boolean; c
     <span className={cn('ws-st-badge', enabled ? 'ws-st-fixed' : 'ws-st-unconfirmed', className)}>
       <span aria-hidden className="ws-st-dot" />
       {t(enabled ? 'webapi.scheduleEnabled' : 'webapi.scheduleDisabled')}
+    </span>
+  )
+}
+
+const AUTHZ_HINT_META: Record<WebApiAuthzHint, { className: string; labelKey: string }> = {
+  same_as_original: { className: 'ws-st-new', labelKey: 'webapi.authzHintSameAsOriginal' },
+  denied: { className: 'ws-st-fixed', labelKey: 'webapi.authzHintDenied' },
+  not_found: { className: 'ws-st-unconfirmed', labelKey: 'webapi.authzHintNotFound' },
+  different: { className: 'ws-st-present', labelKey: 'webapi.authzHintDifferent' },
+  not_sent: { className: 'ws-st-unconfirmed', labelKey: 'webapi.authzHintNotSent' },
+}
+
+/**
+ * 身份对比提示：与原请求相同红 / 被拒绝绿 / 不存在灰 / 有差异琥珀 / 未发送灰。
+ * 只是确定性对比线索，不是越权结论。
+ */
+export function AuthzHintBadge({ hint, className }: {
+  hint?: WebApiAuthzHint | null
+  className?: string
+}) {
+  const { t } = useTranslation('chat')
+  const meta = hint ? AUTHZ_HINT_META[hint] : undefined
+  return (
+    <span className={cn('ws-st-badge', meta?.className || 'ws-st-unconfirmed', className)}>
+      {meta ? t(meta.labelKey) : hint || '—'}
     </span>
   )
 }

@@ -10,11 +10,13 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import {
   getWebApiEgress,
   getWebApiEvidence,
+  listWebApiAuthzCompares,
   listWebApiEgress,
   listWebApiEvidence,
   listWebApiSubsessions,
   webApiEgressImageURL,
   webApiEvidenceImageURL,
+  type WebApiAuthzCompare,
   type WebApiEgressDetail,
   type WebApiEgressItem,
   type WebApiEvidence,
@@ -23,6 +25,7 @@ import {
 } from '../api'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 import HttpPairBlock from './HttpPairBlock'
+import { AuthzHintBadge } from './ui-badges'
 
 interface Props {
   task: WebApiTask
@@ -140,7 +143,29 @@ function SubagentSourceTag({ number }: { number: string }) {
   )
 }
 
-// 状态码按段着色：2xx 绿 / 3xx 蓝 / 4xx 琥珀 / 5xx 红（状态色只作强化，文字仍在）。
+// 证据来源（一键重放 / 多账号身份对比）：样式与上面的子 Agent 标签一致，仅作提示。
+function EvidenceSourceTag({ label, title }: { label: string; title: string }) {
+  return (
+    <span className="ws-st-badge shrink-0 bg-slate-100 px-1.5 text-[10.5px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={title}>
+      {label}
+    </span>
+  )
+}
+
+// 身份对比记录里无变体证据时的状态文案（有证据时显示「查看」）。
+function authzStatusText(t: (key: string) => string, status: WebApiAuthzCompare['status']): string {
+  if (status === 'review_required') return t('webapi.authzStatusReviewRequired')
+  if (status === 'error') return t('webapi.authzStatusError')
+  if (status === 'unknown') return t('webapi.authzStatusUnknown')
+  return status
+}
+
+function authzTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const two = (part: number) => (part < 10 ? `0${part}` : String(part))
+  return `${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`
+}
 function httpStatusTone(code: number): string {
   if (code < 300) return 'text-emerald-600 dark:text-emerald-400'
   if (code < 400) return 'text-blue-600 dark:text-blue-400'
@@ -222,6 +247,12 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   // 失败或接口不可用时静默不标注，不影响流量主流程。
   const [subagentOracleBySession, setSubagentOracleBySession] = useState<Map<string, string>>(() => new Map())
   const subsessionSeq = useRef(0)
+  // 身份对比：进入流量视图时拉一次任务全部记录（变体反查与失败静默）；选中原请求时
+  // 另按 evidence_id 拉取该请求的对比记录。两路都用 seq 防止旧响应覆盖新选择。
+  const [authzAll, setAuthzAll] = useState<WebApiAuthzCompare[]>([])
+  const [authzOriginal, setAuthzOriginal] = useState<WebApiAuthzCompare[]>([])
+  const authzAllSeq = useRef(0)
+  const authzOriginalSeq = useRef(0)
   // 证据图片预览：两个来源共用一个 Dialog，打开时固定 URL 与下载文件名。
   const [imageDialog, setImageDialog] = useState<{ url: string; filename: string } | null>(null)
   const listSeq = useRef(0)
@@ -276,6 +307,9 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     detailSeq.current++
     egressDetailSeq.current++
     copySeq.current++
+    authzAllSeq.current++
+    authzOriginalSeq.current++
+    subsessionSeq.current++
     setItems([])
     setHasMore(false)
     setNextCursor(null)
@@ -296,6 +330,8 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setEgressFlow(null)
     setEgressDetailError('')
     setEgressSegment('all')
+    setAuthzAll([])
+    setAuthzOriginal([])
     void loadList()
   }, [loadList])
 
@@ -306,6 +342,8 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     egressDetailSeq.current++
     copySeq.current++
     subsessionSeq.current++
+    authzAllSeq.current++
+    authzOriginalSeq.current++
   }, [])
 
   // 进入流量视图时读取一次子 Agent 会话（标签只做来源提示；失败静默）。
@@ -323,6 +361,18 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
       })
       .catch(() => { /* 增量标注，失败不报错 */ })
     return () => { subsessionSeq.current++ }
+  }, [task.id])
+
+  // 进入流量视图时拉一次任务全部身份对比记录，只用于变体反查；失败静默不显示。
+  useEffect(() => {
+    const seq = ++authzAllSeq.current
+    setAuthzAll([])
+    listWebApiAuthzCompares(task.id)
+      .then((result) => {
+        if (seq === authzAllSeq.current) setAuthzAll(result.items)
+      })
+      .catch(() => { /* 增量标注，失败不报错 */ })
+    return () => { authzAllSeq.current++ }
   }, [task.id])
 
   const loadDetail = useCallback(async (evidenceId: string) => {
@@ -355,6 +405,43 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setSelectedId(item.evidence_id)
     void loadDetail(item.evidence_id)
   }, [loadDetail])
+
+  // 身份对比查看：变体/原请求证据可能不在当前已加载列表内，仍按 ID 直接读详情。
+  const selectById = useCallback((evidenceId: string) => {
+    setSelectedId(evidenceId)
+    void loadDetail(evidenceId)
+  }, [loadDetail])
+
+  // 选中原请求时，按 evidence_id 拉取该请求的对比记录；失败只隐藏小节，不打断原件查看。
+  const detailEvidenceId = detail?.metadata.evidence_id
+  const detailSource = detail?.metadata.source
+  useEffect(() => {
+    if (!detailEvidenceId || detailSource === 'authz_compare') {
+      authzOriginalSeq.current++
+      setAuthzOriginal([])
+      return
+    }
+    const seq = ++authzOriginalSeq.current
+    setAuthzOriginal([])
+    listWebApiAuthzCompares(task.id, detailEvidenceId)
+      .then((result) => {
+        if (seq === authzOriginalSeq.current) setAuthzOriginal(result.items)
+      })
+      .catch(() => {
+        if (seq === authzOriginalSeq.current) setAuthzOriginal([])
+      })
+    return () => { authzOriginalSeq.current++ }
+  }, [task.id, detailEvidenceId, detailSource])
+
+  const authzOriginalSorted = useMemo(
+    () => [...authzOriginal].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [authzOriginal],
+  )
+  // 变体反查：在已缓存的任务全部记录中按 variant_evidence_id 找原请求；找不到不显示。
+  const authzVariant = useMemo(() => {
+    if (!detailEvidenceId || detailSource !== 'authz_compare') return null
+    return authzAll.find((item) => item.variant_evidence_id === detailEvidenceId) ?? null
+  }, [authzAll, detailEvidenceId, detailSource])
 
   const loadEgressDetail = useCallback(async (flowId: string) => {
     const seq = ++egressDetailSeq.current
@@ -701,6 +788,12 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                                 {subagentOracleBySession.has(item.session_id) && (
                                   <SubagentSourceTag number={subagentOracleBySession.get(item.session_id)!} />
                                 )}
+                                {item.source === 'authz_compare' && (
+                                  <EvidenceSourceTag label={t('webapi.sourceAuthzCompare')} title={t('webapi.sourceAuthzCompareHint')} />
+                                )}
+                                {item.source === 'replay' && (
+                                  <EvidenceSourceTag label={t('webapi.sourceReplay')} title={t('webapi.sourceReplayHint')} />
+                                )}
                               </span>
                             </td>
                             <td className="max-w-0 truncate border-b border-border/40 px-1 font-mono text-[12px] text-foreground" title={host}>
@@ -868,6 +961,35 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                   </Button>
                 </div>
                 <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+                  {authzOriginalSorted.length > 0 && (
+                    <section className="mb-3 rounded-lg border border-border bg-card p-3">
+                      <div className="mb-1.5 text-[12px] font-medium text-foreground">{t('webapi.authzCompareSection', { count: authzOriginalSorted.length })}</div>
+                      <ul className="flex flex-col gap-1">
+                        {authzOriginalSorted.map((item) => (
+                          <li key={item.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+                            <span className="min-w-0 truncate font-medium text-foreground" title={item.label}>{item.label}</span>
+                            <AuthzHintBadge hint={item.hint} />
+                            {item.http_status != null && <span className={cn('font-mono tabular-nums', httpStatusTone(item.http_status))}>{item.http_status}</span>}
+                            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{authzTime(item.created_at)}</span>
+                            {item.variant_evidence_id ? (
+                              <button type="button" onClick={() => selectById(item.variant_evidence_id)} className="rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('webapi.authzView')}</button>
+                            ) : (
+                              <span className="text-muted-foreground">{authzStatusText(t, item.status)}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-[11px] leading-4 text-muted-foreground">{t('webapi.authzCompareDisclaimer')}</p>
+                    </section>
+                  )}
+                  {authzVariant && (
+                    <section className="mb-3 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-card px-3 py-2 text-[12px]">
+                      <span className="min-w-0 truncate text-foreground" title={authzVariant.label}>{t('webapi.authzVariantPrefix', { label: authzVariant.label })}</span>
+                      <span aria-hidden className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">{t('webapi.authzVariantOriginal')}</span>
+                      <button type="button" onClick={() => selectById(authzVariant.original_evidence_id)} className="rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('webapi.authzView')}</button>
+                    </section>
+                  )}
                   <HttpPairBlock
                     view={view}
                     loading={false}
