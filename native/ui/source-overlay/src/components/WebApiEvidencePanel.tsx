@@ -24,7 +24,7 @@ import {
   type WebApiTask,
 } from '../api'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
-import HttpPairBlock from './HttpPairBlock'
+import HttpPairBlock, { requestTargetText } from './HttpPairBlock'
 import { decodeEvidenceFlow } from './WebApiEvidenceReference'
 import { AuthzHintBadge } from './ui-badges'
 
@@ -45,7 +45,7 @@ function decodeFlow(base64: string): TrafficFlow {
 // 这是经过 TrafficHttpView 文本适配的「展示文本」重建，不是逐字节线上报文。
 function viewToRawText(view: TrafficHttpView): string {
   const lines: string[] = []
-  lines.push(`${view.request.method} ${view.request.requestTarget} ${view.request.httpVersion}`.trim())
+  lines.push(`${view.request.method} ${requestTargetText(view)} ${view.request.httpVersion}`.trim())
   for (const [key, value] of view.request.headers) lines.push(`${key}: ${value}`)
   if (view.request.body) { lines.push(''); lines.push(view.request.body) }
   if (view.response) {

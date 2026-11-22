@@ -51,15 +51,28 @@ export function useEvidenceHttpView(taskId: string, evidenceId: string, masked =
   return { view, loading, error, reload: load }
 }
 
-/** 去掉 origin，仅保留路径与查询串；非法 URL 原样返回。 */
+// CONNECT 的 url 是 authority 形式（host:port，没有 scheme）：new URL() 会把
+// 点号主机误当 scheme、把端口当 pathname（如 www.google.com:443 → 443），故不解析。
+const URL_WITH_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i
+const AUTHORITY_FORM = /^[^\s/?#]+:\d+$/
+
+/** 去掉 origin，仅保留路径与查询串；authority 形式与非法 URL 原样返回。 */
 export function displayPath(url: string): string {
   if (!url) return ''
+  if (!URL_WITH_SCHEME.test(url)) return url
   try {
     const parsed = new URL(url)
     return `${parsed.pathname}${parsed.search}` || '/'
   } catch {
     return url
   }
+}
+
+/** 请求目标显示：CONNECT 用原始 authority（host:port），其余沿用适配层解析结果。 */
+export function requestTargetText(view: TrafficHttpView | null): string {
+  if (!view) return ''
+  if (view.request.method.toUpperCase() === 'CONNECT' && AUTHORITY_FORM.test(view.url)) return view.url
+  return view.request.requestTarget
 }
 
 function maskHeader(name: string, value: string, masked: boolean): string {
@@ -70,7 +83,7 @@ function maskHeader(name: string, value: string, masked: boolean): string {
 export function rawRequestText(view: TrafficHttpView | null, masked: boolean): string {
   if (!view) return ''
   const { request } = view
-  const start = `${request.method} ${request.requestTarget} ${request.httpVersion}`.trim()
+  const start = `${request.method} ${requestTargetText(view)} ${request.httpVersion}`.trim()
   const headers = request.headers.map(([name, value]) => `${name}: ${maskHeader(name, value, masked)}`)
   const lines = [start, ...headers]
   if (request.body) lines.push('', request.body)
@@ -255,7 +268,7 @@ export default function HttpPairBlock({
   if (!view) return null
 
   const { request, response } = view
-  const requestStart = `${request.method} ${request.requestTarget} ${request.httpVersion}`.trim()
+  const requestStart = `${request.method} ${requestTargetText(view)} ${request.httpVersion}`.trim()
 
   const clipLine = (line: Line): Line => {
     const chars = Array.from(line.text)
@@ -425,7 +438,7 @@ export default function HttpPairBlock({
       <span className="shrink-0 rounded bg-blue-600 px-1.5 py-px text-[10px] font-semibold text-white">
         {request.method || 'REQ'}
       </span>
-      <span className="min-w-0 truncate text-foreground" title={request.requestTarget}>{request.requestTarget}</span>
+      <span className="min-w-0 truncate text-foreground" title={requestTargetText(view)}>{requestTargetText(view)}</span>
     </>
   )
 
