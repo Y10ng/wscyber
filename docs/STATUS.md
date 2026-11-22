@@ -89,13 +89,13 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **11-22 用户定方向**：全部存储迁 PostgreSQL 并删除 SQLite（全新开始、不导旧数据），共享库 + tenant_id + RLS，两级角色（管理员/普通用户），外部连接串（开发用本机 PG18）。P0 设计进行中（`var/pg-design/task.md`，o-latest，产出 `native/POSTGRES.md` 与拆片）。
 
-进行中：**B3 审计页前端**（`var/b3-audit-frontend/task.md`，ds-flash）。
+**B3 审计页前端**已完成（deb1603）：配置组“审计”，操作者/动作类别/资产/日期/关键词筛选、分页、展开 detail 与打开关联任务/资产。预览已升级到 deb1603（state 已备份）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. B3 审计页前端 → P0 设计 → P 阶段按拆片实施 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
+1. P0 设计 → P 阶段按拆片实施 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -108,5 +108,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `b3-fe`（wangsu-ds-flash-latest，日志 `var/b3-audit-frontend/exec.log`）
 - `pg-design`（wangsu-o-latest，日志 `var/pg-design/exec.log`）
