@@ -59,7 +59,7 @@
 
 ## 命名子 Agent `oracle_explorer`
 
-- 工具白名单：`webapi_http`、`webapi_finding`、`webapi_board_read|map|fact|oracle`（包装执行器：定义只列白名单，其它名字执行即报错；bash/终端/subagent/文件工具都不可用）。
+- 工具白名单：`webapi_http`、`webapi_authz_compare`、`webapi_finding`、`webapi_board_read|map|fact|oracle`（包装执行器：定义只列白名单，其它名字执行即报错；bash/终端/subagent/文件工具都不可用）。多账号占位符与对比存证见 `native/AUTHZ.md`。
 - 系统提示词 = 上游 `main.system` 骨架（经 `PromptResolver`）→ `injectScenarioPrompt`（与研究会话同一构建函数：本项目身份段 + 授权与边界〔按 scope〕+ 黑板纪律 + 证据标准 + 场景方法 + 完成标准）+ `oracleExplorerPromptTemplate`（`## 子 Agent：oracle_explorer`：只负责 O-NNN、先读黑板、最少请求证实/证伪、成立先 `webapi_finding` 再 close holds、结束前必须 close 或 drop 并写 summary、最终回复一句结论）。
 - 首条输入 = `请探索 Oracle O-NNN（你只负责这一个）。` + 问题、类别、优先级、端点 + `研究会话补充说明：<prompt 去掉编号后的余下文本>`。
 - 不开 Goal 模式（上游子会话 SingleTask，单次 Run）。资源约束：每个子会话最多 `maxOracleExplorerModelCalls = 24` 次模型请求；`ModelRequestPolicy` 从第 25 次起 Deny，文案为“子 Agent 模型调用已达上限 24 次，停止；Oracle 未结案将退回 open”。计数在进程内按 session 保存，SessionEnd 清除；不使用会被上游 Continue Run 覆盖的 `cfg.MaxTurns`。拒绝按上游语义结束子会话（stop_reason=error），照常释放未结案 Oracle；研究/验证/复测/报告会话不受此计数影响。

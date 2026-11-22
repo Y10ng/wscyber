@@ -370,6 +370,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/tasks/{id}/egress", Handler: http.HandlerFunc(c.handleEgressList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/egress/{flow_id}", Handler: http.HandlerFunc(c.handleEgressGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/egress/{flow_id}/image.png", Handler: http.HandlerFunc(c.handleEgressImage)},
+		{Pattern: "GET /api/webapi/tasks/{id}/authz-compares", Handler: http.HandlerFunc(c.handleAuthzCompareList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/subsessions", Handler: http.HandlerFunc(c.handleSubsessionList)},
 		{Pattern: "GET /api/webapi/tasks/{id}/board", Handler: http.HandlerFunc(c.handleBoardGet)},
 		{Pattern: "GET /api/webapi/tasks/{id}/board/endpoints", Handler: http.HandlerFunc(c.handleBoardEndpoints)},

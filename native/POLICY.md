@@ -6,7 +6,7 @@
 - `approval`：`off` | `high_risk`（默认）| `all`。
   - high_risk：`webapi_http` 命中 `policy.go requestReview`（DELETE、路径/查询/方法覆盖头/正文破坏性信号）；`bash` 命令命中 `webapi/command_rules.go` 规则表：rm -r/-f、mkfs/wipefs/shred/mkswap、dd of=/dev/…、重定向写块设备、shutdown/reboot/halt/poweroff/init 0|6/systemctl reboot…、SQL DROP/TRUNCATE/DELETE FROM、curl/wget DELETE 或破坏性信号、find -delete；穿透 sudo/env/xargs/timeout 等包装、find -exec、sh/bash -c、eval、tmux send-keys。命令名为动态展开、或高危类程序参数含动态展开（无法静态核对）也要求审批。
   - all：以上 + `webapi_http` 全部非 GET/HEAD/OPTIONS + 全部 `bash` + `write`。
-  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）；`subagent` 只放行任务研究会话派出的命名子 Agent `oracle_explorer`（平台钩子 `wscyber-webapi-subagent`：须 async/sync、prompt 以 open Oracle 编号开头、同任务 ≤3 个；匿名/fork/其它名字/非研究会话一律拒绝，见 `native/SUBAGENT.md`），子会话按所属任务同样受本策略、审批与出口约束；tmux 在模型节点本就拒绝。
+  - 不审批：`read`/`ls`/`glob`、平台结果工具（`webapi_finding`、`webapi_verification_result`、`webapi_report_draft`、`webapi_retest_result`，只写平台库）、`webapi_authz_compare` 工具本身；compare 的每个变体仍逐个执行与 `webapi_http` 相同的 origin/危险请求判定，需审批的变体不发送、只记 `review_required` 并提示改用 `webapi_http` 走人工审批（见 `native/AUTHZ.md`）；`subagent` 只放行任务研究会话派出的命名子 Agent `oracle_explorer`（平台钩子 `wscyber-webapi-subagent`：须 async/sync、prompt 以 open Oracle 编号开头、同任务 ≤3 个；匿名/fork/其它名字/非研究会话一律拒绝，见 `native/SUBAGENT.md`），子会话按所属任务同样受本策略、审批与出口约束；tmux 在模型节点本就拒绝。
 
 ## 审批机制
 

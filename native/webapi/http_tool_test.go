@@ -76,7 +76,7 @@ func newHTTPToolFixture(t *testing.T, handler http.Handler) (*Capability, *httpT
 		t.Fatal(err)
 	}
 	inv := operation.Invocation{SessionID: outcome.Task.InitialSessionID, TurnID: "turn-1", CallID: "call-1"}
-	return capability, &httpTool{store: capability.store}, outcome.Task, inv, &count, database
+	return capability, &httpTool{store: capability.store, secrets: capability.secrets}, outcome.Task, inv, &count, database
 }
 
 func originOf(t *testing.T, raw string) string {

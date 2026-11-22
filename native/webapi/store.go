@@ -57,7 +57,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil), (*taskScenarioModel)(nil), (*assetScenarioModel)(nil), (*taskExploreModel)(nil), (*assetExploreModel)(nil), (*replayModel)(nil), (*subagentReservationModel)(nil), (*taskSubsessionModel)(nil), (*subsessionUsageModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil), (*taskScenarioModel)(nil), (*assetScenarioModel)(nil), (*taskExploreModel)(nil), (*assetExploreModel)(nil), (*replayModel)(nil), (*subagentReservationModel)(nil), (*taskSubsessionModel)(nil), (*subsessionUsageModel)(nil), (*authzCompareModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -100,6 +100,7 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_subagent_reservations":  {"parent_session_id", "parent_call_id", "task_id", "oracle_id", "created_at"},
 			"webapi_task_subsessions":       {"session_id", "task_id", "parent_session_id", "parent_call_id", "oracle_id", "agent_name", "status", "stop_reason", "error", "created_at", "ended_at"},
 			"webapi_subsession_usage":       {"id", "session_id", "task_id", "model", "input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_write_tokens", "created_at"},
+			"webapi_authz_compares":         {"id", "task_id", "session_id", "original_evidence_id", "label", "variant_evidence_id", "status", "hint", "http_status", "created_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -139,6 +140,8 @@ func SchemaModule() webservice.SchemaModule {
 			{Model: (*replayModel)(nil), Name: "webapi_replays_vuln_created", Expr: "vuln_key, created_at DESC, id DESC"},
 			{Model: (*taskSubsessionModel)(nil), Name: "webapi_task_subsessions_task_created", Expr: "task_id, created_at DESC"},
 			{Model: (*subsessionUsageModel)(nil), Name: "webapi_subsession_usage_task_created", Columns: []string{"task_id", "created_at"}},
+			{Model: (*authzCompareModel)(nil), Name: "webapi_authz_compares_task_created", Expr: "task_id, created_at DESC"},
+			{Model: (*authzCompareModel)(nil), Name: "webapi_authz_compares_original", Columns: []string{"original_evidence_id"}},
 		},
 	}
 }

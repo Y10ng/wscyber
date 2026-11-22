@@ -50,7 +50,7 @@ const (
 )
 
 var (
-	oracleExplorerTools  = []string{"webapi_http", "webapi_finding", "webapi_board_read", "webapi_board_map", "webapi_board_fact", "webapi_board_oracle"}
+	oracleExplorerTools  = []string{"webapi_http", "webapi_authz_compare", "webapi_finding", "webapi_board_read", "webapi_board_map", "webapi_board_fact", "webapi_board_oracle"}
 	oraclePromptToken    = regexp.MustCompile(`^[Oo]-([0-9]{1,9})$`)
 	errNoSubagentReserve = errors.New("无平台预占")
 )

@@ -316,7 +316,7 @@ func (c *Capability) admitTool(ctx, lifetime context.Context, stream *events.Str
 	var pendingHTTP *httpPlan
 	switch name {
 	case "webapi_http":
-		plan := planHTTP(ctx, c.store, inv, arguments)
+		plan := planHTTP(ctx, c.store, c.secrets, inv, arguments)
 		if plan == nil || plan.task == nil || plan.outOfScope {
 			return toolhooks.Admission{}, nil // 工具自身按现有规则拒绝并如实记录。
 		}
@@ -441,13 +441,21 @@ type httpPlan struct {
 	outOfScope bool
 }
 
-func planHTTP(ctx context.Context, store *taskStore, inv operation.Invocation, arguments string) *httpPlan {
+func planHTTP(ctx context.Context, store *taskStore, secrets *secretBox, inv operation.Invocation, arguments string) *httpPlan {
 	args, err := coretool.ParseArgs[httpToolArguments](arguments)
 	if err != nil {
 		return nil
 	}
 	task, err := store.taskForSession(ctx, inv.SessionID)
 	if err != nil || task == nil {
+		return nil
+	}
+	resolver, err := loadCredentialResolver(ctx, store, secrets, task.ID)
+	if err != nil {
+		return nil
+	}
+	args, err = resolver.resolveHTTPArguments(args)
+	if err != nil {
 		return nil
 	}
 	policy, err := store.policyForTask(ctx, task.ID)

@@ -46,7 +46,12 @@ const scenarioPentestMethod = `## 研究场景：Web/API 渗透测试
 3. 按端点建 Oracle：对地图中每个端点，按其参数与语义从以下类别中选适用的提出 Oracle——访问控制（未授权、水平/垂直越权、对象 ID 可枚举）、认证与会话、输入处理（注入类、反序列化、模板、路径）、服务端请求（SSRF、外部资源获取）、文件（上传、下载、路径）、业务逻辑（状态绕过、数量/价格/次数限制、重复提交）、信息泄露（调试信息、敏感字段、配置）、安全配置（CORS、缓存、响应头仅在有实际影响时）。
 4. 优先级：能导致他人数据读写、权限提升、代码/命令执行的为 high；需要条件组合的为 medium；配置与信息类为 low。
 5. 逐个推进 high → medium → low；每个 Oracle 取证后结案。
-6. 收尾：复查 summary 中“无 Oracle 引用的端点”，补齐或说明不适用；同一根因的多个入口合并为一个候选并列出全部入口。`
+6. 收尾：复查 summary 中“无 Oracle 引用的端点”，补齐或说明不适用；同一根因的多个入口合并为一个候选并列出全部入口。
+
+多账号越权对比：
+- 有多个账号时分别登录取得会话；口令只用凭据占位符，不填写明文。
+- 对读取或修改他人资源的请求，用 webapi_authz_compare 以其他账号与匿名身份对比。
+- same_as_original 只是线索，须确认返回的是他人数据而非公共数据；hint 不是漏洞结论。`
 
 const scenarioAutonomousMethod = `## 研究场景：自主研究
 
@@ -145,7 +150,7 @@ const oracleExplorerPromptTemplate = `## 子 Agent：oracle_explorer
 - 先读黑板（` + "`webapi_board_read summary`" + ` 与相关事实），再用尽量少的请求证实或证伪 %[1]s。
 - 成立：先用 ` + "`webapi_finding`" + ` 保存候选，再 ` + "`webapi_board_oracle close`" + ` status=holds 并关联 finding_id 与证据；不成立：close refuted 并引用证据；无法推进：close blocked 写明原因；不值得继续：drop 写明原因。
 - 结束前必须对 %[1]s 执行 close 或 drop 并写 summary；未结案就结束时平台会把它退回 open。
-- 你只能使用 webapi_http、webapi_finding 与黑板工具；同样受任务授权范围、测试策略与人工审批约束。
+- 你只能使用 webapi_http、webapi_authz_compare、webapi_finding 与黑板工具；同样受任务授权范围、测试策略与人工审批约束。
 - 最终回复只写一句结论（例如“%[1]s 成立，候选 WSC-000012”或“%[1]s 不成立：……”），它会作为完成通知交给研究会话。`
 
 func oracleExplorerSystemPrompt(number string) string {

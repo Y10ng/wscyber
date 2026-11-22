@@ -496,38 +496,17 @@ func webAPIFirstMessage(task *Task) []string {
 	return append(lines, "", "提示：需要发送 HTTP 请求时，优先使用 webapi_http 工具以留存请求/响应证据（此提示不构成额外授权）。")
 }
 
-// assetFirstMessage = 前端首条消息 + 测试账号块（发起时解密，只进首条消息）+ 禁止行为块。
+// assetFirstMessage = 前端首条消息 + 测试账号占位符块 + 禁止行为块。
+// 有 secret 的账号仍先解密一次（credentialResolver），但不把明文写进消息；密钥缺失/损坏仍在 first_message 阶段失败。
 func (c *Capability) assetFirstMessage(ctx context.Context, asset *assetModel, task *Task) (string, error) {
 	lines := webAPIFirstMessage(task)
-	credentials, err := c.store.assetCredentials(ctx, asset.ID)
+	resolver, err := loadCredentialResolverForAsset(ctx, c.store, c.secrets, asset.ID)
 	if err != nil {
-		return "", errors.New("读取测试账号失败")
+		return "", err
 	}
-	if items := credentials[asset.ID]; len(items) > 0 {
-		lines = append(lines, "", "测试账号（资产登记，仅用于上述授权范围内的测试）：")
-		for _, item := range items {
-			fields := []string{}
-			if item.Label != "" {
-				fields = append(fields, "名称："+item.Label)
-			}
-			if item.Username != "" {
-				fields = append(fields, "用户名："+item.Username)
-			}
-			if item.SecretCipher != "" {
-				aead, err := c.secrets.load(false)
-				if err != nil {
-					return "", err
-				}
-				secret, err := openSecret(aead, asset.ID, item.ID, item.SecretCipher)
-				if err != nil {
-					return "", err
-				}
-				fields = append(fields, "密码："+secret)
-			}
-			if len(fields) > 0 {
-				lines = append(lines, "- "+strings.Join(fields, "；"))
-			}
-		}
+	if accounts := resolver.credentialMessageLines(); len(accounts) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, accounts...)
 	}
 	if forbidden := strings.TrimSpace(asset.Forbidden); forbidden != "" {
 		lines = append(lines, "", "禁止行为（提示词约束，非拦截）：", forbidden)

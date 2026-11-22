@@ -409,8 +409,8 @@ func TestWebAPIAssetLaunchTask(t *testing.T) {
 		"HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：", "- http://example.test", "- https://api.example.test", "",
 		"提示：需要发送 HTTP 请求时，优先使用 webapi_http 工具以留存请求/响应证据（此提示不构成额外授权）。", "",
 		"测试账号（资产登记，仅用于上述授权范围内的测试）：",
-		"- 名称：管理员；用户名：admin@example.test；密码：" + assetTestSecret,
-		"- 名称：只读；用户名：viewer@example.test", "",
+		"- 名称：管理员；用户名：admin@example.test；凭据 ID：c1；口令：用占位符 {{cred:c1.secret}}（平台发送时替换，你看不到明文）",
+		"- 名称：只读；用户名：viewer@example.test；凭据 ID：c2", "",
 		"禁止行为（提示词约束，非拦截）：", "不要删除库存数据",
 	}, "\n")
 	if text != want {

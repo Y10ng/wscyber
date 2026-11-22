@@ -310,7 +310,7 @@ func TestSubagentSubsessionAttribution(t *testing.T) {
 		t.Fatalf("taskForSession(child) = %+v %v", task, err)
 	}
 	// webapi_http：授权内发送、存证 session 为子会话；越界拒绝且 0 发送。
-	webHTTP := &httpTool{store: f.cap.store, approvals: f.cap.approvals}
+	webHTTP := &httpTool{store: f.cap.store, secrets: f.cap.secrets, approvals: f.cap.approvals}
 	out := f.tool(webHTTP, child, fmt.Sprintf(`{"method":"GET","url":"%s/orders/1"}`, f.target.URL))
 	var evidence map[string]any
 	if err := json.Unmarshal([]byte(out), &evidence); err != nil || evidence["status"] != requestCompleted || evidence["session_id"] != "child-a" {
@@ -400,7 +400,7 @@ func TestSubagentApprovalVisibleThroughParent(t *testing.T) {
 	child := operation.Invocation{SessionID: "child-a", TurnID: "turn-child", CallID: "post-1"}
 	done := make(chan string, 1)
 	go func() {
-		webHTTP := &httpTool{store: f.cap.store, approvals: f.cap.approvals}
+		webHTTP := &httpTool{store: f.cap.store, secrets: f.cap.secrets, approvals: f.cap.approvals}
 		result, err := f.h.execute(context.Background(), child, "webapi_http", fmt.Sprintf(`{"method":"POST","url":"%s/orders","body":"{}"}`, f.target.URL), webHTTP.Execute)
 		done <- coretool.ResultText(result) + fmt.Sprint(err)
 	}()

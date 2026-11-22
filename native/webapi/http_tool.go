@@ -44,6 +44,7 @@ type httpToolArguments struct {
 
 type httpTool struct {
 	store     *taskStore
+	secrets   *secretBox
 	approvals *approvalRuntime // 为空时视为无人批准：需审批的请求一律记 review_required，0发送。
 }
 
@@ -52,7 +53,10 @@ func (c *Capability) ToolExtension() extension.Extension {
 	var subscriptions []*corehooks.Subscription
 	return extension.Func{
 		LoadFunc: func(scope *extension.Scope) error {
-			if err := extension.Add[coretool.Tool](scope, &httpTool{store: c.store, approvals: c.approvals}); err != nil {
+			if err := extension.Add[coretool.Tool](scope, &httpTool{store: c.store, secrets: c.secrets, approvals: c.approvals}); err != nil {
+				return err
+			}
+			if err := extension.Add[coretool.Tool](scope, &authzCompareTool{store: c.store, secrets: c.secrets}); err != nil {
 				return err
 			}
 			if err := extension.Add[coretool.Tool](scope, &findingTool{store: c.store}); err != nil {
@@ -108,10 +112,10 @@ func (c *Capability) ToolExtension() extension.Extension {
 
 func (*httpTool) Name() string { return "webapi_http" }
 func (*httpTool) Description() string {
-	return "Send an actual HTTP(S) request within the current saved task's authorized origins and retain bounded request/response evidence. Never use it for unauthorized hosts."
+	return "Send an actual HTTP(S) request within the current saved task's authorized origins and retain bounded request/response evidence. URL, header values and body support {{cred:<credential_id>.username}} and {{cred:<credential_id>.secret}} for credentials of the task asset. Never use it for unauthorized hosts."
 }
 func (*httpTool) Definition() *aop.ToolDefinition {
-	return coretool.Def("webapi_http", "在已保存任务的明确origin授权内发送一次具体HTTP请求；禁止自报task/session/授权，结果提供有界预览与证据ID。", httpToolArguments{})
+	return coretool.Def("webapi_http", "在已保存任务的明确origin授权内发送一次具体HTTP请求；url、headers值、body可用本任务资产账号占位符 {{cred:<id>.username}} 与 {{cred:<id>.secret}}，平台发送前替换，工具结果回替 secret；禁止自报task/session/授权，结果提供有界预览与证据ID。", httpToolArguments{})
 }
 
 func buildHTTPRequest(method, rawURL string, headers map[string]string, body []byte) (*http.Request, error) {
@@ -275,26 +279,39 @@ func (t *httpTool) Execute(ctx context.Context, arguments string) (*aop.ToolResu
 	if err != nil || task == nil {
 		return stopTool("session无已保存任务授权；0发送"), nil
 	}
+	resolver, err := loadCredentialResolver(ctx, t.store, t.secrets, task.ID)
+	if err != nil {
+		return stopTool("读取测试账号或密钥失败，无法解析占位符或回替工具结果；0发送"), nil
+	}
+	finish := func(result *aop.ToolResult) (*aop.ToolResult, error) {
+		return redactToolResult(result, resolver), nil
+	}
+	args, err = resolver.resolveHTTPArguments(args)
+	if err != nil {
+		return finish(stopTool(err.Error() + "；0发送"))
+	}
 	// 测试策略每次调用现读，保存即生效；只由人经鉴权 API 设置。
 	policy, err := t.store.policyForTask(ctx, task.ID)
 	if err != nil {
-		return stopTool("无法读取任务测试策略；0发送"), nil
+		return finish(stopTool("无法读取任务测试策略；0发送"))
 	}
 	body := []byte(args.Body)
 	req, err := buildHTTPRequest(args.Method, args.URL, args.Headers, body)
 	if err != nil {
-		return stopTool(err.Error() + "；0发送"), nil
+		return finish(stopTool(err.Error() + "；0发送"))
 	}
 	switch decision, reason := httpPolicyDecision(policy, task.Origins, req, args.Headers, body); decision {
 	case "denied":
-		return t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason)
+		result, _ := t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason)
+		return finish(result)
 	case "review_required":
 		// 审批由原生 tool.before 挂起处理；这里只拒绝未经人工批准却需审批的调用（如无审批扩展的装配）。
 		if !t.approvals.isApproved(inv) {
-			return t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason+"；未经人工审批")
+			result, _ := t.recordUnsent(ctx, inv, task.ID, req, body, decision, reason+"；未经人工审批")
+			return finish(result)
 		}
 	}
-	return httpSendResult(requestRecorder{store: t.store, inv: inv, taskID: task.ID}.send(ctx, req, body)), nil
+	return finish(httpSendResult(requestRecorder{store: t.store, inv: inv, taskID: task.ID}.send(ctx, req, body)))
 }
 
 // httpPolicyDecision 是 webapi_http 与一键重放共用的发送前判定（策略由调用方每次现读）：
@@ -536,7 +553,7 @@ type Evidence struct {
 	CaptureTruncated bool   `json:"capture_truncated"`
 	CreatedAt        string `json:"created_at"`
 	CompletedAt      string `json:"completed_at,omitempty"`
-	// Source 只对一键重放记录为 "replay"（session_id 为合成值 replaySessionID，见 replay.go）；模型调用省略。
+	// Source：一键重放为 replay（合成 session），越权对比为 authz_compare（call_id 前缀）；普通模型调用省略。
 	Source string `json:"source,omitempty"`
 }
 
@@ -549,6 +566,9 @@ func evidenceMetadata(model requestModel) Evidence {
 	}
 	if model.SessionID == replaySessionID {
 		e.Source = evidenceSourceReplay
+	}
+	if strings.HasPrefix(model.CallID, authzCompareCallPrefix) {
+		e.Source = evidenceSourceAuthz
 	}
 	return e
 }

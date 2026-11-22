@@ -9,13 +9,13 @@
 - 密文：AES-256-GCM（AAD 绑定 asset_id+credential_id），列存 `v1:base64(nonce‖密文)`。密钥 `<state-dir>/webapi-secrets.key`（与 hub.sqlite 同目录，64 位 hex，0600 普通文件，首次写 secret 时 `O_EXCL` 生成）。库中已有密文而密钥缺失：写新 secret 与发起任务均报“密钥文件缺失…不会生成新密钥覆盖”，原密文保留；权限非 0600 拒用。
 - `PUT /assets/{id}/tasks/{task_id}` `{objective?, scope?, approval?}`（可空体）= Go `(*Capability).LaunchAssetTask(ctx, assetID, taskID, AssetLaunchOptions)`：
   1. 单事务建任务（known_info＝资产已知信息 + “环境：/负责人：”行，三者都为空时为 `资产：<名称>`；objective 缺省用资产；origins 用资产）+ 写策略（缺省资产默认，含变更记录）+ `webapi_asset_tasks` 关联。task_id 已被非本资产任务占用 409。
-  2. 首条消息 = 前端 `webApiFirstMessage` 原文 + “测试账号”块（发起时解密 名称/用户名/密码，只进 Run 输入，不写 webapi_tasks）+ “禁止行为（提示词约束，非拦截）”块。
+  2. 首条消息 = 前端 `webApiFirstMessage` 原文 + “测试账号”块（只给 credential id、用户名与 `{{cred:<id>.secret}}` 占位符；发起时仍解密校验一次，但明文不进 Run 输入，也不写 webapi_tasks）+ “禁止行为（提示词约束，非拦截）”块。占位符发送与结果回替见 `AUTHZ.md`。
   3. 节点同前端：在线且公告 `wscyber.webapi-http.v1`，按 node_id 取第一个；本机受控模型节点（`wscyber.local-model.v1`）须已配置 provider/model，Run `max_turns=3`，其余 0。会话已存在则沿用原绑定节点。
   4. 原生 `Sessions.OpenSession`（session_id＝task.initial_session_id）→ `Sessions.RunTurn`，每次尝试新 requestID（上游账本会回放被拒结果）。
   - 幂等/续完：同进程按 task_id 串行；任务已存在沿用原内容（不按资产现值重算）；会话已存在不再 Open；会话事件前 500 条中已有 user 消息即视为已启动，不再 Run。
   - 响应：201（本次新建任务）/200（续完或 `idempotent:true`）`{asset_id, task, session_id, node_id, turn_id, progress:{task_created,session_opened,turn_started}, created, idempotent}`。失败 `{error, stage, progress, task, session_id, node_id}`：无可用节点/绑定节点离线/节点拒绝 UNAVAILABLE/本机模型未配置 → 409；资产不存在 404；参数 400；密钥问题 `stage=first_message` 500；会话服务异常 502/503。
 - `GET /assets/{id}/tasks` → `{asset_id, tasks:[{task_id, objective, initial_session_id, created_at, finding_count}]}`，最近在前。任务 GET（含 `?session_id=` 与 PUT 响应）带 `asset:{id,name}|null`。
-- 已知限制：测试账号明文进入首条用户消息，因而随原生会话事件（`chat_aop_events`）持久化并在执行视图可见；禁止行为只是提示词约束。
+- 已知限制：新首条消息不再包含测试账号明文（历史会话事件不追溯清理）；目标响应可能回显 secret，工具结果会回替为占位符，但 `webapi_requests` 原件保存实际明文字节，前端证据视图按现有遮盖开关处理，导出/推送/漏洞卡继续按资产全部 secret 遮盖。禁止行为只是提示词约束。
 
 ## 周期计划（C2a 后端）
 
@@ -46,7 +46,7 @@
   - `auto_verify`：本次任务中**还没有任何验证**的候选（当前修订）→ 验证项，`task_id`＝本次任务。
   - `auto_retest`（C3 起按漏洞条目去重）：先同步资产漏洞库（见下节），对状态 `new`/`present` 且**本次任务没有成员**的条目（本轮重新发现的由本轮验证覆盖），取一个代表成员复测——最新决定性“存在”事件（验证 supported / 复测 reproducible）所属的候选，要求其任务在本次任务之前关联（`webapi_asset_tasks.created_at` 更早，含手动发起）；在其原任务下按其**当前修订**复测，`task_id`＝原任务（授权沿用原任务 origins）。`fixed`/`pending`/`unconfirmed` 条目不复测；同条目其余候选不复测。
   - 项表 `webapi_schedule_followups(id, run_id, kind, task_id, finding_id, revision_id, target_id, status, error, created_at, updated_at)`，`(run_id, kind, finding_id)` 唯一；`target_id` = UUIDv5(固定命名空间, `run_id\nfinding_id\nrevision_id\nverify|retest`)。
-- 发起（每个 pending 项）：先查跳过——资产不存在/已归档、计划已删除、对应开关已关闭 → `skipped`（文案即原因）；验证项若候选已有本项以外的验证 → `skipped`“候选已有验证”。再用 `target_id` 走现有验证/复测认领（`saveVerification`/`saveRetest`，同 ID 回放），然后与 `LaunchAssetTask` 共用的 `startSession`：会话已存在不再 Open、已有用户消息不再 Run，节点选择同资产发起。首条消息由 Go `pinnedFirstMessage` 生成，与前端 `webApiVerificationFirstMessage`（`hooks/useChatSession.ts`）/`buildWebApiRetestFirstMessage`（`lib/retest-message.ts`）逐行一致。
+- 发起（每个 pending 项）：先查跳过——资产不存在/已归档、计划已删除、对应开关已关闭 → `skipped`（文案即原因）；验证项若候选已有本项以外的验证 → `skipped`“候选已有验证”。再用 `target_id` 走现有验证/复测认领（`saveVerification`/`saveRetest`，同 ID 回放），然后与 `LaunchAssetTask` 共用的 `startSession`：会话已存在不再 Open、已有用户消息不再 Run，节点选择同资产发起。首条消息基本段由 Go `pinnedFirstMessage` 生成，与前端 `webApiVerificationFirstMessage`（`hooks/useChatSession.ts`）/`buildWebApiRetestFirstMessage`（`lib/retest-message.ts`）逐行一致；计划路径另追加与资产发起相同的测试账号占位符块（M5b），手动验证/复测的账号块由前端片同步。
   - 成功 → `launched`；确定失败 → `failed`，`error`＝`阶段：文案`（`create`/`select_node`/`open_session`/`run_turn` 等，文案里对象为“验证/复测已保存…”），**不自动重试**。存储异常或 Hub 关闭 → 保持 pending，下轮/重启后以同 ID 续完，不重复建或 Run。
 - 并发：全局上限 `scheduleMaxConcurrent`(2) = 运行中的计划研究 + 运行中的后续会话（未完成运行里已发起项，`SessionRunning`，无法核对按运行中计）。每次检查先处理到期计划（研究优先），剩余名额再发后续；满了保持 pending。
 - 完成：没有 pending 项、本轮没有刚发起的项、已发起的后续会话都不在运行 → 写 `completed_at`，此后不再扫描。
