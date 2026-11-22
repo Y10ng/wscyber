@@ -71,7 +71,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交（续 16）：M5c 后端（b8afb6a，契约 `native/BROWSER.md`）：本项目注册 `playwright`/`katana`（复用上游实现），每会话独立无头 Chromium + 本机中继按调用注入出口令牌，流量经 B2 按任务策略放行/拒绝并记 `tool=browser|katana`；调用间后台请求不发送；绕过参数（--proxy-server/--cdp/--headed/attach、katana -proxy/-chrome-ws-url）拒绝；approval=all 挂起、high_risk 新规则；不运行时下载浏览器。依赖新增 107 模块（许可：MPL-2.0 3、UNKNOWN 1〔chainreactors/neutron〕），经 goproxy.cn 镜像获取、sum.golang.org 校验保留；Hub 二进制 69.8MB→124MB。已知限制：DNS/WebRTC/QUIC 只靠启动参数关闭未逐项验证、WebSocket 内层帧不记录、每会话一个 Chromium 无上限。
 
-已提交 M5c 演示剧本 `browser-demo`（3c9ae4a）与 M5c 前端（aa13303：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、详情工具名与拒绝原文、出口说明文案）。**M5 完成**（子 Agent、多账号对比、浏览器/爬虫）。验收记下两处已修：浏览器后台降噪（1d2d9aa：netlog 定位为搜索引擎预连接，关 PreconnectToSearch 后 4→1；剩余 android.clients.google.com/checkin〔疑似 GCM〕1 条始终被拒，回归测试固定此上限）、工具出口 CONNECT 原文按 authority 形式显示（bfb861a）。构建脚本 Node 堆 768MB 在 Vite 阶段稳定 OOM → 小改进行中（`var/ui-heap`，gpt-6-astra：默认 1536MB、可用 `WSCYBER_UI_HEAP_MB` 覆盖、自动恢复 static/.gitkeep）。
+已提交 M5c 演示剧本 `browser-demo`（3c9ae4a）与 M5c 前端（aa13303：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、详情工具名与拒绝原文、出口说明文案）。**M5 完成**（子 Agent、多账号对比、浏览器/爬虫）。验收记下两处已修：浏览器后台降噪（1d2d9aa：netlog 定位为搜索引擎预连接，关 PreconnectToSearch 后 4→1；剩余 android.clients.google.com/checkin〔疑似 GCM〕1 条始终被拒，回归测试固定此上限）、工具出口 CONNECT 原文按 authority 形式显示（bfb861a）。构建脚本内存已修（默认 1536MB、`WSCYBER_UI_HEAP_MB` 可调、自动恢复 static/.gitkeep）。
+
+进行中：无。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -90,4 +92,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `ui-heap`（gpt-6-astra，日志 `var/ui-heap/exec.log`）。
+无。
