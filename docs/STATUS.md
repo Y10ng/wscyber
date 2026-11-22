@@ -25,7 +25,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **已知问题：**
 - 原生终端等工具无强制出口；只有 `webapi_http` 强制 origin（roadmap B2）。
-- `TestWebAPIEventPersistence*`（SQLite 写锁 5s 超时）在机器负载高时偶发失败，单独重跑通过。
+- 历史记录的事件持久化偶发 5s 写锁超时（原测试名已不存在）：09d559f 后整包 `-count=3` 前后均 0 失败，未复现；IMMEDIATE 不保证外部写锁超 5s 时不 BUSY。
 - `scripts/cyber-ui-rebuild-check.py` 自检在清理前就失败（release 目录校验），未修；不影响实际 rebuild。
 - 时间线“新记录浮出”按钮未在实时追加场景观察过；侧栏徽标为前端反查（每会话最多 4 次 by-session 请求，有缓存）。
 
@@ -85,13 +85,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **验收发现**：审批挂起时登记 approval_pending 偶发 `SQLITE_BUSY`，该条提醒静默丢失 → 已修（b3bb495）：根因是 webapi deferred 事务先读后写，在 Hub 原生连接写入时升级写锁立即 BUSY（busy_timeout 不生效）；登记先取写锁、入进程内队列重试至成功或审批已决（重启会丢未落库的登记，已写 NOTIFY.md）。
 
-进行中（并行）：**webapi 事务改 IMMEDIATE**（`var/txlock/task.md`，gpt-6-astra：同一模式很可能遍布其它写事务，盘点+复现+DSN 加 `_txlock=immediate`+前后对比）；**B3 审计页前端**（`var/b3-audit-frontend/task.md`，ds-flash）。
+**webapi 事务改 IMMEDIATE** 已完成（09d559f）：盘点 27 个事务入口，修复前仅通知去重登记、手动推送入队两处先读后写会立即 BUSY（两连接测试复现），DSN 加 `_txlock=immediate` 后等待成功；无显式只读事务。
+
+进行中：**B3 审计页前端**（`var/b3-audit-frontend/task.md`，ds-flash）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. txlock 与 B3 审计页前端 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
+1. B3 审计页前端 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -104,5 +106,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `txlock`（gpt-6-astra，日志 `var/txlock/exec.log`）
 - `b3-fe`（wangsu-ds-flash-latest，日志 `var/b3-audit-frontend/exec.log`）
