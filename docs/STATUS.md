@@ -75,7 +75,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交：构建脚本内存（aa994de）。V2（AI 建议等级）已在 K1 完成。
 
-进行中：**V3 漏洞卡“申请复测”后端**（`var/v3-retest-backend/task.md`，o-latest）：`POST /vulns/{key}/card/retest` 由后端在代表候选原任务下发起复测（复用计划后续的 saveRetest+startSession），409 archived/false_positive/no_member/in_flight/no_model，审计 vuln.retest_request，卡片显示复测进行中与 lifecycle。之后 V3 前端、V4 运营通知。
+已提交（续 17）：V3 后端（5596eb8）：`POST /vulns/{key}/card/retest` 在代表候选（repro 来源→最近 supported→最近成员）原任务下按当前修订新建复测并由后端启动（与计划后续共用 `startPinnedSession`），409 archived/false_positive/no_member/in_flight（任何来源未出结论且运行中）/no_model，审计 `vuln.retest_request`（申请记录即审计，不新表），卡片 `retest_request` 段与 lifecycle。
+
+进行中（并行）：**V3 前端**（`var/v3-retest-frontend/task.md`，ds-flash：复测卡“申请复测”真实发起、更多菜单入口、进行中行与打开会话、错误文案）；**V4 运营通知后端**（`var/v4-ops-notify-backend/task.md`，o-latest：企业微信推送待审批〔链接 `/sessions/<研究会话>`，请求摘要遮盖口令〕、计划运行失败、每周一 09:00 摘要；三个开关默认关；不受 require_confirm）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
@@ -94,4 +96,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `v3`（wangsu-o-latest，11-22 启动，日志 `var/v3-retest-backend/exec.log`）。
+- `v3-fe`（wangsu-ds-flash-latest，日志 `var/v3-retest-frontend/exec.log`）
+- `v4`（wangsu-o-latest，日志 `var/v4-ops-notify-backend/exec.log`）
