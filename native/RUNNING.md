@@ -21,6 +21,8 @@ python3 -I scripts/cyber-ui-build.py rebuild --workspace "$PWD/var/ui-work"
 # 产物：该工作区下 release/public
 ```
 
+Node heap 默认 1536MB，可用环境变量 `WSCYBER_UI_HEAP_MB` 调整（仅接受 256–8192 的整数，不继承调用方 `NODE_OPTIONS`）。
+
 工作区丢失时用 `prepare --workspace <新目录>` 重新准备（下载固定来源，见 `native/ui/README.md`）。
 
 ## 3. 启动

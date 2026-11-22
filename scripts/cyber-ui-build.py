@@ -73,13 +73,16 @@ def write_json(path, value):
 
 def environment(work):
     # 不继承代理、API key、Cookie、NODE_OPTIONS、Git/npm全局配置或开发CLI环境。
+    heap = os.environ.get('WSCYBER_UI_HEAP_MB', '1536')
+    if not (heap.isascii() and heap.isdecimal()) or not 256 <= int(heap) <= 8192:
+        fail('WSCYBER_UI_HEAP_MB 必须是 256–8192 的整数')
     return {
         'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'HOME': str(work / 'home'),
         'TMPDIR': str(work / 'tmp'), 'XDG_CONFIG_HOME': str(work / 'home/config'),
         'XDG_CACHE_HOME': str(work / 'home/cache'), 'XDG_DATA_HOME': str(work / 'home/data'),
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
         'GIT_TERMINAL_PROMPT': '0', 'CI': 'true', 'TERM': 'dumb',
-        'NODE_OPTIONS': '--max-old-space-size=768', 'UV_THREADPOOL_SIZE': '2',
+        'NODE_OPTIONS': f'--max-old-space-size={int(heap)}', 'UV_THREADPOOL_SIZE': '2',
         'GOMAXPROCS': '2', 'GOGC': '30',
         'npm_config_cache': str(work / 'npm-cache'),
         'npm_config_userconfig': str(work / 'home/npm-user.conf'),
@@ -490,6 +493,14 @@ def check_derived_path(path, root, allow_file=False):
         fail('派生路径逃逸工作区: ' + str(path))
 
 
+def restore_static_gitkeep(work):
+    dest = work / 'source/web/static/.gitkeep'
+    original = work / 'inputs/root-extracted/web/static/.gitkeep'
+    if not dest.exists() and not dest.is_symlink() and original.is_file():
+        refresh_copy(original, dest, work)
+        print('RESTORED source/web/static/.gitkeep from inputs/root-extracted', flush=True)
+
+
 def rebuild_refresh_source(work, pins):
     """只把当前正式源码覆盖刷新进工作区派生source；不改inputs/覆盖/依赖/锁。
 
@@ -573,6 +584,7 @@ def rebuild(work, pins, release=None, source_dir=None):
         fail('已有输出目录只接受带build.json且无链接发布子目录的既有构建release')
     with SHARED_LOCK.open('r+') as heavy:
         fcntl.flock(heavy, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        restore_static_gitkeep(work)
         refreshed = rebuild_refresh_source(work, pins)
         # 同一heavy.lock内刷新→校验→固定来源摘要→构建；锁内不再接受外部变更。
         verify_sources(work, pins, installed=True)
@@ -622,6 +634,7 @@ def build(work, pins):
             or prepared['dependency_overlay_sha256'] != digest(OVERLAY)
             or prepared.get('source_overlay_sha256') != digest(SOURCE_OVERLAY)):
         fail('来源锁或覆盖在prepare之后改变；旧工作区须离线fork，不原地升级')
+    restore_static_gitkeep(work)
     verify_sources(work, pins, bool(reuse))
     overlay = json.loads(OVERLAY.read_text())
     if (prepared['source_package_lock_sha256'] != pins['package_lock_sha256']
@@ -774,6 +787,7 @@ def main():
     parser.add_argument('--release-dir', help='rebuild可选新派生输出；本仓库var真实父目录下，默认work/release')
     args = parser.parse_args()
     work = Path(args.workspace).absolute()
+    environment(work)  # 在任何工作区写入前拒绝非法heap设置。
     # 父目录必须已存在且无符号链接别名；不允许指向旧入口/上游/项目根。
     if work.parent.resolve(strict=True) != work.parent or not work.is_relative_to(REPO / 'var') or work == REPO / 'var':
         fail('workspace必须在本仓库var的真实父目录下')
