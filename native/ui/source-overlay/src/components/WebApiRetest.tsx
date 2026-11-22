@@ -17,7 +17,7 @@ import {
 } from '../api'
 import type { RetestLaunchView } from '../hooks/useChatSession'
 import { usePolling } from '../hooks/usePolling'
-import { decodeFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
+import { decodeEvidenceFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
 import { RetestBadge } from './ui-badges'
 import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 
@@ -302,9 +302,9 @@ function RetestDetailBody({
     setEvidenceDetail(null)
     setEvidenceFlow(null)
     try {
-      const loaded = await getWebApiEvidence(task.id, evidenceId)
+      const loaded = await getWebApiEvidence(task.id, evidenceId, { mask: true })
       if (seq !== evidenceSeq.current) return
-      const decoded = decodeFlow(loaded.flow_protobuf_base64)
+      const decoded = decodeEvidenceFlow(loaded)
       if (seq !== evidenceSeq.current) return
       setEvidenceDetail(loaded)
       setEvidenceFlow(decoded)

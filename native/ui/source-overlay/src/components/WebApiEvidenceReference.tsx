@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, Image as ImageIcon, Loader2 } from 'lucide-react'
-import { fromBinary } from '@bufbuild/protobuf'
+import { fromBinary, fromJson, type JsonValue } from '@bufbuild/protobuf'
 import { TrafficFlowSchema, type TrafficFlow } from '@cyber/aop'
 import type { TrafficHttpView } from '@cyber/traffic'
 import { cn } from '@cyber/theme'
@@ -16,6 +16,18 @@ import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 export function decodeFlow(base64: string): TrafficFlow {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
   return fromBinary(TrafficFlowSchema, bytes)
+}
+
+// 遮盖响应不返回 protobuf 原件，只返回 protojson `flow`；用同一 schema 的 JSON
+// 解码到同一 TrafficFlow，后续渲染/复制/下载与未遮盖路径一致（内容为占位符版）。
+export function decodeFlowJSON(flow: unknown): TrafficFlow {
+  return fromJson(TrafficFlowSchema, flow as JsonValue)
+}
+
+// 有 protobuf 原件走二进制解码；遮盖版没有原件时回落到 protojson。
+export function decodeEvidenceFlow(detail: Pick<WebApiEvidenceDetail, 'flow_protobuf_base64' | 'flow'>): TrafficFlow {
+  if (detail.flow_protobuf_base64) return decodeFlow(detail.flow_protobuf_base64)
+  return decodeFlowJSON(detail.flow)
 }
 
 export function formatTime(value: string): string {

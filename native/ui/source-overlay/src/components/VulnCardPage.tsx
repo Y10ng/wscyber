@@ -176,7 +176,7 @@ function ReplayResultPanel({ result, masked, onClose, onOpenEvidence }: {
   onOpenEvidence: (taskId: string, evidenceId: string) => void
 }) {
   const { t } = useTranslation('chat')
-  const { view, loading, error, reload } = useEvidenceHttpView(result.task_id, result.evidence_id)
+  const { view, loading, error, reload } = useEvidenceHttpView(result.task_id, result.evidence_id, masked)
   const baseline = result.original.marks_found.response
   const replayMarks = result.replayed.marks_found.response
   return (
@@ -309,7 +309,7 @@ function StepBlock({
   replayCooldownSeconds: number
 }) {
   const { t } = useTranslation('chat')
-  const { view, loading, error, reload } = useEvidenceHttpView(repro.task_id, step.evidence_id)
+  const { view, loading, error, reload } = useEvidenceHttpView(repro.task_id, step.evidence_id, masked)
 
   const copy = async () => {
     try {
@@ -440,12 +440,12 @@ function ContrastSide({ title, tone, method, url, status, body }: {
   )
 }
 
-function ContrastSection({ repro }: { repro: WebApiVulnCardRepro }) {
+function ContrastSection({ repro, masked }: { repro: WebApiVulnCardRepro; masked: boolean }) {
   const { t } = useTranslation('chat')
   const contrast = repro.contrast as WebApiVulnCardContrast
   const [mode, setMode] = useState<'side' | 'summary'>('side')
-  const normal = useEvidenceHttpView(repro.task_id, contrast.normal_evidence_id)
-  const abnormal = useEvidenceHttpView(repro.task_id, contrast.abnormal_evidence_id)
+  const normal = useEvidenceHttpView(repro.task_id, contrast.normal_evidence_id, masked)
+  const abnormal = useEvidenceHttpView(repro.task_id, contrast.abnormal_evidence_id, masked)
   const normalRef = contrast.normal
   const abnormalRef = contrast.abnormal
   const bodyBytes = (view: typeof normal.view) => {
@@ -533,7 +533,7 @@ function ContrastSection({ repro }: { repro: WebApiVulnCardRepro }) {
 }
 
 function ReplayRecordEvidence({ taskId, evidenceId, masked }: { taskId: string; evidenceId: string; masked: boolean }) {
-  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId)
+  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId, masked)
   return (
     <div className="pb-2">
       <HttpPairBlock
@@ -1538,7 +1538,7 @@ export default function VulnCardPage({
                       })}
                     </Card>
 
-                    {repro.contrast ? <ContrastSection repro={repro} /> : null}
+                    {repro.contrast ? <ContrastSection repro={repro} masked={masked} /> : null}
 
                     <div className="grid grid-cols-1 gap-4 min-[1024px]:grid-cols-2">
                       <Card className="space-y-2.5">

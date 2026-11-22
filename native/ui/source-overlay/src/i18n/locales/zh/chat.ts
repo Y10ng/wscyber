@@ -511,6 +511,7 @@ export default {
     status_capture_failed: '捕获失败',
     captureTruncated: '原件捕获已截断',
     reconstructionNote: '请求为结构化重建，非逐字节线上报文',
+    maskedSecrets: '已遮盖口令 {{count}} 处',
     copyDisplay: '复制展示文本',
     copyFailed: '复制失败',
     copied: '已复制',

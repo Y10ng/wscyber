@@ -691,8 +691,11 @@ export interface WebApiEvidenceList {
 export interface WebApiEvidenceDetail {
   metadata: WebApiEvidence
   preview: string
-  flow_protobuf_base64: string
+  /** 遮盖响应（mask=1）省略该字段，改由 `flow`（protojson）提供对照内容。 */
+  flow_protobuf_base64?: string
   flow: unknown
+  /** 遮盖响应中替换的口令次数；未遮盖或缺省为 0。 */
+  masked_secrets?: number
   capture: {
     request: string
     response_body_limit: number
@@ -1666,15 +1669,26 @@ export async function updateWebApiBoardOracle(taskId: string, number: string, bo
   })
 }
 
-export async function listWebApiEvidence(taskId: string, limit = 100, cursor?: string): Promise<WebApiEvidenceList> {
+export async function listWebApiEvidence(
+  taskId: string,
+  limit = 100,
+  cursor?: string,
+  opts?: { mask?: boolean },
+): Promise<WebApiEvidenceList> {
   const query = new URLSearchParams()
   query.set('limit', String(limit))
   if (cursor) query.set('cursor', cursor)
+  if (opts?.mask) query.set('mask', '1')
   return apiJSON<WebApiEvidenceList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence?${query.toString()}`, 'Failed to load traffic')
 }
 
-export async function getWebApiEvidence(taskId: string, evidenceId: string): Promise<WebApiEvidenceDetail> {
-  return apiJSON<WebApiEvidenceDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}`, 'Failed to load evidence')
+export async function getWebApiEvidence(
+  taskId: string,
+  evidenceId: string,
+  opts?: { mask?: boolean },
+): Promise<WebApiEvidenceDetail> {
+  const suffix = opts?.mask ? '?mask=1' : ''
+  return apiJSON<WebApiEvidenceDetail>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}${suffix}`, 'Failed to load evidence')
 }
 
 // M5b：身份对比记录（新到旧）。带 evidenceId 时按原请求过滤；不带时返回任务全部（变体反查用）。

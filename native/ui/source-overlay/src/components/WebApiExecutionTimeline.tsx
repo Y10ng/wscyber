@@ -448,8 +448,8 @@ function JsonCard({ title, text, empty }: { title: string; text: string; empty: 
 // HTTP 条目的请求/响应原文：与漏洞卡同一组件与取数（证据 → HTTP 视图）。
 function HttpExchangeCard({ taskId, evidenceId }: { taskId: string; evidenceId: string }) {
   const { t } = useTranslation('chat')
-  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId)
   const [masked, setMasked] = useState(true)
+  const { view, loading, error, reload } = useEvidenceHttpView(taskId, evidenceId, masked)
   return (
     <section className="rounded-lg border border-border bg-card p-3">
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2">

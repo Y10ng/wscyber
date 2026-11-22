@@ -15,7 +15,7 @@ import {
   type WebApiFindingSummary,
   type WebApiTask,
 } from '../api'
-import { decodeFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
+import { decodeEvidenceFlow, formatTime, EvidenceReference } from './WebApiEvidenceReference'
 import WebApiVerificationSection, { type StartVerification } from './WebApiVerification'
 import WebApiRetestSection, { type StartRetest } from './WebApiRetest'
 import type { VerificationLaunchView, RetestLaunchView } from '../hooks/useChatSession'
@@ -157,9 +157,9 @@ export default function WebApiFindingsPanel({ task, onStartVerification, onStart
     setEvidenceDetail(null)
     setEvidenceFlow(null)
     try {
-      const result = await getWebApiEvidence(task.id, evidenceId)
+      const result = await getWebApiEvidence(task.id, evidenceId, { mask: true })
       if (seq !== evidenceSeq.current) return
-      const decoded = decodeFlow(result.flow_protobuf_base64)
+      const decoded = decodeEvidenceFlow(result)
       if (seq !== evidenceSeq.current) return
       setEvidenceDetail(result)
       setEvidenceFlow(decoded)

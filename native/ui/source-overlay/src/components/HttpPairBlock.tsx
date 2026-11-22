@@ -5,7 +5,7 @@ import { aopFlowToHttpView, type TrafficHttpView } from '@cyber/traffic'
 import { Button } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiEvidence } from '../api'
-import { decodeFlow } from './WebApiEvidenceReference'
+import { decodeEvidenceFlow } from './WebApiEvidenceReference'
 
 // 敏感请求/响应头：遮盖开关开启时只替换值，头名保留。
 const SENSITIVE_HEADERS = new Set([
@@ -21,8 +21,8 @@ const BODY_FOLD_LINES = 12
 const BODY_LINE_CHARS = 400
 const BODY_MAX_CHARS = 200_000
 
-/** 把证据原件解码成 HTTP 视图；404/解析失败由调用方展示重试。 */
-export function useEvidenceHttpView(taskId: string, evidenceId: string) {
+/** 把证据解码成 HTTP 视图；masked 时请求后端遮盖资产口令，404/解析失败由调用方展示重试。 */
+export function useEvidenceHttpView(taskId: string, evidenceId: string, masked = true) {
   const [view, setView] = useState<TrafficHttpView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -33,8 +33,8 @@ export function useEvidenceHttpView(taskId: string, evidenceId: string) {
     setLoading(true)
     setError('')
     try {
-      const detail = await getWebApiEvidence(taskId, evidenceId)
-      const next = aopFlowToHttpView(decodeFlow(detail.flow_protobuf_base64))
+      const detail = await getWebApiEvidence(taskId, evidenceId, { mask: masked })
+      const next = aopFlowToHttpView(decodeEvidenceFlow(detail))
       if (current !== seq.current) return
       setView(next)
     } catch (err) {
@@ -44,7 +44,7 @@ export function useEvidenceHttpView(taskId: string, evidenceId: string) {
     } finally {
       if (current === seq.current) setLoading(false)
     }
-  }, [taskId, evidenceId])
+  }, [taskId, evidenceId, masked])
 
   useEffect(() => { void load() }, [load])
 

@@ -516,6 +516,7 @@ export default {
     status_capture_failed: 'Capture failed',
     captureTruncated: 'Captured body truncated',
     reconstructionNote: 'Request is a structured reconstruction, not a byte-for-byte wire capture',
+    maskedSecrets: '{{count}} credential secret(s) masked',
     copyDisplay: 'Copy displayed text',
     copyFailed: 'Copy failed',
     copied: 'Copied',

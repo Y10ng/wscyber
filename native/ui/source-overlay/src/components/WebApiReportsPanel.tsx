@@ -24,7 +24,7 @@ import {
 } from '../api'
 import type { ReportLaunchView } from '../hooks/useChatSession'
 import { usePolling } from '../hooks/usePolling'
-import { decodeFlow, EvidenceReference, formatTime } from './WebApiEvidenceReference'
+import { decodeEvidenceFlow, EvidenceReference, formatTime } from './WebApiEvidenceReference'
 import WebApiReportDialog, { type StartReport } from './WebApiReportDialog'
 import './WebApiReportsPanel.css'
 
@@ -581,9 +581,9 @@ function DraftItemBody({ taskID, draftItem, item, origins }: { taskID: string; d
     setEvidenceFlow(null)
     void (async () => {
       try {
-        const loaded = await getWebApiEvidence(taskID, evidenceId)
+        const loaded = await getWebApiEvidence(taskID, evidenceId, { mask: true })
         if (seq !== evidenceSeq.current) return
-        const decoded = decodeFlow(loaded.flow_protobuf_base64)
+        const decoded = decodeEvidenceFlow(loaded)
         if (seq !== evidenceSeq.current) return
         setEvidenceDetail(loaded)
         setEvidenceFlow(decoded)

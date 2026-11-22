@@ -25,6 +25,7 @@ import {
 } from '../api'
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 import HttpPairBlock from './HttpPairBlock'
+import { decodeEvidenceFlow } from './WebApiEvidenceReference'
 import { AuthzHintBadge } from './ui-badges'
 
 interface Props {
@@ -226,6 +227,8 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   const [copyError, setCopyError] = useState('')
   // 详情区敏感头遮盖：默认开，状态只在本组件内。
   const [masked, setMasked] = useState(true)
+  // 取数回调读取最新开关值，避免切换开关时重建回调导致定位/选择副作用。
+  const maskedRef = useRef(masked)
   // 筛选条：搜索（前端过滤当前已加载数据）+ 状态分段。
   const [query, setQuery] = useState('')
   const [segment, setSegment] = useState<TrafficSegment>('all')
@@ -269,7 +272,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setLoadingList(true)
     setListError('')
     try {
-      const result = await listWebApiEvidence(task.id, 100, cursor)
+      const result = await listWebApiEvidence(task.id, 100, cursor, { mask: true })
       if (seq !== listSeq.current) return
       setItems((current) => (cursor ? [...current, ...result.items] : result.items))
       setHasMore(result.has_more)
@@ -385,9 +388,9 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setCopied(false)
     setCopyError('')
     try {
-      const result = await getWebApiEvidence(task.id, evidenceId)
+      const result = await getWebApiEvidence(task.id, evidenceId, { mask: maskedRef.current })
       if (seq !== detailSeq.current) return
-      const decoded = decodeFlow(result.flow_protobuf_base64)
+      const decoded = decodeEvidenceFlow(result)
       if (seq !== detailSeq.current) return
       setDetail(result)
       setFlow(decoded)
@@ -400,6 +403,13 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
       if (seq === detailSeq.current) setDetailLoading(false)
     }
   }, [task.id])
+
+  // 切换“遮盖敏感值”后重新取详情：开后端遮盖版（资产口令变占位符），关取原件。
+  useEffect(() => {
+    if (maskedRef.current === masked) return
+    maskedRef.current = masked
+    if (source === 'http' && selectedId) void loadDetail(selectedId)
+  }, [masked, source, selectedId, loadDetail])
 
   const select = useCallback((item: WebApiEvidence) => {
     setSelectedId(item.evidence_id)
@@ -933,6 +943,9 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                     <Switch checked={masked} onCheckedChange={setMasked} className="scale-75" />
                     <span>{t('vulnCard.maskSensitive')}</span>
                   </label>
+                  {masked && (detail?.masked_secrets ?? 0) > 0 ? (
+                    <span className="text-[12px] text-muted-foreground">{t('webapi.maskedSecrets', { count: detail?.masked_secrets ?? 0 })}</span>
+                  ) : null}
                   {requestBody?.length ? (
                     <Button type="button" variant="ghost" size="xs" onClick={() => downloadBytes(requestBody, `${detail?.metadata.evidence_id || 'request'}.request.body`)} className="text-muted-foreground">
                       {t('webapi.downloadRequestBody')}
