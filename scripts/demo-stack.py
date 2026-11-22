@@ -9,6 +9,7 @@
   python3 scripts/demo-stack.py approval-demo     经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）
   python3 scripts/demo-stack.py egress-demo       经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）
   python3 scripts/demo-stack.py subagent-demo [--slow N]  并行探索 Oracle；可延迟子 Agent 每次回复 N 秒
+  python3 scripts/demo-stack.py authz-demo        多账号登录、订单归属对比与候选（仅测试数据）
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
@@ -57,6 +58,15 @@ def log(*parts):
 # 模拟目标：“演示库存 API”（中性测试数据，故意缺少常见安全响应头、size 无上限）
 # ---------------------------------------------------------------------------
 
+# 固定的本地测试账号，不是真实凭据。
+DEMO_ACCOUNTS = {
+    'alice': {'label': '演示用户 A', 'username': 'demo-alice', 'password': 'alice-demo-pass'},
+    'bob': {'label': '演示用户 B', 'username': 'demo-bob', 'password': 'bob-demo-pass'},
+}
+DEMO_ORDERS = {
+    1001: {'id': 1001, 'owner': 'alice', 'item': '演示笔记本', 'quantity': 2, 'amount': 24},
+    2001: {'id': 2001, 'owner': 'bob', 'item': '演示文件夹', 'quantity': 3, 'amount': 18},
+}
 ITEM_TOTAL = 5000
 CATEGORIES = ['文具', '五金', '包装', '耗材', '配件']
 
@@ -77,6 +87,8 @@ HOME_PAGE = '''<!doctype html>
 <p>本服务仅用于 wscyber 演示环境，全部数据为测试数据。</p>
 <ul>
 <li>GET /api/health</li>
+<li>POST /api/login（JSON username/password，演示账号登录）</li>
+<li>GET /api/orders/{id}（Bearer token，演示订单详情）</li>
 <li>GET /api/items?page=1&amp;size=20</li>
 <li>GET /api/items/{id}</li>
 <li>DELETE /api/items/{id}（审批演示用，只返回测试 JSON）</li>
@@ -134,6 +146,18 @@ class TargetHandler(BaseHTTPRequestHandler):
             return self._send(200, HOME_PAGE, 'text/html; charset=utf-8')
         if path == '/api/health':
             return self._json(200, {'status': 'ok', 'service': 'demo-inventory'})
+        match = re.fullmatch(r'/api/orders/(\d+)', path)
+        if match:
+            owner = next((name for name in DEMO_ACCOUNTS
+                          if self.headers.get('Authorization') == f'Bearer demo-token-{name}'), None)
+            if owner is None:
+                return self._json(401, {'error': '需要有效的演示凭据'})
+            order = DEMO_ORDERS.get(int(match.group(1)))
+            if order is None:
+                return self._json(404, {'error': '订单不存在'})
+            if self.fix_flag.exists() and order['owner'] != owner:
+                return self._json(403, {'error': '不能读取他人的订单'})
+            return self._json(200, order)
         if path == '/api/items':
             try:
                 page = int(query.get('page', ['1'])[0])
@@ -172,7 +196,21 @@ class TargetHandler(BaseHTTPRequestHandler):
     def _method_not_allowed(self):
         self._json(405, {'error': '演示服务只支持 GET（DELETE 仅 /api/items/{id} 演示）'}, {'Allow': 'GET, HEAD, DELETE'})
 
-    do_POST = do_PUT = do_PATCH = do_OPTIONS = _method_not_allowed
+    def do_POST(self):
+        if urlparse.urlsplit(self.path).path != '/api/login':
+            return self._method_not_allowed()
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
+        except ValueError:
+            return self._json(400, {'error': '需要 JSON username/password'})
+        if not isinstance(body, dict):
+            return self._json(400, {'error': '需要 JSON username/password'})
+        for name, account in DEMO_ACCOUNTS.items():
+            if body.get('username') == account['username'] and body.get('password') == account['password']:
+                return self._json(200, {'token': f'demo-token-{name}'})
+        return self._json(401, {'error': '演示账号或口令不正确'})
+
+    do_PUT = do_PATCH = do_OPTIONS = _method_not_allowed
 
 
 def serve_target(fix_flag):
@@ -430,6 +468,87 @@ def script_egress(conv, origin):
     return {'text': '\n'.join(lines)}
 
 
+AUTHZ_MARK = '多账号演示'
+
+
+def authz_credentials(first):
+    """只从平台的测试账号块按名称取凭据 ID，不依赖排序或固定 ID。"""
+    block = first.split('测试账号（资产登记', 1)[-1] if '测试账号（资产登记' in first else ''
+    block = block.split('\n\n', 1)[0]
+    return {match[1]: match[2] for match in re.finditer(
+        r'^- 名称：(演示用户 [AB])；[^\n]*?凭据 ID：([^；\s]+)', block, re.M)}
+
+
+def authz_rows(raw):
+    """compare 返回 Markdown 而非 JSON；按契约表头取列。"""
+    rows, header = [], None
+    for line in raw.splitlines():
+        if not line.startswith('|'):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
+        if cells[0] == 'label':
+            header = cells
+        elif header and len(cells) == len(header) and cells[0] in ('演示用户 B', '匿名'):
+            rows.append(dict(zip(header, cells)))
+    return rows
+
+
+def script_authz(conv, origin):
+    credentials = authz_credentials(conv.first_user)
+    if set(credentials) != {'演示用户 A', '演示用户 B'}:
+        return {'text': '多账号演示未解析到两个测试账号凭据 ID，不发送请求。'}
+    requests, comparisons, findings = (conv.of(name) for name in
+                                      ('webapi_http', 'webapi_authz_compare', 'webapi_finding'))
+    if findings:
+        value = findings[-1]['value'] or {}
+        return {'text': ('候选已保存：' + value['number'] + '；对比提示不是结论，待独立验证。')
+                if value.get('number') else '候选保存失败，不自动重试。'}
+    if not requests:
+        calls = []
+        for label in ('演示用户 A', '演示用户 B'):
+            cid = credentials[label]
+            calls.append(('webapi_http', {'method': 'POST', 'url': origin + '/api/login',
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'username': '{{cred:' + cid + '.username}}',
+                                    'password': '{{cred:' + cid + '.secret}}'})}))
+        return {'text': '使用两个账号的占位符登录；明文口令由平台发送前替换。', 'calls': calls}
+    tokens = {}
+    for label, cid in credentials.items():
+        login = next((r for r in requests if r['args'].get('url') == origin + '/api/login'
+                      and '{{cred:' + cid + '.secret}}' in r['args'].get('body', '')), None)
+        value = (login or {}).get('value') or {}
+        response = parse_json_object(value.get('preview')) or {}
+        if not evidence_complete(value) or value.get('http_status') != 200 or not response.get('token'):
+            return {'text': '登录未获得完整有效响应，不重复登录、不继续对比。'}
+        tokens[label] = response['token']
+    original = next((r['value'] for r in requests if r['args'].get('url') == origin + '/api/orders/1001'), None)
+    if not any(r['args'].get('url') == origin + '/api/orders/1001' for r in requests):
+        return {'text': '用演示用户 A 的登录 token 读取其订单 1001。', 'calls': [
+            http_call(origin, 'GET', '/api/orders/1001', {'Authorization': 'Bearer ' + tokens['演示用户 A']})]}
+    if not evidence_complete(original) or original.get('http_status') != 200:
+        return {'text': '原订单请求未成功完成，不重发、不继续对比。'}
+    if not comparisons:
+        return {'text': '以用户 B 与匿名身份对比已存证的订单请求。', 'calls': [
+            ('webapi_authz_compare', {'evidence_id': original['evidence_id'], 'variants': [
+                {'label': '演示用户 B', 'set_headers': {'Authorization': 'Bearer ' + tokens['演示用户 B']}},
+                {'label': '匿名', 'anonymous': True}]})]}
+    rows = authz_rows(comparisons[-1]['raw'])
+    other = next((r for r in rows if r['label'] == '演示用户 B'), {})
+    if other.get('hint') != 'same_as_original' or not other.get('evidence_id'):
+        return {'text': '多账号对比结束：用户 B 未返回 same_as_original 线索，本轮不写候选。'}
+    return {'text': '用户 B 获得相似响应，仅保存待独立验证的候选。', 'calls': [
+        ('webapi_finding', {'content': {
+            'title': '订单详情未校验归属',
+            'description': '本地测试订单 1001 属于演示用户 A；用户 B 换身份读取时返回 same_as_original 线索。对比提示不是结论，待独立验证。',
+            'steps': [
+                {'text': '用户 A 登录后读取自己的订单 1001。', 'evidence_indices': [0]},
+                {'text': '把已存证请求换为用户 B 的 token，对比响应。', 'evidence_indices': [1]}],
+            'remediation': '订单详情按当前登录账号校验订单归属；非本人返回 403。',
+            'limitations': '全部为虚构测试数据；对比提示不是结论，待独立验证。未证明真实环境影响。',
+            'evidence': [{'evidence_id': original['evidence_id'], 'relation': 'supporting'},
+                         {'evidence_id': other['evidence_id'], 'relation': 'supporting'}]}})]}
+
+
 SUBAGENT_MARK = '并行演示'
 SUBAGENT_PLAN = [
     ('分页大小', '/api/items?page=1&size=150', 'logic', '列表是否接受超过 100 条的分页大小？'),
@@ -518,6 +637,8 @@ def script_research(conv):
     if not origins:
         return {'text': '演示模型未能从首条消息解析到授权 origin，不发送任何请求。'}
     origin = origins[0]
+    if AUTHZ_MARK in conv.first_user:
+        return script_authz(conv, origin)
     if SUBAGENT_MARK in conv.first_user:
         return script_parallel_research(conv, origin)
     if APPROVAL_MARK in conv.first_user:
@@ -1210,16 +1331,20 @@ def core_outcome(message, response_field, label):
     return pb_decode(response[2][0])
 
 
+def send_run(sock, session_id, text, max_turns=3):
+    content = pb_bytes(4, pb_bytes(1, pb_bytes(1, text)))
+    message = pb_bytes(1, str(uuid.uuid4())) + pb_bytes(2, 'user') + content
+    request = pb_bytes(2, session_id) + pb_bytes(3, str(uuid.uuid4())) + pb_bytes(4, message) + pb_uint(6, max_turns)
+    return core_outcome(sock.request(pb_bytes(22, request)), 23, 'RunTurn')
+
+
 def open_and_run(session_id, node_id, text, max_turns=3):
     """与前端相同的原生路径：OpenSession(指定 session_id) → RunTurn(首条文本消息)。"""
     sock = AOPSocket()
     try:
         open_request = pb_bytes(2, session_id) + pb_bytes(3, node_id)
         session = core_outcome(sock.request(pb_bytes(20, open_request)), 21, 'OpenSession')
-        content = pb_bytes(4, pb_bytes(1, pb_bytes(1, text)))
-        message = pb_bytes(1, str(uuid.uuid4())) + pb_bytes(2, 'user') + content
-        run_request = pb_bytes(2, session_id) + pb_bytes(3, str(uuid.uuid4())) + pb_bytes(4, message) + pb_uint(6, max_turns)
-        receipt = core_outcome(sock.request(pb_bytes(22, run_request)), 23, 'RunTurn')
+        receipt = send_run(sock, session_id, text, max_turns)
         return pb_str(session, 2), pb_str(receipt, 3)
     finally:
         sock.close()
@@ -1497,6 +1622,88 @@ def parent_run_summary(events):
     return list(runs.values())
 
 
+def cmd_authz_demo(_args):
+    if not demo_node():
+        sys.exit('没有演示模型节点；先 up 并查看 status')
+    suffix = uuid.uuid4().hex[:12]
+    asset_id, task_id = 'demo-authz-asset-' + suffix, 'demo-authz-' + suffix
+    fixed = FIX_FLAG.exists()
+    api('PUT', f'/api/webapi/assets/{asset_id}', {
+        'name': '多账号演示资产', 'environment': '本地虚构测试数据',
+        'known_info': f'本地演示订单 API：{ORIGIN}。订单 1001 属于用户 A，2001 属于用户 B。',
+        'objective': AUTHZ_MARK + '：登录两个演示账号，比较订单访问权限，线索待独立验证。',
+        'origins': [ORIGIN], 'scope': 'origins', 'approval': 'off'})
+    for name, account in DEMO_ACCOUNTS.items():
+        api('PUT', f'/api/webapi/assets/{asset_id}/credentials/{suffix}-{name}', {
+            'label': account['label'], 'username': account['username'], 'secret': account['password'],
+            'note': '固定虚构演示凭据，仅本地测试'})
+    launch = api('PUT', f'/api/webapi/assets/{asset_id}/tasks/{task_id}', {})
+    session_id = launch['session_id']
+    log(f'[多账号演示] asset={asset_id} task={task_id} session={session_id} fix={fixed}')
+    events = []
+
+    def run_ended(count):
+        nonlocal events
+        events = rpc('cyber.rpc.chat.SessionService/ListEvents',
+                     {'sessionId': session_id, 'limit': 1000}).get('events', [])
+        runs = parent_run_summary(events)
+        return len(runs) == count and all('stop_reason' in r for r in runs)
+
+    if not wait_for(lambda: run_ended(1), 120, 0.5):
+        raise RuntimeError('多账号演示首个 Run 120 秒内未结束；不重发')
+    messages = [d['event']['message'] for d in events
+                if d.get('event', {}).get('message', {}).get('role') == 'user']
+    if not messages:
+        raise RuntimeError('未找到实际首条用户消息，不能核对口令泄露')
+    first = json.dumps(messages[0], ensure_ascii=False)
+    leaked = any(a['password'] in first for a in DEMO_ACCOUNTS.values())
+    placeholders = all('{{cred:' + suffix + '-' + name + '.secret}}' in first for name in DEMO_ACCOUNTS)
+    log(f'[多账号演示] 实际首条消息含明文口令={leaked} 两个口令占位符齐全={placeholders}')
+    if leaked or not placeholders:
+        raise RuntimeError('首条消息口令/占位符断言失败')
+    comparisons = api('GET', f'/api/webapi/tasks/{task_id}/authz-compares')['items']
+    if len(comparisons) != 2:
+        raise RuntimeError('首个 Run 未完成两种身份对比；不重复请求')
+    # 首个 Run 的三次模型交互依次为登录、读取订单、对比。
+    # 同一会话发送下一条用户消息；仅处理已得结果，不重复登录或 HTTP。
+    sock = AOPSocket()
+    try:
+        send_run(sock, session_id, '继续多账号演示：只处理已有对比结果，必要时记录候选并小结；不要重发已有请求。')
+    finally:
+        sock.close()
+    if not wait_for(lambda: run_ended(2), 120, 0.5):
+        raise RuntimeError('多账号演示第二个 Run 120 秒内未结束；不重发')
+    runs = parent_run_summary(events)
+    log('[多账号演示] Run（model_calls 按 usage 事件计数）=' + json.dumps(runs, ensure_ascii=False))
+    evidence = list_all(f'/api/webapi/tasks/{task_id}/evidence')
+    for item in evidence:
+        # 列表直接返回 metadata 字段；详情才包在 metadata 下。
+        detail = api('GET', f'/api/webapi/tasks/{task_id}/evidence/{item["evidence_id"]}')
+        log('[多账号演示] 证据=' + json.dumps({'metadata': detail['metadata']}, ensure_ascii=False))
+    comparisons = api('GET', f'/api/webapi/tasks/{task_id}/authz-compares')['items']
+    log('[多账号演示] authz-compares=' + json.dumps(comparisons, ensure_ascii=False, indent=2))
+    findings = list_all(f'/api/webapi/tasks/{task_id}/findings')
+    log('[多账号演示] 候选=' + json.dumps(findings, ensure_ascii=False, indent=2))
+    by_label = {r['label']: r for r in comparisons}
+    expected = {'演示用户 B': ('denied', 403) if fixed else ('same_as_original', 200), '匿名': ('denied', 401)}
+    if not (len(evidence) == 5 and all(e['status'] == 'completed' and e['sent'] for e in evidence)
+            and sum(e.get('source') == 'authz_compare' for e in evidence) == 2
+            and set(by_label) == set(expected)
+            and all((by_label[label]['hint'], by_label[label]['http_status']) == outcome
+                    and by_label[label]['status'] == 'sent' for label, outcome in expected.items())
+            and len(findings) == (0 if fixed else 1)
+            and [r['model_calls'] for r in runs] == [3, 1 if fixed else 2]
+            and [r['stop_reason'] for r in runs] == ['stopped', 'completed']):
+        raise RuntimeError('多账号演示证据 / 来源 / hint / 候选 / Run 轮数断言失败')
+    if findings:
+        detail = api('GET', f'/api/webapi/tasks/{task_id}/findings/{findings[0]["finding_id"]}')
+        cited = {e['evidence_id'] for e in detail['content']['evidence']}
+        other = by_label['演示用户 B']
+        if cited != {other['original_evidence_id'], other['variant_evidence_id']}:
+            raise RuntimeError('候选未准确引用原请求和用户 B 的变体证据')
+    log('[多账号演示] PASS')
+
+
 def cmd_subagent_demo(args):
     try:
         if args.slow:
@@ -1590,6 +1797,7 @@ def main():
     fix.add_argument('mode', choices=['on', 'off'])
     selftest = sub.add_parser('selftest')
     selftest.add_argument('--chain', action='store_true', help='研究后继续跑验证、报告与两次复测')
+    sub.add_parser('authz-demo', help='从资产发起多账号研究，打印占位符核对、证据、对比与候选')
     sub.add_parser('approval-demo', help='经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）')
     sub.add_parser('egress-demo', help='经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）')
     subagent_demo = sub.add_parser('subagent-demo', help='三个子 Agent 并行验证 Oracle，打印证据、候选与用量')
@@ -1607,7 +1815,7 @@ def main():
         return serve_model()
     {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest,
      'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo,
-     'subagent-demo': cmd_subagent_demo}[args.command](args)
+     'subagent-demo': cmd_subagent_demo, 'authz-demo': cmd_authz_demo}[args.command](args)
 
 
 if __name__ == '__main__':
