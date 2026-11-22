@@ -153,6 +153,27 @@ function EvidenceSourceTag({ label, title }: { label: string; title: string }) {
   )
 }
 
+// 工具出口来源（B2/M5c）：terminal / browser / katana，未知值原样显示。
+const EGRESS_TOOL_LABEL_KEYS: Record<string, string> = {
+  terminal: 'webapi.egressToolTerminal',
+  browser: 'webapi.egressToolBrowser',
+  katana: 'webapi.egressToolKatana',
+}
+
+function egressToolLabel(t: (key: string) => string, tool: string): string {
+  const key = EGRESS_TOOL_LABEL_KEYS[tool]
+  return key ? t(key) : tool
+}
+
+function EgressToolTag({ tool }: { tool: string }) {
+  const { t } = useTranslation('chat')
+  return (
+    <span className="ws-st-badge shrink-0 bg-slate-100 px-1.5 text-[10.5px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      {egressToolLabel(t, tool)}
+    </span>
+  )
+}
+
 // 身份对比记录里无变体证据时的状态文案（有证据时显示「查看」）。
 function authzStatusText(t: (key: string) => string, status: WebApiAuthzCompare['status']): string {
   if (status === 'review_required') return t('webapi.authzStatusReviewRequired')
@@ -190,7 +211,7 @@ function splitUrl(url: string): { host: string; path: string } {
   }
 }
 
-// 终端出口的 CONNECT 记录 url 只有 host:port（没有 scheme）：主机列显示整条，
+// 工具出口的 CONNECT 记录 url 只有 host:port（没有 scheme）：主机列显示整条，
 // 路径列显示「—」；带 scheme 的普通请求仍按 splitUrl 拆分。
 function splitEgressUrl(url: string): { host: string; path: string } {
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return { host: url, path: '—' }
@@ -199,6 +220,8 @@ function splitEgressUrl(url: string): { host: string; path: string } {
 
 type TrafficSegment = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'incomplete'
 type EgressSegment = 'all' | 'allowed' | 'denied'
+// 工具筛选只列出口记录里已知的三类；其它 tool 值仍会出现在“全部”里。
+type EgressToolFilter = 'all' | 'terminal' | 'browser' | 'katana'
 
 // 分段归类：未完成 = 非 completed 或无响应（无 http_status 即无响应）。
 function segmentOf(item: WebApiEvidence): TrafficSegment {
@@ -232,15 +255,16 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   // 筛选条：搜索（前端过滤当前已加载数据）+ 状态分段。
   const [query, setQuery] = useState('')
   const [segment, setSegment] = useState<TrafficSegment>('all')
-  // 来源：webapi_http（平台工具记录，默认）与终端（B2 代理出口记录）。
+  // 来源：webapi_http（平台工具记录，默认）与工具出口（终端/浏览器/爬虫经 B2 代理的请求）。
   const [source, setSource] = useState<'http' | 'terminal'>('http')
-  // 终端来源单独一套列表/详情状态，与 webapi_http 互不覆盖。
+  // 工具出口来源单独一套列表/详情状态，与 webapi_http 互不覆盖。
   const [egressItems, setEgressItems] = useState<WebApiEgressItem[]>([])
   const [egressHasMore, setEgressHasMore] = useState(false)
   const [egressNextCursor, setEgressNextCursor] = useState<string | null>(null)
   const [egressLoading, setEgressLoading] = useState(false)
   const [egressListError, setEgressListError] = useState('')
   const [egressSegment, setEgressSegment] = useState<EgressSegment>('all')
+  const [egressToolFilter, setEgressToolFilter] = useState<EgressToolFilter>('all')
   const [egressSelectedId, setEgressSelectedId] = useState<string | null>(null)
   const [egressDetail, setEgressDetail] = useState<WebApiEgressDetail | null>(null)
   const [egressFlow, setEgressFlow] = useState<TrafficFlow | null>(null)
@@ -333,6 +357,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setEgressFlow(null)
     setEgressDetailError('')
     setEgressSegment('all')
+    setEgressToolFilter('all')
     setAuthzAll([])
     setAuthzOriginal([])
     void loadList()
@@ -485,7 +510,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   }, [loadEgressDetail])
 
   // 切换来源：清空选中与详情（两个来源的详情都不保留），筛选回到全部；
-  // 切到终端时重新拉取最新出口记录，切回 webapi_http 沿用已加载数据（行为不变）。
+  // 切到工具出口时重新拉取最新出口记录，切回 webapi_http 沿用已加载数据（行为不变）。
   const switchSource = useCallback((next: 'http' | 'terminal') => {
     if (next === source) return
     setSource(next)
@@ -507,6 +532,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     setQuery('')
     setSegment('all')
     setEgressSegment('all')
+    setEgressToolFilter('all')
     if (next === 'terminal') {
       setEgressItems([])
       setEgressHasMore(false)
@@ -519,7 +545,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
   // 列表分页后仍以 ID 请求详情，找不到时 loadDetail 就地显示错误。404 不冒称已定位。
   useEffect(() => {
     if (!focusEvidenceId) return
-    // 定位目标是 webapi_http 证据：若当前在终端来源，切回 webapi_http 再选中。
+    // 定位目标是 webapi_http 证据：若当前在工具出口来源，切回 webapi_http 再选中。
     setSource('http')
     egressDetailSeq.current++
     setEgressSelectedId(null)
@@ -629,20 +655,28 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
     { key: 'incomplete', label: t('webapi.trafficIncomplete') },
   ]
 
-  // 终端来源：同样只过滤已加载数据，按放行/拒绝分段与 method/url 搜索。
+  // 工具出口来源：同样只过滤已加载数据，按工具、放行/拒绝分段与 method/url 搜索。
   const egressFiltered = useMemo(() => {
-    if (queryTrim === '' && egressSegment === 'all') return egressItems
+    if (queryTrim === '' && egressSegment === 'all' && egressToolFilter === 'all') return egressItems
     return egressItems.filter((item) => {
       if (queryTrim !== '' && !`${item.method} ${item.url}`.toLowerCase().includes(queryTrim)) return false
       if (egressSegment !== 'all' && item.decision !== egressSegment) return false
+      if (egressToolFilter !== 'all' && item.tool !== egressToolFilter) return false
       return true
     })
-  }, [egressItems, queryTrim, egressSegment])
+  }, [egressItems, queryTrim, egressSegment, egressToolFilter])
 
   const egressSegments: { key: EgressSegment; label: string }[] = [
     { key: 'all', label: t('webapi.trafficFilterAll') },
     { key: 'allowed', label: t('webapi.egressAllowed') },
     { key: 'denied', label: t('webapi.egressDenied') },
+  ]
+
+  const egressToolFilters: { key: EgressToolFilter; label: string }[] = [
+    { key: 'all', label: t('webapi.trafficFilterAll') },
+    { key: 'terminal', label: t('webapi.egressToolTerminal') },
+    { key: 'browser', label: t('webapi.egressToolBrowser') },
+    { key: 'katana', label: t('webapi.egressToolKatana') },
   ]
 
   return (
@@ -651,7 +685,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
         {/* 上：筛选条 + 流量表（默认 45% 高，可拖动分割，最小 160px）。 */}
         <Panel defaultSize={45} minSize={15} className="flex min-h-0 flex-col">
           <div className="flex min-h-[160px] min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+            <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-1">
               <div role="group" aria-label={t('webapi.egressSource')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
                 <button
                   type="button"
@@ -676,7 +710,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                   {t('webapi.egressSourceTerminal')}
                 </button>
               </div>
-              <div className="relative h-7 w-full min-w-0 max-w-[260px]">
+              <div className="relative h-7 w-full min-w-[120px] max-w-[260px]">
                 <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
@@ -705,21 +739,39 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                   ))}
                 </div>
               ) : (
-                <div role="group" aria-label={t('webapi.result')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
-                  {egressSegments.map((seg) => (
-                    <button
-                      key={seg.key}
-                      type="button"
-                      aria-pressed={egressSegment === seg.key}
-                      onClick={() => setEgressSegment(seg.key)}
-                      className={cn(
-                        'h-6 rounded px-1.5 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                        egressSegment === seg.key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-                      )}
-                    >
-                      {seg.label}
-                    </button>
-                  ))}
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div role="group" aria-label={t('webapi.egressToolFilter')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
+                    {egressToolFilters.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        aria-pressed={egressToolFilter === item.key}
+                        onClick={() => setEgressToolFilter(item.key)}
+                        className={cn(
+                          'h-6 rounded px-1.5 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                          egressToolFilter === item.key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                        )}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div role="group" aria-label={t('webapi.result')} className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 p-0.5">
+                    {egressSegments.map((seg) => (
+                      <button
+                        key={seg.key}
+                        type="button"
+                        aria-pressed={egressSegment === seg.key}
+                        onClick={() => setEgressSegment(seg.key)}
+                        className={cn(
+                          'h-6 rounded px-1.5 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                          egressSegment === seg.key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                        )}
+                      >
+                        {seg.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -833,7 +885,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                 ) : egressItems.length === 0 ? (
                   <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.egressEmpty')}</div>
                 ) : egressFiltered.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.trafficNoMatch')}</div>
+                  <div className="px-3 py-4 text-center text-sm text-muted-foreground">{t('webapi.egressEmpty')}</div>
                 ) : (
                   <table className="w-full border-separate border-spacing-0 text-left">
                     <thead className="sticky top-0 z-10">
@@ -867,6 +919,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
                             <td className="border-b border-border/40 px-1">
                               <span className="flex min-w-0 items-center gap-1.5">
                                 <span className={cn('font-mono text-[12px] font-semibold', methodTone(item.method))}>{item.method || '-'}</span>
+                                {item.tool ? <EgressToolTag tool={item.tool} /> : null}
                                 {subagentOracleBySession.has(item.session_id) && (
                                   <SubagentSourceTag number={subagentOracleBySession.get(item.session_id)!} />
                                 )}
@@ -1029,6 +1082,7 @@ export default function WebApiEvidencePanel({ task, focusEvidenceId, onFocusCons
             ) : (
               <>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs">
+                  {egressDetail?.summary.tool ? <EgressToolTag tool={egressDetail.summary.tool} /> : null}
                   {egressDetail?.summary.decision === 'denied' && egressDetail.summary.error ? (
                     <span className="min-w-0 truncate text-destructive" title={egressDetail.summary.error}>{egressDetail.summary.error}</span>
                   ) : null}

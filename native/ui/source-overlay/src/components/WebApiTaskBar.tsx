@@ -214,7 +214,7 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
                 onApprovalChange={(approval) => setDraft((current) => ({ ...current, approval }))}
                 compact
               />
-              {/* 终端出口的边界如实写明：scope 决定终端经代理的请求是否被拦截。 */}
+              {/* 工具出口的边界如实写明：scope 决定终端、浏览器与爬虫经代理的请求是否被拦截。 */}
               <p className="text-[11px] text-muted-foreground">
                 {draft.scope === 'unrestricted' ? t('webapi.egressScopeNoteUnrestricted') : t('webapi.egressScopeNoteOrigins')}
               </p>

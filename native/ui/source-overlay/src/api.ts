@@ -2561,8 +2561,8 @@ export async function getWebApiSessionKinds(sessionIds: string[]): Promise<Recor
   return body.items || {}
 }
 
-// --- 全工具出口（B2）：终端经代理的请求记录（只读） ---
-// 与 webapi_requests 的结构化证据不同：这是终端进程的实际出口流量（HTTPS 为
+// --- 全工具出口（B2/M5c）：终端、浏览器与爬虫经代理的请求记录（只读） ---
+// 与 webapi_requests 的结构化证据不同：这是工具进程的实际出口流量（HTTPS 为
 // MITM 解密后的内层请求，CONNECT 本身不单独记录）；拒绝记录在连接目标前写入。
 
 export interface WebApiEgressItem {
@@ -2606,7 +2606,7 @@ export async function listWebApiEgress(taskId: string, limit = 100, cursor?: str
   query.set('limit', String(limit))
   if (cursor) query.set('cursor', cursor)
   if (decision) query.set('decision', decision)
-  return apiJSON<WebApiEgressList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/egress?${query.toString()}`, 'Failed to load terminal egress')
+  return apiJSON<WebApiEgressList>(`/api/webapi/tasks/${encodeURIComponent(taskId)}/egress?${query.toString()}`, 'Failed to load tool egress')
 }
 
 export async function getWebApiEgress(taskId: string, flowId: string): Promise<WebApiEgressDetail> {

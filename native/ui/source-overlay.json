@@ -24,7 +24,7 @@
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "75aa48e448bfc5174c0f54c608d0197e5da9190a4574627f851323248276d730"
+      "sha256": "d636e5763faa65e186aa290fa70f9786b2935b5d4601eebe7433b9c2b154fecd"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -112,7 +112,7 @@
     },
     "src/components/WebApiEvidencePanel.tsx": {
       "source_sha256": null,
-      "sha256": "9b71374005f1e616af54dd43fb1b6f4c16d18df8e4127775f2ef490db066b295"
+      "sha256": "9c99cb6376738bc0bc4d52eef123f7d4f743c806768440eb6eb2d4f9e3356221"
     },
     "src/components/WebApiEvidenceReference.tsx": {
       "source_sha256": null,
@@ -168,7 +168,7 @@
     },
     "src/components/WebApiTaskBar.tsx": {
       "source_sha256": null,
-      "sha256": "45eaea0dfccf45f858361c6e2a00ab8aaae49b878989e0ba81a0b7b730e69f64"
+      "sha256": "2702e9cfea95ff93ad19568179444fa80a4694ea70cc09e2cc10b42550a9898d"
     },
     "src/components/WebApiTaskDialog.tsx": {
       "source_sha256": null,
@@ -228,7 +228,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "e36763ed19b9a27d7676bcfd094b5bac7726085dd95b40b984d5d378fefc7d4f"
+      "sha256": "fa40e2394d96a71d63a2029e5e7ccd87b7a74d42088ff7548f6fa78c00232a56"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -244,7 +244,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "1bca318c9ba267ef6f8cce339d47faad62ed96ceee439158dfc2b9c5e96a7dc0"
+      "sha256": "afbc1c0c246b80a310e44cc00ba760e4818b73add6d9bd70249f0c3074f1b226"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",
