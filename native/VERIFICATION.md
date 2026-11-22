@@ -74,6 +74,7 @@ Item 字段：`kind`（task/verification/report/retest）、`task_id`、`task_se
 服务端把已保存的 traffic.Flow（`webapi_requests.flow_pb` 与 B2 `webapi_egress_flows.flow_pb`）确定性渲染成 Burp 风格请求/响应 PNG，供推送与报告使用；不经模型，不改原件。
 
 - `GET /api/webapi/tasks/{id}/evidence/{evidence_id}/image.png?mark=&mark=&max_lines=&mask=`、`GET /api/webapi/tasks/{id}/egress/{flow_id}/image.png`（同参数），原生鉴权内。200 为 `image/png`，`Cache-Control: private, max-age=300`；记录不存在或不属于该任务 404，参数非法 400，Flow 无法解码 422，错误体 `{error}`。
+- 证据接口另支持资产口令遮盖：详情/列表显式 `mask=1` 返回占位符与 `masked_secrets`（详情省略 `flow_protobuf_base64`），证据图片缺省/`mask=1` 在敏感头遮盖前也替换 URL、正文等处的全部非空资产 secret，`mask=0` 不变，具体见 [AUTHZ.md“存证与遮盖”](AUTHZ.md#2-存证与遮盖含模型可见文本)（不改变出口记录图片）。
 - 参数：`mark` 最多 5 个、每个最多 100 字、单行（空值忽略）：含该子串的行浅黄底、子串加粗橙色；`max_lines` 10–200，默认 60，按折行后的显示行计；`mask` 默认 1，`0`/`false` 关闭。
 - 版式：宽 1200，页眉 `METHOD URL` 与右侧 `证据 <id>`（出口记录为 `出口记录 <id>`），左 Request / 右 Response 两栏，gomono 13px、行高 18、灰色行号（续行无行号），请求行与状态行浅黄底；页脚 `wscyber · 证据 <id> · <created_at UTC>` 加截断/遮盖/缺字说明。
 - 如实：超出行数写“… 其余 N 行未显示”（逻辑行，含被截一半的那行）；`capture_truncated` 时响应栏写“原件已截断（仅保存前 X 字节）”，出口记录 `preview_truncated` 时按侧写“仅保存前 X 字节，共 Y 字节”；`webapi_requests.preview_truncated` 只涉及工具文本预览，Flow 原件未截断，不标。无响应写“（无响应：<状态 · 原因>）”，`sent=false` 写“（未发送：<原因>）”；含 NUL 或非 UTF-8 字节超过 10% 的 body 写“（二进制内容 N 字节，未渲染）”。JSON 不重排。响应协议版本 Flow 未保存，状态行沿用请求协议（缺省 HTTP/1.1）。

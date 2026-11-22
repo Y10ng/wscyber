@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	aop "github.com/chainreactors/cyber/aop"
+	"github.com/chainreactors/cyber/aop/traffic"
+	"google.golang.org/protobuf/proto"
 )
 
 // 账号占位符只在平台发送前解析；credential id 允许点号，扩展名取最后一个 .username/.secret。
@@ -151,25 +153,82 @@ func sortedHeaderNames(headers map[string]string) []string {
 
 // redact 只处理占位符之外的文本，避免短 secret 与 credential id 相同时破坏已有占位符。
 func (r *credentialResolver) redact(text string) string {
+	text, _ = r.redactCount(text)
+	return text
+}
+
+// redactCount 按原文字节匹配；已有和新生成的占位符都不再参与替换。
+func (r *credentialResolver) redactCount(text string) (string, int) {
 	if r == nil || len(r.redactions) == 0 || text == "" {
-		return text
+		return text, 0
 	}
 	var out strings.Builder
+	count := 0
+	plain := func(part string) {
+		start := 0
+		for at := 0; at < len(part); {
+			matched := false
+			// redactions 已按长度降序；同一位置优先最长 secret。
+			for _, item := range r.redactions {
+				if item.secret != "" && strings.HasPrefix(part[at:], item.secret) {
+					out.WriteString(part[start:at])
+					out.WriteString(item.placeholder)
+					at += len(item.secret)
+					start = at
+					count++
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				at++
+			}
+		}
+		out.WriteString(part[start:])
+	}
 	last := 0
 	for _, match := range credentialSecretPlaceholderPattern.FindAllStringIndex(text, -1) {
-		out.WriteString(r.redactPlain(text[last:match[0]]))
+		plain(text[last:match[0]])
 		out.WriteString(text[match[0]:match[1]])
 		last = match[1]
 	}
-	out.WriteString(r.redactPlain(text[last:]))
-	return out.String()
+	plain(text[last:])
+	return out.String(), count
 }
 
-func (r *credentialResolver) redactPlain(text string) string {
-	for _, item := range r.redactions {
-		text = strings.ReplaceAll(text, item.secret, item.placeholder)
+// redactEvidenceFlow 只修改本次解码的副本；body 按字节替换（包括二进制/非 UTF-8）。
+func (r *credentialResolver) redactEvidenceFlow(flowPB []byte) ([]byte, int, error) {
+	var flow traffic.Flow
+	if err := proto.Unmarshal(flowPB, &flow); err != nil {
+		return nil, 0, errors.New("Flow原件无法解码")
 	}
-	return text
+	count := 0
+	redact := func(value string) string {
+		value, n := r.redactCount(value)
+		count += n
+		return value
+	}
+	if req := flow.GetRequest(); req != nil {
+		req.Url = redact(req.Url)
+		for _, header := range req.Headers {
+			if header != nil {
+				header.Value = redact(header.Value)
+			}
+		}
+		req.Body = []byte(redact(string(req.Body)))
+	}
+	if resp := flow.GetResponse(); resp != nil {
+		for _, header := range resp.Headers {
+			if header != nil {
+				header.Value = redact(header.Value)
+			}
+		}
+		resp.Body = []byte(redact(string(resp.Body)))
+		resp.ReasonPhrase = redact(resp.ReasonPhrase)
+	}
+	flow.Error = redact(flow.Error)
+	data, err := proto.Marshal(&flow)
+	return data, count, err
 }
 
 // redactToolResult 保留工具结果的调用关联、错误与终止标记，只回替文本块中的 secret。

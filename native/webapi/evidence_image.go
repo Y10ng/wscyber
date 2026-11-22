@@ -66,12 +66,13 @@ var evidenceMaskedHeaders = map[string]bool{
 
 // evidenceImageMeta 是 Flow 之外、来自业务行的如实说明。
 type evidenceImageMeta struct {
-	Label     string // 页眉/页脚里的记录类型，默认“证据”；出口记录用“出口记录”。
-	ID        string
-	CreatedAt string // RFC3339（UTC）；无法解析时原样显示。
-	Status    string // 业务状态（completed/unknown/denied/allowed…）。
-	Reason    string // 失败/拒绝原因。
-	Sent      *bool  // false=明确未发送；nil=未知。
+	Label         string // 页眉/页脚里的记录类型，默认“证据”；出口记录用“出口记录”。
+	ID            string
+	CreatedAt     string // RFC3339（UTC）；无法解析时原样显示。
+	Status        string // 业务状态（completed/unknown/denied/allowed…）。
+	Reason        string // 失败/拒绝原因。
+	Sent          *bool  // false=明确未发送；nil=未知。
+	SecretsMasked bool   // 资产 secret 已在渲染前替换。
 	// 原件已截断：Kept 为 Flow 中实际保存的字节数，Observed>0 时为观察到的原始字节数。
 	RequestTruncated  *evidenceTruncation
 	ResponseTruncated *evidenceTruncation
@@ -296,7 +297,7 @@ func layoutEvidenceLines(flow *traffic.Flow, meta evidenceImageMeta, opts eviden
 	var requestCut, responseCut bool
 	layout.Request, requestCut = buildEvidenceColumn("Request", requestLines, meta.RequestTruncated, opts, textCells)
 	layout.Response, responseCut = buildEvidenceColumn("Response", responseLines, meta.ResponseTruncated, opts, textCells)
-	layout.Masked = masked
+	layout.Masked = masked || meta.SecretsMasked
 
 	footer := []string{"wscyber", label + " " + meta.ID}
 	if created := formatEvidenceTime(meta.CreatedAt); created != "" {
@@ -312,6 +313,9 @@ func layoutEvidenceLines(flow *traffic.Flow, meta evidenceImageMeta, opts eviden
 		footer = append(footer, "已遮盖敏感头")
 	} else if sensitive {
 		footer = append(footer, "敏感头未遮盖")
+	}
+	if meta.SecretsMasked {
+		footer = append(footer, "已遮盖资产口令")
 	}
 	layout.Footer = footer
 	return layout, nil
@@ -848,7 +852,24 @@ func (c *Capability) handleEvidenceImage(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, 404, map[string]string{"error": "任务内证据不存在"})
 		return
 	}
-	writeEvidencePNG(w, model.FlowPB, requestEvidenceImageMeta(*model), opts)
+	meta, flowPB := requestEvidenceImageMeta(*model), model.FlowPB
+	if !opts.NoMask {
+		resolver, err := loadCredentialResolver(r.Context(), c.store, c.secrets, taskID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "读取资产口令失败，无法遮盖证据"})
+			return
+		}
+		var count int
+		flowPB, count, err = resolver.redactEvidenceFlow(flowPB)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": err.Error()})
+			return
+		}
+		var reasonCount int
+		meta.Reason, reasonCount = resolver.redactCount(meta.Reason)
+		meta.SecretsMasked = count+reasonCount > 0
+	}
+	writeEvidencePNG(w, flowPB, meta, opts)
 }
 
 func requestEvidenceImageMeta(model requestModel) evidenceImageMeta {

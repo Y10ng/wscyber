@@ -615,7 +615,37 @@ func (c *Capability) handleEvidenceList(w http.ResponseWriter, r *http.Request) 
 		last := models[len(models)-1]
 		response["next_cursor"] = base64.RawURLEncoding.EncodeToString([]byte(last.CreatedAt + "\n" + last.ID))
 	}
+	if r.URL.Query().Get("mask") == "1" {
+		resolver, err := loadCredentialResolver(r.Context(), c.store, c.secrets, taskID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "读取资产口令失败，无法遮盖证据"})
+			return
+		}
+		count := 0
+		for i := range items {
+			count += redactEvidenceMetadata(&items[i], resolver)
+		}
+		response["masked_secrets"] = count
+	}
 	writeJSON(w, 200, response)
+}
+
+func redactEvidenceMetadata(meta *Evidence, resolver *credentialResolver) int {
+	var urlCount, reasonCount int
+	meta.URL, urlCount = resolver.redactCount(meta.URL)
+	meta.Reason, reasonCount = resolver.redactCount(meta.Reason)
+	return urlCount + reasonCount
+}
+
+// 二进制预览沿用 base64: 编码；先解码遮盖，再编码，避免编码绕过。
+func redactEvidencePreview(preview string, resolver *credentialResolver) (string, int) {
+	if strings.HasPrefix(preview, "base64:") {
+		if data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(preview, "base64:")); err == nil {
+			text, count := resolver.redactCount(string(data))
+			return "base64:" + base64Encode([]byte(text)), count
+		}
+	}
+	return resolver.redactCount(preview)
 }
 
 func (c *Capability) handleEvidenceGet(w http.ResponseWriter, r *http.Request) {
@@ -633,17 +663,40 @@ func (c *Capability) handleEvidenceGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "任务内证据不存在"})
 		return
 	}
-	flowJSON, err := flowDetailJSON(model.FlowPB)
+	meta, preview, flowPB := evidenceMetadata(*model), string(model.Preview), model.FlowPB
+	mask, count := r.URL.Query().Get("mask") == "1", 0
+	if mask {
+		resolver, loadErr := loadCredentialResolver(r.Context(), c.store, c.secrets, taskID)
+		if loadErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "读取资产口令失败，无法遮盖证据"})
+			return
+		}
+		flowPB, count, err = resolver.redactEvidenceFlow(flowPB)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		count += redactEvidenceMetadata(&meta, resolver)
+		var previewCount int
+		preview, previewCount = redactEvidencePreview(preview, resolver)
+		count += previewCount
+	}
+	flowJSON, err := flowDetailJSON(flowPB)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{
-		"metadata": evidenceMetadata(*model), "preview": string(model.Preview),
+	response := map[string]any{
+		"metadata": meta, "preview": preview,
 		"flow_protobuf_base64": base64Encode(model.FlowPB),
 		"flow":                 flowJSON,
 		"capture":              map[string]any{"request": "结构化重建，含完整请求body；非逐字节线上报文", "response_body_limit": maxCaptureBytes, "preview_limit": maxPreviewBytes, "capture_truncated": model.CaptureTruncated, "preview_truncated": model.PreviewTruncated, "auto_decompressed": false},
-	})
+	}
+	if mask {
+		delete(response, "flow_protobuf_base64")
+		response["masked_secrets"] = count
+	}
+	writeJSON(w, 200, response)
 }
 
 func base64Encode(value []byte) string { return base64.StdEncoding.EncodeToString(value) }

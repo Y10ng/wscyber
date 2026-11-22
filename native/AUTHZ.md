@@ -20,11 +20,17 @@
 - 仍会在组装首条消息时解密每个已存 secret 一次，以保留密钥缺失或密文损坏时 `stage=first_message` 明确失败的现有行为，但明文不再写入消息。计划验证/复测首条消息也追加同一账号块。**手动验证/复测首条消息由前端组装，本片未改，留待前端片。**
 - 已有任务的历史会话事件不追溯清理。
 
-## 2. 存证与模型可见文本
+## 2. 存证与遮盖（含模型可见文本）
 
 - `webapi_requests.flow_pb`、URL、请求头/正文、响应头/正文保存**实际发送与接收的字节**，与此前模型自行填写口令时的存证口径一致。
 - 回给模型的工具结果（含响应预览与错误文本）中，本任务资产的每个非空 secret 都替换回其 `{{cred:<id>.secret}}`；目标响应回显的 secret 同样处理。用户名可以明文。已有占位符不参与二次替换，避免短 secret 与 credential id 相同时破坏占位符。
-- 原有导出、推送、漏洞卡 curl/报告遮盖逻辑继续读取该资产的**全部账号** secret 并遮盖（既有规则为 ≥4 字，`******`）；这不改变 `webapi_requests` 原件。证据详情/图片仍按各自现有原件与遮盖开关语义处理。
+- 原有导出、推送、漏洞卡 curl/报告遮盖逻辑继续读取该资产的**全部账号** secret 并遮盖（既有规则为 ≥4 字，`******`）；这不改变 `webapi_requests` 原件。
+- `GET /api/webapi/tasks/{id}/evidence/{evidence_id}?mask=1`：读取任务关联资产的**全部非空 secret（含短口令）**，将 `flow` 的请求 URL、请求/响应头值、正文、响应原因与错误文本，以及 `metadata.url`、`metadata.reason`、`preview` 中匹配的原文字节替换为 `{{cred:<credential_id>.secret}}`。同一位置长 secret 优先；相同 secret 按占位符字典序选择一个；已有及新生成的占位符不再替换。只改本次返回副本，不回写存证。
+- 遮盖详情**省略 `flow_protobuf_base64`**，避免通过原件取得明文；增加顶层整数 `masked_secrets`，计数为返回字段中的替换总次数（同一口令在 URL、metadata、正文、preview 中重复出现时分别计数），无关联资产或无命中为 0。不带 `mask` 或 `mask=0` 保留原响应字段与内容，不增加计数。
+- `GET /api/webapi/tasks/{id}/evidence?mask=1`：列表不返回正文/preview，仅遮盖每项 `url`、`reason`；顶层 `masked_secrets` 为当前页替换次数，分页及游标不变。缺省和 `mask=0` 不变。
+- 正文无论文本、二进制或非 UTF-8，均在 protobuf 解码后按字节替换，再按既有 protojson 规则返回（`body` 仍为 base64）。`preview` 的有效 `base64:` 编码先解码、替换再编码；其余预览按原文字节替换。不猜测 URL 编码、JSON 转义或其它变换后的口令，也不恢复已截断的片段；原有 capture/preview 截断标记保持不变。
+- `GET /api/webapi/tasks/{id}/evidence/{evidence_id}/image.png` 缺省或 `mask=1`：渲染前对同一 Flow 内容与失败原因替换全部非空资产 secret 为占位符（包含 URL、正文），然后沿用敏感头遮盖、正文二进制省略等既有渲染规则；命中时页脚增加“已遮盖资产口令”。`mask=0` 仍渲染原始内容；出口记录图片接口不在此改动范围内。
+- 上述遮盖接口若资产口令无法读取/解密则返回 500，不降级回传未遮盖证据；不遮盖的详情/列表及 `mask=0` 图片不依赖口令解密。
 - `webapi_http` 的审批预解析与工具执行使用同一套占位符替换，因此 origin 与危险请求判定针对实际请求。
 
 ## 3. `webapi_authz_compare`
