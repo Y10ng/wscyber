@@ -19,6 +19,7 @@
 | `repro` | 成员中**最新 supported 且带 key_steps** 的验证：`{verification_id, task_id, finding_id, session_id, impact, preconditions, steps[], contrast\|null, remediation[], retest_method, saved_at}`；无则 null |
 | `repro_missing_reason` | repro 为 null 时：`no_verification`（无任何判读）/ `no_supported`（有判读无 supported）/ `no_key_steps`（只有 K1 前的旧 supported）；有 repro 时 null |
 | `retest` | 成员最新复测结论 `{retest_id, task_id, finding_id, session_id, conclusion, summary, at}` 或 null |
+| `retest_request` | V3：该键最近一次成功的“申请复测” `{retest_id, session_id, task_id, finding_id, started_at, status}` 或 null；`started_at` 为审计 `vuln.retest_request` 时间；`status`：该复测无结论且会话正在运行（`SessionRunning`，无法核对按运行中）→ `running`，否则（已出结论、会话已结束或未注入会话服务）→ `done`。结论仍看 `retest` 段 |
 | `lifecycle[]` | 升序 `{at, kind, title, detail, actor}`，见下 |
 | `appendix` | `{verifications[], members[], evidence_count, evidence[], changes[]}`，见下 |
 | `related[]` | 同资产其他未修复（status≠fixed）条目，按全局默认排序前 5：`{key, code, title, severity, suggested_severity, status}`；`suggested_severity` 与 `GET /vulns` 对应条目同源，无建议时为空串；无资产为空 |
@@ -40,17 +41,18 @@
 | `triage` | 审计 `vuln.triage`（detail 为审计摘要） | 审计 actor（user） |
 | `notify` | 该键的推送终态：sent 用 sent_at，failed 用 `notification.failed` 审计时间（无则登记时间）；人工推送（manual）每次投递终态各一条（“企业微信人工推送成功/失败”，取 `notification.sent/failed` 审计时间） | system |
 | `replay` | 每次已完成的一键重放（“一键重放：仍可复现/有变化/无法判定”，detail 为 `METHOD /path → 状态码`） | user |
+| `retest_request` | 每次成功的申请复测（审计 `vuln.retest_request`；“申请复测”，detail 为审计摘要“申请复测漏洞「标题」：候选 WSC-…”） | user |
 | `retest` | 每条复测结论（“复测：仍可复现/已修复（范围内）/无法判定”） | ai |
 | `fixed` | 条目派生状态为已修复时，`fixed_at` | system |
 
-同一时刻按 candidate → verification → triage → notify → replay → retest → fixed 排。detail ≤200 字。
+同一时刻按 candidate → verification → triage → notify → replay → retest_request → retest → fixed 排。detail ≤200 字。
 
 ### appendix
 
 - `verifications[]`：成员全部验证（含未出结果），按结果时间（无结果按创建时间）倒序：`{verification_id, task_id, finding_id, finding_number, session_id, created_at, verdict|null, method, preconditions, summary, limitations, suggested_severity, severity_reason, has_repro, evidence_count, saved_at|null}`。
 - `members[]`：同资产漏洞库成员视图。
 - `evidence[]`：候选当前修订声称的证据（source=candidate）、验证结果证据、关键步骤与对照证据（relation=key_step/contrast）、复测证据（source=retest），按 task+evidence_id 去重，最多列 200 条；`evidence_count` 为去重总数。
-- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked/replay/notify），新到旧，同审计接口项格式。
+- `changes[]`：该键全部 `vuln.*` 审计（rename/move/merge/triage/curl_unmasked/replay/notify/retest_request），新到旧，同审计接口项格式。
 
 ## `GET /api/webapi/vulns/{key}/card/curl?step=N&mask=0|1`
 
@@ -67,6 +69,35 @@ curl -sS -X METHOD 'URL' \
 - 默认遮盖：敏感头（Authorization、Proxy-Authorization、Cookie、Set-Cookie、X-API-Key、X-Auth-Token，同证据图片）值替换为 `******`；URL 去 userinfo；URL、头、正文中该任务资产测试账号 secret（≥4 字）替换为 `******`。
 - `mask=0` 输出原值，并登记审计 `vuln.curl_unmasked`（user；target 为该键；detail `vuln_key, step, evidence_id, verification_id`，不含请求内容）。
 - 错误：键非法、`step` 非 1..3 或超出步数、`mask` 非 0/1 → 400；条目不存在、无最小复现、证据不存在 → 404；原件无法解析 → 422。
+
+## 申请复测（V3 后端）
+
+研发说“已修复”后，人在漏洞卡点“申请复测”：后端直接在代表候选的原任务下新建复测并启动会话（无需打开原任务）；复测结论照现有规则（`webapi_retest_result`）回写派生状态（`fixed_in_scope` → 已修复，`reproducible` → 仍存在）。不新增表：申请记录即审计 `vuln.retest_request`。实现 `native/webapi/vuln_retest.go`。
+
+`POST /api/webapi/vulns/{key}/card/retest`，body 为空或 `{}`（未知字段、非对象 400）→ 201 `{retest_id, session_id, task_id, finding_id, revision_id}`。键非法 400，条目不存在 404，其余 500（`{error}`）。
+
+**选用候选**（须为条目成员）：
+1. 卡片 `repro` 的来源候选（成员中最新 supported 且带 key_steps 的验证所属候选）；
+2. 无 repro：成员中最近一次 supported 验证所属候选（同卡上人工推送的选用规则）；
+3. 都没有：最近成员候选（候选创建时间最新）。
+
+复测固定该候选的**当前修订**（不是验证当时的修订），`task_id` 为候选原任务，授权沿用原任务 origins。
+
+**409** `{error, code}`，按以下顺序检查：
+
+| code | 条件 |
+|---|---|
+| `archived` | 条目所属资产已归档 |
+| `false_positive` | 处置为误报（接受风险、修复中照常可申请） |
+| `no_member` | 无可用候选（无成员，或选中候选的任务/当前修订已不存在） |
+| `in_flight` | 成员下已有**未出结论且会话正在运行**的复测（任何来源：申请复测、计划后续、手动 PUT 后前端 Run）；另带 `retest_id`、`session_id`。已保存但未启动（手动未 Run、发起失败）或会话已结束仍无结论的不算；会话状态无法核对按运行中计（同计划后续）；复测出结论后即解除 |
+| `no_model` | `startSession` 的任何阶段性失败（无在线 webapi_http 节点、本机模型未配置、绑定节点离线、未注入会话服务、Open/Run 被拒或失败、首条消息组装失败等）；`error` = `阶段：原文`（同计划后续 `failed` 文案），另带 `stage`、`retest_id`、`session_id` |
+
+**发起**：同键进程内串行（防连点）；`saveRetest` 以平台生成的随机 UUID 新建复测记录（登记 `retest.start`，actor user）→ `startPinnedSession`（与计划后续共用：首条消息 = `pinnedFirstMessage(retestMessageVariant, 原任务 origins, 当前修订)` + 测试账号占位符块，经 `startSession` 选节点 → Open → Run，不带持续探索设置）。请求处理不随页面断开取消。
+
+**失败时的复测记录**：与计划后续一致——保留不删、不自动重试；响应 409 `no_model` 带其 `retest_id`。这条记录没有用户消息，不算 `in_flight`；再次申请会新建一条复测记录（新 UUID），不复用旧记录。只登记 `retest.start`，不登记 `vuln.retest_request`，卡片 `retest_request` 与 lifecycle 不出现。
+
+**审计** `vuln.retest_request`（仅成功）：见 `native/AUDIT.md`。被拒（400/404/409）不登记。
 
 ## 推送联动（见 `native/NOTIFY.md`）
 

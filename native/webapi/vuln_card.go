@@ -37,7 +37,7 @@ const (
 var (
 	conclusionLabels = map[string]string{"reproducible": "仍可复现", "fixed_in_scope": "已修复（范围内）", "inconclusive": "无法判定"}
 	// lifecycleKindOrder：同一时刻的事件按业务先后排列。
-	lifecycleKindOrder = map[string]int{"candidate": 0, "verification": 1, "triage": 2, "notify": 3, "replay": 4, "retest": 5, "fixed": 6}
+	lifecycleKindOrder = map[string]int{"candidate": 0, "verification": 1, "triage": 2, "notify": 3, "replay": 4, "retest_request": 5, "retest": 6, "fixed": 7}
 )
 
 // vulnCode 是平台短编号：V- + 条目 id 去前缀（finding:、wf_）与非字母数字后的前 8 位大写；稳定、只由 id 决定。
@@ -231,17 +231,19 @@ type VulnCardNav struct {
 }
 
 type VulnCard struct {
-	Header             VulnCardHeader    `json:"header"`
-	Triage             *TriageView       `json:"triage"`
-	Repro              *VulnCardRepro    `json:"repro"`
-	ReproMissingReason *string           `json:"repro_missing_reason"`
-	Retest             *VulnCardRetest   `json:"retest"`
-	Lifecycle          []VulnCardEvent   `json:"lifecycle"`
-	Appendix           VulnCardAppendix  `json:"appendix"`
-	Related            []VulnCardRelated `json:"related"`
-	Nav                VulnCardNav       `json:"nav"`
-	Replays            []VulnCardReplay  `json:"replays"`
-	Notify             VulnCardNotify    `json:"notify"`
+	Header             VulnCardHeader  `json:"header"`
+	Triage             *TriageView     `json:"triage"`
+	Repro              *VulnCardRepro  `json:"repro"`
+	ReproMissingReason *string         `json:"repro_missing_reason"`
+	Retest             *VulnCardRetest `json:"retest"`
+	// RetestRequest：最近一次漏洞卡“申请复测”（V3）；无则 null。结论仍在 Retest。
+	RetestRequest *VulnCardRetestRequest `json:"retest_request"`
+	Lifecycle     []VulnCardEvent        `json:"lifecycle"`
+	Appendix      VulnCardAppendix       `json:"appendix"`
+	Related       []VulnCardRelated      `json:"related"`
+	Nav           VulnCardNav            `json:"nav"`
+	Replays       []VulnCardReplay       `json:"replays"`
+	Notify        VulnCardNotify         `json:"notify"`
 }
 
 // ---- 定位 ----
@@ -857,6 +859,11 @@ func (c *Capability) buildVulnCardFor(ctx context.Context, item *GlobalVuln, ord
 			card.Lifecycle = append(card.Lifecycle, VulnCardEvent{At: change.At, Kind: "triage", Title: "人工定级/处置", Detail: capRunes(change.Summary, vulnCardDetailRunes), Actor: change.Actor})
 		}
 	}
+	requestEvents := []VulnCardEvent{}
+	if card.RetestRequest, requestEvents, err = c.cardRetestRequest(ctx, changes); err != nil {
+		return nil, err
+	}
+	card.Lifecycle = append(card.Lifecycle, requestEvents...)
 	notifyEvents, err := c.store.vulnNotifyEvents(ctx, item.ID)
 	if err != nil {
 		return nil, err

@@ -304,19 +304,10 @@ func (c *Capability) launchFollowup(ctx context.Context, item scheduleFollowupMo
 		}
 		sessionID = summary.SessionID
 	}
-	source, err := c.store.findingRevision(ctx, item.TaskID, item.FindingID, item.RevisionID)
-	if err != nil {
-		return "", "", err
-	}
-	if source == nil {
-		return fail("create", "候选修订不存在")
-	}
-	result := &AssetLaunchResult{SessionID: sessionID}
-	_, err = c.startSession(ctx, sessionID, subject, func() (string, error) {
-		base := pinnedFirstMessage(variant, task.Origins, source)
-		return c.followupFirstMessage(ctx, task.ID, base)
-	}, result, nil)
-	if err != nil {
+	if err := c.startPinnedSession(ctx, task, item.FindingID, item.RevisionID, sessionID, subject, variant); err != nil {
+		if errors.Is(err, errPinnedSourceMissing) {
+			return fail("create", "候选修订不存在")
+		}
 		if ctx.Err() != nil {
 			return "", "", ctx.Err()
 		}
@@ -327,6 +318,26 @@ func (c *Capability) launchFollowup(ctx context.Context, item scheduleFollowupMo
 		return "", "", err
 	}
 	return FollowupLaunched, "", nil
+}
+
+var errPinnedSourceMissing = errors.New("候选修订不存在")
+
+// startPinnedSession 按固定修订组装首条消息（pinnedFirstMessage 基本段 + followupFirstMessage 账号占位符块），
+// 经 startSession 启动验证/复测会话（按 session 幂等）。计划后续与漏洞卡“申请复测”共用。
+// 修订不存在返回 errPinnedSourceMissing；startSession 失败原样返回（*AssetLaunchError 或存储异常）。
+func (c *Capability) startPinnedSession(ctx context.Context, task *Task, findingID, revisionID, sessionID, subject string, variant pinnedMessageVariant) error {
+	source, err := c.store.findingRevision(ctx, task.ID, findingID, revisionID)
+	if err != nil {
+		return err
+	}
+	if source == nil {
+		return errPinnedSourceMissing
+	}
+	result := &AssetLaunchResult{SessionID: sessionID}
+	_, err = c.startSession(ctx, sessionID, subject, func() (string, error) {
+		return c.followupFirstMessage(ctx, task.ID, pinnedFirstMessage(variant, task.Origins, source))
+	}, result, nil)
+	return err
 }
 
 // pinnedSaveFailure 把验证/复测认领的确定性失败转为 failed（create 阶段）；存储异常不在此列。

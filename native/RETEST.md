@@ -17,6 +17,8 @@
 | `GET .../findings/{finding}/retests?limit&cursor` | 按时间倒序分页的摘要；`conclusion` 可以为空 |
 | `GET /api/webapi/retests?session_id=` | 用 session 反查复测；不存在返回 404 |
 
+后端发起入口（无需前端 Open/Run）：计划后续（`ASSETS.md`「计划后续」）与漏洞卡“申请复测” `POST /api/webapi/vulns/{key}/card/retest`（V3，见 `VULN_CARD.md`「申请复测」），两者共用 `startPinnedSession`（`pinnedFirstMessage(retestMessageVariant, …)` + 测试账号占位符块 → `startSession`）。
+
 ## 结论工具 `webapi_retest_result`
 
 参数：`conclusion`、`method`、`preconditions`、`summary`、`limitations`、`evidence[{evidence_id,relation}]`。归属取自原生 Invocation。

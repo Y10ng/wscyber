@@ -403,6 +403,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "GET /api/webapi/vulns/{key}/card", Handler: http.HandlerFunc(c.handleVulnCard)},
 		{Pattern: "GET /api/webapi/vulns/{key}/card/curl", Handler: http.HandlerFunc(c.handleVulnCardCurl)},
 		{Pattern: "POST /api/webapi/vulns/{key}/card/replay", Handler: http.HandlerFunc(c.handleVulnCardReplay)},
+		{Pattern: "POST /api/webapi/vulns/{key}/card/retest", Handler: http.HandlerFunc(c.handleVulnCardRetest)},
 		{Pattern: "POST /api/webapi/vulns/{key}/card/notify", Handler: http.HandlerFunc(c.handleVulnCardNotify)},
 		{Pattern: "GET /api/webapi/vulns/{key}/card/notify/preview", Handler: http.HandlerFunc(c.handleVulnCardNotifyPreview)},
 		{Pattern: "GET /api/webapi/vulns/{key}/card/export", Handler: http.HandlerFunc(c.handleVulnCardExport)},
