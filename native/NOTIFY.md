@@ -69,9 +69,86 @@
 - View = `{id, kind（new/regression/manual）, status, dedupe_key, task_id, finding_id, finding_number, verification_id, verification_session_id, vuln_id|null, title（验证固定修订标题）, asset:{id,name}|null, attempts, last_error, next_attempt_at|null, created_at, sent_at|null}`。
 - `POST /api/webapi/notifications/{id}/confirm`：pending_confirm → queued（立即到期）；`…/dismiss`：pending_confirm|failed → dismissed；`…/retry`：failed → queued，attempts 清零、立即到期。成功 200 返回 View；不存在 404；状态不符 409。
 
+## 运营通知（V4 后端）
+
+无人值守时让人及时知道“有危险操作在等审批 / 计划运行失败 / 本周情况”。与漏洞通知共用 `webapi_notifications` 表与上文投递（队列、重试 1/5 分钟、3 次 failed、45009 推迟、每分钟 18 条窗口、未配置/未启用不发送保持 queued）。只发 markdown，不发图片。仅临时库 + httptest 模拟企业微信的 Go 测试通过；前端（集成页开关与记录展示）下一片做，未向真实企业微信发送。
+
+### 设置
+
+- `GET/PUT /api/webapi/notify/wecom` 视图增加三个布尔 `notify_approval`、`notify_schedule_failed`、`notify_weekly_digest`（默认 false）。
+- PUT 请求体同名三项为**可选**：**省略（或 null）＝保留原值**（无原值为 false）；其余字段仍整份覆盖、未知字段 400。选“省略即保留”而非“省略按 false”：不认识这三项的旧客户端整份保存时不会把已开的运营通知悄悄关掉。要关闭须显式传 `false`。
+- 三类都要求 `enabled=true` 且已配置 webhook 才登记（之后再启用不补登记以前的事件；每周摘要见下）。
+- **`require_confirm` 不作用于运营通知**（时效性）：一律登记为 `queued`、立即到期。
+- 存储：开关在新表 `webapi_notify_ops_settings`（单行 `id='wecom'`：三开关、`weekly_digest_since`、`updated_at`），与 `webapi_notify_settings` 同事务写；`weekly_digest_since` = 每周摘要开关最近一次由关变开的时间（关闭时清空），其前的周一 09:00 不补发。
+- 审计沿用 `notify.settings`（摘要如“待审批通知停用 → 启用”，detail `from`/`to` 带三项）。
+
+### 三类触发与去重
+
+| kind | 触发 | 去重键 |
+|---|---|---|
+| `approval_pending` | 审批挂起时（`approval.go` review 登记挂起后、发 PENDING 事件前同步登记；每个 operation 一条） | `approval:<operation_id>` |
+| `schedule_failed` | 计划运行记为 `failed` 时（`recordRun`：发起失败 `阶段：文案`、cron 非法、next_run_at 损坏，全部来源） | `schedule_run:<run_id>`（`(asset, scheduled_for)` 冲突未插入时取已有那条的 id） |
+| `weekly_digest` | 推送 goroutine 每轮（10s）检查：Hub 本地时区最近一次“周一 09:00”尚未登记即登记；停机错过多周只补最近一次 | `digest:<ISO 年>-W<周>`，如 `digest:2026-W48` |
+
+- 同一去重键已有任何通知（任何状态）即不再登记。登记失败只记 Hub 日志，不影响审批/调度。
+- 审批已决（批准/拒绝/超时/取消）后，该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；投递前若发现挂起已不在本进程（如 Hub 重启后）同样改 `dismissed` 不发。已发出的保持 `sent`。
+- 表结构：`webapi_notifications` 必填列不改，运营通知 `finding_id`/`verification_id`/`vuln_id` 为空串（唯一约束 `(dedupe_key, kind, verification_id)` 不受影响），`task_id` 为审批所属任务 / 失败运行已建的任务（无则空）/ 摘要为空。登记时冻结的内容存新表 `webapi_notification_ops(notification_id pk, title, asset_id, session_id, payload_json)`；markdown 在投递时按当时 `base_url` 生成。
+
+### markdown 版式
+
+```
+**【待审批】<任务标题（objective 首个非空行，≤120 字）>**
+> 工具：webapi_http | bash | write
+> 请求：<METHOD URL>            （bash 为“> 命令：<命令首 120 字>”，write 为“> 文件：<路径>”）
+> 原因：<审批原因原文>
+> 剩余时间：10 分钟内未处理将自动拒绝（<截止时间，Hub 本地 YYYY-MM-DD HH:MM> 截止）
+[去平台审批](<base_url>/sessions/<研究会话 id>)
+```
+
+- 遮盖：请求摘要/原因/标题先经该任务资产的 credential resolver 回替（口令明文 → `{{cred:<id>.secret}}`），再经 guardrail `RedactText`（Bearer/Basic、`password=`/`token=`/`cookie:` 等赋值、URL userinfo、`-u user:pass`）；URL 另去 userinfo。读不到资产密钥时不登记（不冒险外发明文）。用户名不替换。
+- 会话链接：审批来自子 Agent（`oracle_explorer`）时指向其父研究会话；验证/复测会话指向该会话本身。View `session_id` 即链接所用会话。
+
+```
+**【计划运行失败】<资产名>**
+> 计划：<cron>（Hub 本地时区）
+> 应运行时间：<scheduled_for，Hub 本地 YYYY-MM-DD HH:MM>
+> 失败阶段：<LaunchAssetTask 阶段，如 select_node / validate；cron 非法与 next_run_at 损坏为“调度检查”>
+> 原因：<运行记录 error 原文（资产测试账号口令替换为 ******）>
+[在平台查看](<base_url>/?page=assets)
+```
+
+- 前端目前没有资产深链参数，链接用 `?page=assets`。
+
+```
+**【每周摘要】2026-W48**
+> 统计区间：2026-11-17 ~ 2026-11-23（Hub 本地日期；逾期/待定级为当前值）
+> 合计：新增 N · 已修复 N · 当前逾期 N · 待定级 N
+- <资产名>：新增 … · 已修复 … · 当前逾期 … · 待定级 …     （有非 0 数字的未归档资产，按名称；末行“未关联资产”= 独立任务候选）
+其余 N 个资产均为 0
+[在平台查看](<base_url>/?page=overview)
+```
+
+- 口径（复用总览函数，不新写口径）：区间 = 登记时点（周一 09:00）的总览 `days=7` 区间（该本地日往前 7 个本地日，含当日）；新增/已修复 = 区间内 `vulns.confirmed_by_day` 的 `new`/`fixed` 之和（同一函数 `vulnPeriodMarks`）；当前逾期 = `vulns.overdue`、待定级 = `todo.unrated`（同一函数 `vulnTodo`，当前值）。全局合计 = 各行之和 = 同一时刻总览 `days=7` 的对应数字。数据范围同全局漏洞列表（不含归档资产）。无任何资产时仍发合计行与“暂无资产”。
+- 4096 字节：待审批/计划失败对标题与链接以外的字段统一取最大可行字数上限截断（同漏洞通知规则，`…` 结尾）；每周摘要从末尾起省略资产行并加“另有 N 个资产有变化未列出”。无 `base_url` 省略链接行。
+
+### 记录（`GET /notifications` View）
+
+- `kind` 取值增加 `approval_pending`/`schedule_failed`/`weekly_digest`；View 新增 `session_id`（仅 `approval_pending` 有值，其余 `""`）。
+
+| 字段 | approval_pending | schedule_failed | weekly_digest |
+|---|---|---|---|
+| `title` | 任务标题 | 资产名 | `每周摘要 <年-W周>` |
+| `asset` | 任务关联资产或 null | 该资产（已删除为 null） | null |
+| `task_id` | 所属任务 | 已建任务或 `""` | `""` |
+| `session_id` | 链接会话 | `""` | `""` |
+| `finding_id`/`finding_number`/`verification_id`/`verification_session_id` | `""` | `""` | `""` |
+| `vuln_id` | null | null | null |
+
+- confirm/dismiss/retry 同样可用：运营通知不会处于 `pending_confirm`，confirm 恒为 409（状态不符）；failed 可 dismiss/retry。投递终态审计 `notification.sent/failed` 同规则。漏洞卡 `notify` 段、人工推送 `in_flight` 判定都按漏洞去重键，运营通知不影响。
+
 ## 旧库
 
-U2a/D1 阶段（二十三表，含 `webapi_egress_flows`）旧库由 `PrepareWebAPISchema` 单事务补 `webapi_notify_settings`、`webapi_notifications` 两表与三个索引，不改原表；更早的已知阶段一并补齐。
+U2a/D1 阶段（二十三表，含 `webapi_egress_flows`）旧库由 `PrepareWebAPISchema` 单事务补 `webapi_notify_settings`、`webapi_notifications` 两表与三个索引，不改原表；更早的已知阶段一并补齐。V4 新增 `webapi_notify_ops_settings`、`webapi_notification_ops` 两表：M5b（四十二表）及更早已知阶段由 `PrepareWebAPISchema` 补表（不 ALTER 原表），原推送配置与记录保留，三开关为 false。
 
 ## 已验与未验
 

@@ -249,44 +249,17 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 		view.Vulns.Counts[vuln.Status]++
 		// 待修复（new/present 且处置 open/fixing）的严重度分布与逾期数（V1）。
 		item := triage.view(vuln.ID, vuln.assetID, vuln.Status, vuln.firstConfirmed)
-		if triageOpen(vuln.Status, item.Disposition) {
+		if open, unrated, overdue := vulnTodo(vuln.Status, item); open {
 			view.Vulns.OpenBySeverity[severityBucket(item.Severity)]++
-			if item.Severity == "" {
+			if unrated {
 				view.Todo.Unrated++
 			}
-			if item.Overdue {
+			if overdue {
 				view.Vulns.Overdue++
 			}
 		}
 		sla.add(vuln, item, triage, start, end)
-		events := append([]vulnEvent(nil), vuln.events...)
-		sort.Slice(events, func(i, j int) bool { return eventLater(events[j], events[i]) })
-		firstSupported := -1
-		var latestSupported *vulnEvent
-		for index := range events {
-			event := &events[index]
-			if event.Kind == FollowupVerify && event.Value == "supported" {
-				if firstSupported < 0 {
-					firstSupported = index
-				}
-				latestSupported = event
-			}
-		}
-		for index, event := range events {
-			date := localDay(event.at, start, end)
-			if date == "" {
-				continue
-			}
-			present, fixed := decisive(event)
-			switch {
-			case index == firstSupported:
-				mark(date, VulnNew, vuln.ID)
-			case present:
-				mark(date, VulnPresent, vuln.ID)
-			case fixed:
-				mark(date, VulnFixed, vuln.ID)
-			}
-		}
+		latestSupported := vulnPeriodMarks(vuln, start, end, func(date, kind string) { mark(date, kind, vuln.ID) })
 		if latestSupported != nil {
 			supported = append(supported, OverviewSupported{VulnID: vuln.ID, Title: vuln.Title, Asset: vuln.Asset, TaskID: vuln.findingTasks[latestSupported.FindingID], At: latestSupported.At, Severity: item.Severity, SuggestedSeverity: vuln.SuggestedSeverity})
 		}
@@ -415,6 +388,49 @@ func (c *Capability) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// vulnPeriodMarks 按总览趋势口径给条目在 [start,end) 内的结果事件打本地日标记：条目历史上第一条 supported 判读计 new，
+// 其后的 supported 与 reproducible 计 present，fixed_in_scope 计 fixed（调用方按 日+类+条目 去重）。返回最新 supported 事件（无为 nil）。
+// 每周摘要（V4）复用同一函数，保证口径一致。
+func vulnPeriodMarks(vuln *GlobalVuln, start, end time.Time, mark func(date, kind string)) *vulnEvent {
+	events := append([]vulnEvent(nil), vuln.events...)
+	sort.Slice(events, func(i, j int) bool { return eventLater(events[j], events[i]) })
+	firstSupported := -1
+	var latestSupported *vulnEvent
+	for index := range events {
+		event := &events[index]
+		if event.Kind == FollowupVerify && event.Value == "supported" {
+			if firstSupported < 0 {
+				firstSupported = index
+			}
+			latestSupported = event
+		}
+	}
+	for index, event := range events {
+		date := localDay(event.at, start, end)
+		if date == "" {
+			continue
+		}
+		present, fixed := decisive(event)
+		switch {
+		case index == firstSupported:
+			mark(date, VulnNew)
+		case present:
+			mark(date, VulnPresent)
+		case fixed:
+			mark(date, VulnFixed)
+		}
+	}
+	return latestSupported
+}
+
+// vulnTodo：待修复（new/present 且处置 open/fixing）时 open=true，其中未定级 unrated、已逾期 overdue（总览待办口径，每周摘要复用）。
+func vulnTodo(status string, item *TriageView) (open, unrated, overdue bool) {
+	if !triageOpen(status, item.Disposition) {
+		return false, false, false
+	}
+	return true, item.Severity == "", item.Overdue
 }
 
 // ---- OV2 helpers ----

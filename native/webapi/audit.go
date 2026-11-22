@@ -561,6 +561,9 @@ func (c *Capability) recordRun(ctx context.Context, run scheduleRunModel, expect
 	if err := c.store.recordScheduleRun(ctx, run, expectedNext, newNext); err != nil {
 		return err
 	}
+	if run.Status == ScheduleRunFailed {
+		c.notifyScheduleFailed(ctx, run.AssetID, run.ScheduledFor, cron)
+	}
 	name := c.assetName(ctx, run.AssetID)
 	summary := "计划发起任务：资产「" + name + "」"
 	switch run.Status {
@@ -621,7 +624,7 @@ func (c *Capability) auditVulnMerge(ctx context.Context, assetID, into, from, fr
 // ---- 企业微信推送 ----
 
 // auditNotifySettings：webhook 只记 changed/cleared 布尔；无变化不登记。
-func (c *Capability) auditNotifySettings(ctx context.Context, before *notifySettingsModel, after *notifySettingsModel, newWebhook string, clear bool) {
+func (c *Capability) auditNotifySettings(ctx context.Context, before *notifySettingsModel, after *notifySettingsModel, beforeOps, afterOps *notifyOpsSettingsModel, newWebhook string, clear bool) {
 	old := notifySettingsModel{}
 	if before != nil {
 		old = *before
@@ -649,15 +652,31 @@ func (c *Capability) auditNotifySettings(ctx context.Context, before *notifySett
 	if cleared {
 		parts = append(parts, "清除 webhook")
 	}
+	oldOps := notifyOpsSettingsModel{}
+	if beforeOps != nil {
+		oldOps = *beforeOps
+	}
+	for _, item := range []struct {
+		label    string
+		from, to bool
+	}{{"待审批通知", oldOps.NotifyApproval, afterOps.NotifyApproval}, {"计划失败通知", oldOps.NotifyScheduleFailed, afterOps.NotifyScheduleFailed}, {"每周摘要", oldOps.NotifyWeeklyDigest, afterOps.NotifyWeeklyDigest}} {
+		if item.from != item.to {
+			parts = append(parts, item.label+enabledLabel(item.from)+" → "+enabledLabel(item.to))
+		}
+	}
 	if len(parts) == 0 {
 		return
 	}
+	opsDetail := func(ops notifyOpsSettingsModel) map[string]any {
+		return map[string]any{"notify_approval": ops.NotifyApproval, "notify_schedule_failed": ops.NotifyScheduleFailed, "notify_weekly_digest": ops.NotifyWeeklyDigest}
+	}
+	from, to := opsDetail(oldOps), opsDetail(*afterOps)
+	from["enabled"], from["require_confirm"], from["base_url"] = old.Enabled, old.RequireConfirm, old.BaseURL
+	to["enabled"], to["require_confirm"], to["base_url"] = after.Enabled, after.RequireConfirm, after.BaseURL
 	c.audit(ctx, auditEntry{Actor: auditActorUser, Action: "notify.settings", TargetKind: "notify", TargetID: notifyChannelWeCom,
 		Summary: "修改企业微信推送配置：" + strings.Join(parts, "；"),
 		Detail: map[string]any{
-			"from":            map[string]any{"enabled": old.Enabled, "require_confirm": old.RequireConfirm, "base_url": old.BaseURL},
-			"to":              map[string]any{"enabled": after.Enabled, "require_confirm": after.RequireConfirm, "base_url": after.BaseURL},
-			"webhook_changed": changed, "webhook_cleared": cleared,
+			"from": from, "to": to, "webhook_changed": changed, "webhook_cleared": cleared,
 		}})
 }
 

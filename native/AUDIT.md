@@ -43,10 +43,10 @@
 | `vuln.replay` | `POST /vulns/{key}/card/replay` 实际发送了一次请求（`replay.go`；收到响应或结果未知均登记；denied/review_required/归档/限频/进行中/同请求未决 unknown 未发送，不登记） | user | `vuln_key`、`step`、`evidence_id`（新证据）、`original_evidence_id`、`status_code`（结果未知为 null）、`verdict_hint`（结果未知为空串，另带 `outcome`: unknown/capture_failed/lost）；不含请求/响应内容；target_kind = `vuln`，target_id = key，关联证据任务与条目资产 |
 | `vuln.retest_request` | `POST /vulns/{key}/card/retest` 新建复测且会话启动成功（`vuln_retest.go`；400/404/409 不登记；同时按新建复测登记 `retest.start`（user），`startSession` 失败时只有 `retest.start`） | user | `vuln_key`、`retest_id`、`session_id`、`task_id`、`finding_id`；target_kind = `vuln`，target_id = key，关联复测任务与条目资产 |
 | `vuln.notify` | `POST /vulns/{key}/card/notify` 人工推送登记成功（`vuln_notify.go`；409/400/404 不登记；之后的投递结果另记 `notification.sent/failed`） | user | `vuln_key`、`notification_id`、`verification_id`、`kind`（`manual`）；target_kind = `vuln`，target_id = key，关联验证 task_id 与条目 asset_id |
-| `notify.settings` | 企业微信配置保存且有变化 | user | `from`/`to` `{enabled, require_confirm, base_url}`、`webhook_changed`（提交了与原值不同的 webhook）、`webhook_cleared`（`"-"` 清除了已有 webhook） |
+| `notify.settings` | 企业微信配置保存且有变化（含 V4 运营通知三个开关） | user | `from`/`to` `{enabled, require_confirm, base_url, notify_approval, notify_schedule_failed, notify_weekly_digest}`、`webhook_changed`（提交了与原值不同的 webhook）、`webhook_cleared`（`"-"` 清除了已有 webhook） |
 | `notify.test` | 测试推送实际发出（未配置 409、限频 429 不登记） | user | `ok`、`errcode`（网络错误为 -1） |
 | `notification.confirm` / `.dismiss` / `.retry` | 人工处理成功（409/404 不登记） | user | `notification_id`、`title` |
-| `notification.sent` / `.failed` | 投递终态：两段都成功 → sent；第 3 次失败 → failed（中间重试、45009 推迟不登记） | system | `notification_id`、`title`、`attempts`、`last_error`（D2 已去除 webhook 地址） |
+| `notification.sent` / `.failed` | 投递终态：两段都成功 → sent；第 3 次失败 → failed（中间重试、45009 推迟不登记）；运营通知（V4）同规则，`title` 为任务标题/资产名/“每周摘要 <周>”；审批已决或挂起丢失而改为 dismissed 的不登记 | system | `notification_id`、`title`、`attempts`、`last_error`（D2 已去除 webhook 地址） |
 
 审批操作摘要 `operation`：`webapi_http` 为 `方法 + URL`（去 userinfo，经上游 `guardrail.RedactText` 脱敏 `token=` 等赋值）；`bash` 为命令脱敏后前 200 字；`write` 为路径。请求头/请求体不入审计。
 

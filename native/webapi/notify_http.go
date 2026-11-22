@@ -17,6 +17,10 @@ type NotifySettingsView struct {
 	RequireConfirm bool    `json:"require_confirm"`
 	BaseURL        string  `json:"base_url"`
 	UpdatedAt      *string `json:"updated_at"`
+	// 运营通知开关（V4，默认 false）；require_confirm 不作用于运营通知。
+	NotifyApproval       bool `json:"notify_approval"`
+	NotifyScheduleFailed bool `json:"notify_schedule_failed"`
+	NotifyWeeklyDigest   bool `json:"notify_weekly_digest"`
 }
 
 type saveNotifySettings struct {
@@ -24,13 +28,21 @@ type saveNotifySettings struct {
 	Enabled        bool    `json:"enabled"`
 	RequireConfirm bool    `json:"require_confirm"`
 	BaseURL        string  `json:"base_url"`
+	// 运营通知开关：省略（或 null）＝保留原值（无原值为 false），避免不认识这三项的旧客户端整份保存时把它们关掉。
+	NotifyApproval       *bool `json:"notify_approval"`
+	NotifyScheduleFailed *bool `json:"notify_schedule_failed"`
+	NotifyWeeklyDigest   *bool `json:"notify_weekly_digest"`
 }
 
-func (c *Capability) notifySettingsView(model *notifySettingsModel) NotifySettingsView {
-	if model == nil {
-		return NotifySettingsView{}
+func (c *Capability) notifySettingsView(model *notifySettingsModel, ops *notifyOpsSettingsModel) NotifySettingsView {
+	view := NotifySettingsView{}
+	if ops != nil {
+		view.NotifyApproval, view.NotifyScheduleFailed, view.NotifyWeeklyDigest = ops.NotifyApproval, ops.NotifyScheduleFailed, ops.NotifyWeeklyDigest
 	}
-	view := NotifySettingsView{Enabled: model.Enabled, HasWebhook: model.WebhookCipher != "", RequireConfirm: model.RequireConfirm, BaseURL: model.BaseURL, UpdatedAt: &model.UpdatedAt}
+	if model == nil {
+		return view
+	}
+	view.Enabled, view.HasWebhook, view.RequireConfirm, view.BaseURL, view.UpdatedAt = model.Enabled, model.WebhookCipher != "", model.RequireConfirm, model.BaseURL, &model.UpdatedAt
 	if view.HasWebhook {
 		if webhook, err := c.decryptWebhook(model.WebhookCipher); err == nil {
 			view.WebhookHint = webhookHint(webhook)
@@ -48,11 +60,16 @@ func (c *Capability) handleNotifySettingsGet(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "读取推送配置失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, c.notifySettingsView(model))
+	ops, err := c.store.notifyOpsSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取推送配置失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, c.notifySettingsView(model, ops))
 }
 
-// handleNotifySettingsPut: PUT /api/webapi/notify/wecom {webhook?, enabled, require_confirm, base_url}
-// webhook 省略或 "" 保留原值，"-" 清除。
+// handleNotifySettingsPut: PUT /api/webapi/notify/wecom {webhook?, enabled, require_confirm, base_url, notify_approval?, notify_schedule_failed?, notify_weekly_digest?}
+// webhook 省略或 "" 保留原值，"-" 清除；三个运营通知开关省略即保留。
 func (c *Capability) handleNotifySettingsPut(w http.ResponseWriter, r *http.Request) {
 	var body saveNotifySettings
 	if err := decodeJSONBody(r, &body, true, false); err != nil {
@@ -77,9 +94,33 @@ func (c *Capability) handleNotifySettingsPut(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "读取推送配置失败")
 		return
 	}
+	existingOps, err := c.store.notifyOpsSettings(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取推送配置失败")
+		return
+	}
 	model := &notifySettingsModel{Enabled: body.Enabled, RequireConfirm: body.RequireConfirm, BaseURL: baseURL, UpdatedAt: nowRFC3339()}
 	if existing != nil {
 		model.WebhookCipher = existing.WebhookCipher
+	}
+	ops := &notifyOpsSettingsModel{UpdatedAt: model.UpdatedAt}
+	if existingOps != nil {
+		*ops = *existingOps
+		ops.UpdatedAt = model.UpdatedAt
+	}
+	for _, item := range []struct {
+		value *bool
+		field *bool
+	}{{body.NotifyApproval, &ops.NotifyApproval}, {body.NotifyScheduleFailed, &ops.NotifyScheduleFailed}, {body.NotifyWeeklyDigest, &ops.NotifyWeeklyDigest}} {
+		if item.value != nil {
+			*item.field = *item.value
+		}
+	}
+	switch {
+	case !ops.NotifyWeeklyDigest:
+		ops.WeeklyDigestSince = ""
+	case existingOps == nil || !existingOps.NotifyWeeklyDigest || ops.WeeklyDigestSince == "":
+		ops.WeeklyDigestSince = notifyTime(c.scheduleClock()) // 由关变开：此前的周一 09:00 不补发
 	}
 	switch {
 	case body.Webhook != nil && *body.Webhook == "-":
@@ -100,12 +141,12 @@ func (c *Capability) handleNotifySettingsPut(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	if err := c.store.putNotifySettings(ctx, model); err != nil {
+	if err := c.store.putNotifySettingsAll(ctx, model, ops); err != nil {
 		writeError(w, http.StatusInternalServerError, "保存推送配置失败")
 		return
 	}
-	c.auditNotifySettings(ctx, existing, model, webhook, body.Webhook != nil && *body.Webhook == "-")
-	writeJSON(w, http.StatusOK, c.notifySettingsView(model))
+	c.auditNotifySettings(ctx, existing, model, existingOps, ops, webhook, body.Webhook != nil && *body.Webhook == "-")
+	writeJSON(w, http.StatusOK, c.notifySettingsView(model, ops))
 }
 
 // handleNotifyTest: POST /api/webapi/notify/wecom/test → {ok, errcode, errmsg}；未配置 webhook 409。

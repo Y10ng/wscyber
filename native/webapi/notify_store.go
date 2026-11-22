@@ -239,17 +239,22 @@ type NotificationView struct {
 	NextAttemptAt         *string       `json:"next_attempt_at"`
 	CreatedAt             string        `json:"created_at"`
 	SentAt                *string       `json:"sent_at"`
+	// SessionID：approval_pending 为消息链接指向的会话（子 Agent 审批为其父研究会话），其他 kind 为 ""。
+	SessionID string `json:"session_id"`
 }
 
+// 运营通知（V4）的标题/资产/会话取 webapi_notification_ops；资产优先按任务关联，否则按登记时的资产 id（仍存在时）。
 const notificationViewSQL = `SELECT n.id, n.kind, n.status, n.dedupe_key, n.task_id, n.finding_id, COALESCE(f.number, 0), n.verification_id,
-	COALESCE(v.session_id, ''), n.vuln_id, COALESCE(r.title, ''), COALESCE(a.id, ''), COALESCE(a.name, ''), n.attempts, n.last_error,
-	n.next_attempt_at, n.created_at, n.sent_at
+	COALESCE(v.session_id, ''), n.vuln_id, COALESCE(o.title, r.title, ''), COALESCE(a.id, a2.id, ''), COALESCE(a.name, a2.name, ''), n.attempts, n.last_error,
+	n.next_attempt_at, n.created_at, n.sent_at, COALESCE(o.session_id, '')
 	FROM webapi_notifications n
 	LEFT JOIN webapi_verifications v ON v.id = n.verification_id
 	LEFT JOIN webapi_finding_revisions r ON r.id = v.source_revision_id
 	LEFT JOIN webapi_findings f ON f.id = n.finding_id
 	LEFT JOIN webapi_asset_tasks l ON l.task_id = n.task_id
-	LEFT JOIN webapi_assets a ON a.id = l.asset_id`
+	LEFT JOIN webapi_assets a ON a.id = l.asset_id
+	LEFT JOIN webapi_notification_ops o ON o.notification_id = n.id
+	LEFT JOIN webapi_assets a2 ON a2.id = o.asset_id AND o.asset_id <> ''`
 
 // notificationFilter 是 notificationViews 的筛选；空字段不过滤。
 type notificationFilter struct {
@@ -272,7 +277,7 @@ func (s *taskStore) notificationViews(ctx context.Context, filter notificationFi
 		var vulnID, assetID, assetName string
 		var next, sent sql.NullString
 		if err := rows.Scan(&view.ID, &view.Kind, &view.Status, &view.DedupeKey, &view.TaskID, &view.FindingID, &number, &view.VerificationID,
-			&view.VerificationSessionID, &vulnID, &view.Title, &assetID, &assetName, &view.Attempts, &view.LastError, &next, &view.CreatedAt, &sent); err != nil {
+			&view.VerificationSessionID, &vulnID, &view.Title, &assetID, &assetName, &view.Attempts, &view.LastError, &next, &view.CreatedAt, &sent, &view.SessionID); err != nil {
 			return nil, err
 		}
 		if number > 0 {

@@ -122,6 +122,9 @@ func (c *Capability) startNotifier() {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
+					if err := c.registerWeeklyDigest(ctx); err != nil && ctx.Err() == nil {
+						log.Printf("webapi 推送：登记每周摘要失败：%v", err)
+					}
 					if err := c.deliverNotifications(ctx); err != nil && ctx.Err() == nil {
 						log.Printf("webapi 推送：%v", err)
 					}
@@ -415,6 +418,13 @@ func (c *Capability) deliverNotifications(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
+		if item.Kind == NotifyKindApprovalPending && !c.approvalStillPending(item.DedupeKey) {
+			// 审批已决（或 Hub 重启后挂起已不存在）：不再发送。
+			if _, err := c.store.dismissQueuedNotification(ctx, item.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		message, buildErr := c.buildNotifyMessage(ctx, item, settings.BaseURL)
 		if buildErr == nil {
 			need := 1
@@ -528,6 +538,9 @@ type notifyFields struct {
 }
 
 func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationModel, baseURL string) (*notifyMessage, error) {
+	if notifyOpsKinds[item.Kind] {
+		return c.buildOpsMessage(ctx, item, baseURL)
+	}
 	verification, err := findOptional[verificationModel](ctx, c.store.orm, "id = ?", item.VerificationID)
 	if err != nil || verification == nil {
 		return nil, errors.Join(errors.New("验证不存在"), err)

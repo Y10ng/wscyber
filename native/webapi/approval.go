@@ -92,7 +92,8 @@ func (r *approvalRuntime) forget(inv operation.Invocation) {
 }
 
 // review 发 PENDING 事件并阻塞到批准/拒绝/超时/取消，再发终态事件。
-func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.Stream, call *aop.ToolCall, ref *operationpb.Ref, reason string) guardrail.ReviewState {
+// onPending（可为 nil）在挂起登记后、发 PENDING 事件前同步调用一次（运营通知登记用）。
+func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.Stream, call *aop.ToolCall, ref *operationpb.Ref, reason string, onPending func(*guardrail.Review)) guardrail.ReviewState {
 	inv := operation.InvocationFromContext(ctx)
 	id := ref.GetOperationId()
 	if id == "" || call == nil || inv.SessionID == "" {
@@ -115,6 +116,9 @@ func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.S
 	r.pending[id] = p
 	snapshot := proto.Clone(p.review).(*guardrail.Review)
 	r.mu.Unlock()
+	if onPending != nil {
+		onPending(proto.Clone(snapshot).(*guardrail.Review))
+	}
 	emitReview(stream, inv, snapshot)
 	timer := time.NewTimer(time.Until(p.review.ExpiresAt.AsTime()))
 	defer timer.Stop()
@@ -348,7 +352,10 @@ func (c *Capability) admitTool(ctx, lifetime context.Context, stream *events.Str
 			reason += "（子 Agent oracle_explorer 会话 " + inv.SessionID + "）"
 		}
 	}
-	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason)
+	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason, func(review *guardrail.Review) {
+		c.notifyApprovalPending(ctx, task, name, arguments, review)
+	})
+	c.notifyApprovalResolved(ctx, event.Operation.GetOperationId())
 	c.auditReview(ctx, inv.SessionID, event.Operation.GetOperationId(), task, name, arguments, state)
 	if state == guardrail.ReviewState_REVIEW_STATE_APPROVED {
 		return toolhooks.Admission{}, nil
