@@ -79,13 +79,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交：V3 前端（b040e66）：复测卡按钮改为真实“申请复测”、更多菜单入口、进行中行与打开会话、10s 自动刷新至结论、五种 409 卡内提示。执行会话演示环境实测：fix on 后申请→进行中→自动转“本次范围内已修复”，lifecycle“申请复测→复测→已修复”；in_flight、误报提示实测。**V3 完成。** 未实测：archived/no_member/no_model 文案（代码核对）。
 
-进行中：**V4 运营通知后端**（`var/v4-ops-notify-backend/task.md`，o-latest，会话 `4ee96428…`，已在写 `notify_ops*.go`）。
+已提交（续 18）：V4 运营通知后端（c0b90bf，`native/NOTIFY.md`「运营通知」）：approval_pending（挂起即推、口令占位符+通用遮盖、链接研究会话、已决未发出的 dismiss）、schedule_failed、weekly_digest（周一 09:00，总览 days=7 同口径）；三开关默认关、PUT 省略即保留、不受 require_confirm；补 M5b 旧库阶段 {42,39}（此前漏登记，新增表会使 M5b 库无法升级）。
+
+进行中：**V4 前端**（`var/v4-ops-frontend/task.md`，ds-flash：集成页运营通知三开关、推送记录类别与筛选、待审批打开会话）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. V4 后端 → V4 前端（集成页开关与运营通知记录）→ D3（需 SDL 接口文档）。
+1. V4 前端 → D3（需 SDL 接口文档）；其后 B3 审计页前端、U2e 走查、小打磨。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -98,4 +100,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `v4`（wangsu-o-latest，日志 `var/v4-ops-notify-backend/exec.log`）
+- `v4-fe`（wangsu-ds-flash-latest，日志 `var/v4-ops-frontend/exec.log`）
