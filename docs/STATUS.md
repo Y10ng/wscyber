@@ -83,13 +83,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交：V4 前端（74aff07）：集成页“运营通知”三开关与说明、推送记录类别与筛选、待审批记录打开会话。执行会话演示环境实测：开关落库、审批演示产生“待审批”记录、打开会话跳到对应研究会话、类别筛选、深色/390。**V 阶段完成。** 未实测：计划失败与每周摘要（演示难触发，代码核对）。
 
-**验收发现**：审批挂起时登记 approval_pending 偶发 `SQLITE_BUSY`，该条提醒静默丢失 → 修复进行中（`var/sqlite-busy/task.md`，gpt-6-astra：查清写锁来源、登记失败重试至成功或审批已决）。
+**验收发现**：审批挂起时登记 approval_pending 偶发 `SQLITE_BUSY`，该条提醒静默丢失 → 已修（b3bb495）：根因是 webapi deferred 事务先读后写，在 Hub 原生连接写入时升级写锁立即 BUSY（busy_timeout 不生效）；登记先取写锁、入进程内队列重试至成功或审批已决（重启会丢未落库的登记，已写 NOTIFY.md）。
+
+进行中（并行）：**webapi 事务改 IMMEDIATE**（`var/txlock/task.md`，gpt-6-astra：同一模式很可能遍布其它写事务，盘点+复现+DSN 加 `_txlock=immediate`+前后对比）；**B3 审计页前端**（`var/b3-audit-frontend/task.md`，ds-flash）。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. SQLITE_BUSY 修复 → B3 审计页前端 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
+1. txlock 与 B3 审计页前端 → U2e 走查与小打磨 → 真实模型验证新能力（需用户授权）；D3 需 SDL 接口文档。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -102,4 +104,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `sqlite-busy`（gpt-6-astra，日志 `var/sqlite-busy/exec.log`）
+- `txlock`（gpt-6-astra，日志 `var/txlock/exec.log`）
+- `b3-fe`（wangsu-ds-flash-latest，日志 `var/b3-audit-frontend/exec.log`）
