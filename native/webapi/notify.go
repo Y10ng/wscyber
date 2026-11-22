@@ -79,6 +79,11 @@ type notifyRuntime struct {
 	allowHTTP  bool          // 允许 http:// webhook（仅测试注入 httptest 地址）
 	interval   time.Duration // 0 = notifyInterval
 	imageLimit int           // 0 = wecomImageLimit
+
+	opsMu      sync.Mutex
+	opsRunMu   sync.Mutex // 串行登记（投递 goroutine 与测试）
+	opsPending map[string]*opsRegistration
+	opsWake    chan struct{}
 }
 
 // reserve 在全局每分钟窗口内预留 n 条发送名额；不足返回 false（本轮不再发送）。
@@ -110,8 +115,10 @@ func (c *Capability) startNotifier() {
 		if interval <= 0 {
 			interval = notifyInterval
 		}
+		wake := c.opsWakeup()
 		go func() {
 			defer close(c.notify.done)
+			defer c.logPendingOpsOnStop()
 			if err := c.store.resetSendingNotifications(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("webapi 推送：恢复中断的发送失败：%v", err)
 			}
@@ -122,12 +129,12 @@ func (c *Capability) startNotifier() {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if err := c.registerWeeklyDigest(ctx); err != nil && ctx.Err() == nil {
-						log.Printf("webapi 推送：登记每周摘要失败：%v", err)
-					}
-					if err := c.deliverNotifications(ctx); err != nil && ctx.Err() == nil {
-						log.Printf("webapi 推送：%v", err)
-					}
+					c.enqueueOps(NotifyKindWeeklyDigest, nil, c.registerWeeklyDigest)
+				case <-wake:
+				}
+				c.retryOpsRegistrations(ctx)
+				if err := c.deliverNotifications(ctx); err != nil && ctx.Err() == nil {
+					log.Printf("webapi 推送：%v", err)
 				}
 			}
 		}()

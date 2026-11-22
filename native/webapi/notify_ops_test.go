@@ -19,6 +19,7 @@ import (
 
 func opsNotifications(t *testing.T, c *Capability, kind string) []notificationModel {
 	t.Helper()
+	c.retryOpsRegistrations(t.Context()) // fixture 不启动后台投递，显式推进登记队列。
 	var items []notificationModel
 	if err := c.store.orm.NewSelect().Model(&items).Where("kind = ?", kind).OrderExpr("created_at ASC, id ASC").Scan(t.Context()); err != nil {
 		t.Fatal(err)
@@ -145,6 +146,7 @@ func opsApprovalFixture(t *testing.T, requireConfirm bool, extra string) (*notif
 
 func opsByKey(t *testing.T, c *Capability, key string) notificationModel {
 	t.Helper()
+	c.retryOpsRegistrations(t.Context())
 	var item notificationModel
 	if err := c.store.orm.NewSelect().Model(&item).Where("dedupe_key = ?", key).Limit(1).Scan(t.Context()); err != nil {
 		t.Fatalf("notification %s: %v", key, err)
@@ -169,7 +171,7 @@ func TestNotifyOpsApprovalPending(t *testing.T) {
 	// webapi_http：URL 里出现口令明文 → 回替为占位符；require_confirm=true 也直接 queued。
 	done := startReview(t, h, t.Context(), task.InitialSessionID, "http-1", "webapi_http",
 		`{"method":"post","url":"https://api.example.test/orders?q=alice-pass-synthetic&x=1"}`)
-	pending := h.waitPending(t, task.InitialSessionID)
+	pending := waitOpsPending(t, h, task.InitialSessionID)
 	items := opsNotifications(t, f.capability, NotifyKindApprovalPending)
 	opID := pending.GetOperation().GetOperationId()
 	if len(items) != 1 || items[0].DedupeKey != "approval:"+opID || items[0].Status != NotifyQueued || items[0].TaskID != "t1" || items[0].VerificationID != "" {
@@ -214,7 +216,7 @@ func TestNotifyOpsApprovalPending(t *testing.T) {
 	f.wecom.reset()
 	long := "curl -u admin:hunter2 https://api.example.test/x --data password=alice-pass-synthetic " + strings.Repeat("a", 200)
 	done = startReview(t, h, t.Context(), task.InitialSessionID, "bash-1", "bash", mustToolArgumentsJSON(t, map[string]any{"command": long}))
-	pending = h.waitPending(t, task.InitialSessionID)
+	pending = waitOpsPending(t, h, task.InitialSessionID)
 	bashKey := "approval:" + pending.GetOperation().GetOperationId()
 	ops, _ := f.capability.store.notificationOps(t.Context(), opsByKey(t, f.capability, bashKey).ID)
 	var payload opsPayload
@@ -234,8 +236,11 @@ func TestNotifyOpsApprovalPending(t *testing.T) {
 	}
 
 	// 超时：同样 dismissed。
-	f.capability.approvals.timeout = 50 * time.Millisecond
-	if err := <-startReview(t, h, t.Context(), task.InitialSessionID, "expire-1", "write", `{"path":"/tmp/x.txt"}`); err == nil {
+	f.capability.approvals.timeout = 500 * time.Millisecond
+	done = startReview(t, h, t.Context(), task.InitialSessionID, "expire-1", "write", `{"path":"/tmp/x.txt"}`)
+	waitOpsPending(t, h, task.InitialSessionID)
+	f.capability.retryOpsRegistrations(t.Context())
+	if err := <-done; err == nil {
 		t.Fatal("expired write executed")
 	}
 	f.capability.approvals.timeout = ReviewTimeout
@@ -272,7 +277,7 @@ func TestNotifyOpsApprovalSubagentAndSwitchOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := startReview(t, h, t.Context(), child.SessionID, "child-1", "webapi_http", `{"method":"DELETE","url":"https://api.example.test/items/7"}`)
-	pending := h.waitPending(t, task.InitialSessionID)
+	pending := waitOpsPending(t, h, task.InitialSessionID)
 	f.deliver()
 	md := wecomMarkdowns(f.wecom)
 	if len(md) != 1 || !strings.Contains(md[0], "(https://hub.example.test/sessions/"+task.InitialSessionID+")") || strings.Contains(md[0], "/sessions/child-ops") {
@@ -287,12 +292,12 @@ func TestNotifyOpsApprovalSubagentAndSwitchOff(t *testing.T) {
 	// 开关关闭 / 推送未启用：不登记。
 	f.configure(`{"enabled":true,"require_confirm":false,"base_url":"","notify_approval":false}`)
 	done = startReview(t, h, t.Context(), task.InitialSessionID, "off-1", "write", `{"path":"/tmp/a"}`)
-	pending = h.waitPending(t, task.InitialSessionID)
+	pending = waitOpsPending(t, h, task.InitialSessionID)
 	h.resolve(t, task.InitialSessionID, pending.GetOperation().GetOperationId(), false)
 	<-done
 	f.configure(`{"enabled":false,"require_confirm":false,"base_url":"","notify_approval":true}`)
 	done = startReview(t, h, t.Context(), task.InitialSessionID, "off-2", "write", `{"path":"/tmp/b"}`)
-	pending = h.waitPending(t, task.InitialSessionID)
+	pending = waitOpsPending(t, h, task.InitialSessionID)
 	h.resolve(t, task.InitialSessionID, pending.GetOperation().GetOperationId(), false)
 	<-done
 	if items := opsNotifications(t, f.capability, NotifyKindApprovalPending); len(items) != 1 {

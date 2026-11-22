@@ -70,8 +70,21 @@ func (s *taskStore) putNotifySettingsAll(ctx context.Context, model *notifySetti
 
 // insertOpsNotification 单事务登记一条运营通知：同一去重键已有任何通知（任何状态）则不登记。返回是否新插入。
 func (s *taskStore) insertOpsNotification(ctx context.Context, model *notificationModel, ops *notificationOpsModel) (bool, error) {
+	return s.insertOpsNotificationIf(ctx, model, ops, nil)
+}
+
+func (s *taskStore) insertOpsNotificationIf(ctx context.Context, model *notificationModel, ops *notificationOpsModel, valid func() bool) (bool, error) {
 	inserted := false
 	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// 首条语句即申请写锁（不改任何行），避免 deferred 事务先读后写升级时
+		// 立即 SQLITE_BUSY / BUSY_SNAPSHOT，绕过 busy_timeout。仅此登记事务调整。
+		if _, err := tx.ExecContext(ctx, `UPDATE webapi_notifications SET id = id WHERE 0`); err != nil {
+			return err
+		}
+		// 等待锁期间审批可能已决；取得锁后再核对，不能迟到补登记。
+		if valid != nil && !valid() {
+			return nil
+		}
 		exists, err := tx.NewSelect().Model((*notificationModel)(nil)).Where("dedupe_key = ?", model.DedupeKey).Exists(ctx)
 		if err != nil || exists {
 			return err
@@ -86,7 +99,7 @@ func (s *taskStore) insertOpsNotification(ctx context.Context, model *notificati
 		inserted = true
 		return nil
 	})
-	return inserted, err
+	return inserted && err == nil, err
 }
 
 func (s *taskStore) notificationOps(ctx context.Context, id string) (*notificationOpsModel, error) {

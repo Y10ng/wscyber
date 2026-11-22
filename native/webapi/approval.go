@@ -92,7 +92,7 @@ func (r *approvalRuntime) forget(inv operation.Invocation) {
 }
 
 // review 发 PENDING 事件并阻塞到批准/拒绝/超时/取消，再发终态事件。
-// onPending（可为 nil）在挂起登记后、发 PENDING 事件前同步调用一次（运营通知登记用）。
+// onPending（可为 nil）在挂起登记后、发 PENDING 事件前同步调用一次（运营通知只入内存队列，不等待数据库）。
 func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.Stream, call *aop.ToolCall, ref *operationpb.Ref, reason string, onPending func(*guardrail.Review)) guardrail.ReviewState {
 	inv := operation.InvocationFromContext(ctx)
 	id := ref.GetOperationId()

@@ -180,6 +180,7 @@ func (f *notifyFixture) notificationByID(id string) notificationModel {
 
 func (f *notifyFixture) deliver() {
 	f.t.Helper()
+	f.capability.retryOpsRegistrations(f.t.Context())
 	if err := f.capability.deliverNotifications(f.t.Context()); err != nil {
 		f.t.Fatalf("deliver: %v", err)
 	}

@@ -83,18 +83,123 @@ func (c *Capability) registerOps(ctx context.Context, kind, key, taskID string, 
 	now := notifyTime(c.scheduleClock())
 	// require_confirm 不作用于运营通知（时效性）：一律直接 queued、立即到期。
 	model := &notificationModel{ID: newNotificationID(), DedupeKey: key, Kind: kind, TaskID: taskID, Status: NotifyQueued, NextAttemptAt: nullNow(now), CreatedAt: now}
-	return c.store.insertOpsNotification(ctx, model, ops)
+	var valid func() bool
+	if kind == NotifyKindApprovalPending {
+		valid = func() bool { return c.approvalStillPending(key) }
+	}
+	return c.store.insertOpsNotificationIf(ctx, model, ops, valid)
+}
+
+// opsRegistration 只在进程内保留；SQL/密钥读取失败均重试，不把原始请求写入日志或磁盘。
+// nextAttempt 用真实时钟，避免调度测试时钟或时区影响退避。
+type opsRegistration struct {
+	key         string
+	valid       func() bool
+	register    func(context.Context) error
+	nextAttempt time.Time
+}
+
+func (c *Capability) opsWakeup() <-chan struct{} {
+	c.notify.opsMu.Lock()
+	defer c.notify.opsMu.Unlock()
+	if c.notify.opsWake == nil {
+		c.notify.opsWake = make(chan struct{}, 1)
+	}
+	return c.notify.opsWake
+}
+
+// enqueueOps 不做数据库 I/O；审批 PENDING 事件不再等待 SQLite 写锁。
+func (c *Capability) enqueueOps(key string, valid func() bool, register func(context.Context) error) {
+	c.notify.opsMu.Lock()
+	defer c.notify.opsMu.Unlock()
+	if c.notify.opsPending == nil {
+		c.notify.opsPending = make(map[string]*opsRegistration)
+	}
+	if c.notify.opsPending[key] != nil {
+		return
+	}
+	c.notify.opsPending[key] = &opsRegistration{key: key, valid: valid, register: register}
+	if c.notify.opsWake == nil {
+		c.notify.opsWake = make(chan struct{}, 1)
+	}
+	select {
+	case c.notify.opsWake <- struct{}{}:
+	default:
+	}
+}
+
+// retryOpsRegistrations 与投递共用生命周期：每次尝试设置 10s 超时，失败至少间隔 10s，
+// 保留到成功（或开关已关闭）；审批已决则丢弃并记日志。数据库唯一键负责最终去重。
+func (c *Capability) retryOpsRegistrations(ctx context.Context) {
+	c.notify.opsRunMu.Lock()
+	defer c.notify.opsRunMu.Unlock()
+	c.notify.opsMu.Lock()
+	jobs := make([]*opsRegistration, 0, len(c.notify.opsPending))
+	for _, job := range c.notify.opsPending {
+		jobs = append(jobs, job)
+	}
+	c.notify.opsMu.Unlock()
+	for _, job := range jobs {
+		if ctx.Err() != nil {
+			return
+		}
+		valid := job.valid == nil || job.valid()
+		if valid && time.Now().Before(job.nextAttempt) {
+			continue
+		}
+		var err error
+		if valid {
+			attempt, cancel := context.WithTimeout(ctx, opsRegisterWait)
+			err = job.register(attempt)
+			cancel()
+			valid = job.valid == nil || job.valid()
+		}
+		if !valid {
+			log.Printf("webapi 推送：审批已决，放弃待登记通知 %s", job.key)
+		} else if err != nil {
+			job.nextAttempt = time.Now().Add(notifyInterval)
+			if ctx.Err() == nil {
+				log.Printf("webapi 推送：登记 %s 失败，保留并重试：%v", job.key, err)
+			}
+			continue
+		}
+		c.notify.opsMu.Lock()
+		delete(c.notify.opsPending, job.key)
+		c.notify.opsMu.Unlock()
+	}
+}
+
+func (c *Capability) logPendingOpsOnStop() {
+	c.notify.opsMu.Lock()
+	defer c.notify.opsMu.Unlock()
+	if n := len(c.notify.opsPending); n > 0 {
+		log.Printf("webapi 推送：停止时尚有 %d 项运营通知待登记（进程内队列，重启不保留）", n)
+	}
 }
 
 // ---- approval_pending ----
 
-// notifyApprovalPending 在审批挂起后同步登记（失败只记日志，不影响审批）。
-func (c *Capability) notifyApprovalPending(ctx context.Context, task *Task, tool, arguments string, review *guardrail.Review) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opsRegisterWait)
-	defer cancel()
-	if err := c.registerApprovalPending(ctx, task, tool, arguments, review); err != nil {
-		log.Printf("webapi 推送：登记待审批通知失败：%v", err)
+// notifyApprovalPending 在审批挂起后只入队；由投递 goroutine 登记与重试。
+func (c *Capability) notifyApprovalPending(_ context.Context, task *Task, tool, arguments string, review *guardrail.Review) {
+	id := review.GetOperation().GetOperationId()
+	if id == "" {
+		return
 	}
+	key := notifyKeyApproval + id
+	c.enqueueOps(key, func() bool { return c.approvalStillPending(key) }, func(ctx context.Context) error {
+		// 继承审批的取消信号，解决时中断正在等待写锁的登记；不继承原请求的 deadline。
+		c.approvals.mu.Lock()
+		pending := c.approvals.pending[id]
+		c.approvals.mu.Unlock()
+		if pending == nil {
+			return nil
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(pending.ctx, cancel)
+		defer stop()
+		defer cancel()
+		return c.registerApprovalPending(ctx, task, tool, arguments, review)
+	})
 }
 
 func (c *Capability) registerApprovalPending(ctx context.Context, task *Task, tool, arguments string, review *guardrail.Review) error {
@@ -169,15 +274,23 @@ func (c *Capability) notifyApprovalResolved(ctx context.Context, operationID str
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opsRegisterWait)
 	defer cancel()
-	if err := c.store.dismissUnsentNotifications(ctx, notifyKeyApproval+operationID, NotifyKindApprovalPending); err != nil {
-		log.Printf("webapi 推送：撤销已决审批的通知失败：%v", err)
+	key := notifyKeyApproval + operationID
+	dismiss := func(ctx context.Context) error {
+		return c.store.dismissUnsentNotifications(ctx, key, NotifyKindApprovalPending)
+	}
+	if err := dismiss(ctx); err != nil {
+		log.Printf("webapi 推送：撤销已决审批的通知失败，保留并重试：%v", err)
+		c.enqueueOps("dismiss:"+key, nil, dismiss)
 	}
 }
 
 // approvalStillPending：去重键对应的审批仍在本进程挂起。Hub 重启后挂起丢失 → false。
 func (c *Capability) approvalStillPending(key string) bool {
 	operationID := opsKeySuffix(key, notifyKeyApproval)
-	return operationID != "" && c.approvals.sessionOf(operationID) != ""
+	c.approvals.mu.Lock()
+	defer c.approvals.mu.Unlock()
+	p := c.approvals.pending[operationID]
+	return p != nil && p.ctx.Err() == nil && time.Now().Before(p.review.ExpiresAt.AsTime())
 }
 
 // ---- schedule_failed ----
@@ -185,12 +298,11 @@ func (c *Capability) approvalStillPending(key string) bool {
 // launchStagePattern：LaunchAssetTask 失败文案“阶段：文案”中的阶段标识（如 select_node）。
 var launchStagePattern = regexp.MustCompile(`^([a-z_]+)：`)
 
-func (c *Capability) notifyScheduleFailed(ctx context.Context, assetID, scheduledFor, cron string) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opsRegisterWait)
-	defer cancel()
-	if err := c.registerScheduleFailed(ctx, assetID, scheduledFor, cron); err != nil {
-		log.Printf("webapi 推送：登记计划失败通知失败：%v", err)
-	}
+func (c *Capability) notifyScheduleFailed(_ context.Context, assetID, scheduledFor, cron string) {
+	// 读取 run_id 本身也可能失败，所以入队键先用调度的唯一键。
+	c.enqueueOps(notifyKeyScheduleRun+assetID+"/"+scheduledFor, nil, func(ctx context.Context) error {
+		return c.registerScheduleFailed(ctx, assetID, scheduledFor, cron)
+	})
 }
 
 func (c *Capability) registerScheduleFailed(ctx context.Context, assetID, scheduledFor, cron string) error {

@@ -90,7 +90,7 @@
 | `schedule_failed` | 计划运行记为 `failed` 时（`recordRun`：发起失败 `阶段：文案`、cron 非法、next_run_at 损坏，全部来源） | `schedule_run:<run_id>`（`(asset, scheduled_for)` 冲突未插入时取已有那条的 id） |
 | `weekly_digest` | 推送 goroutine 每轮（10s）检查：Hub 本地时区最近一次“周一 09:00”尚未登记即登记；停机错过多周只补最近一次 | `digest:<ISO 年>-W<周>`，如 `digest:2026-W48` |
 
-- 同一去重键已有任何通知（任何状态）即不再登记。登记失败只记 Hub 日志，不影响审批/调度。
+- 同一去重键已有任何通知（任何状态）即不再登记。审批/计划失败先进入进程内待登记队列，不等待数据库；推送 goroutine 登记失败（包括 SQLITE_BUSY）会记日志并保留，单次尝试设置 10s 超时、失败至少间隔 10s，直至成功或当前开关关闭；周报同用此队列，每轮只检查最近一期。审批已决/过期/取消则放弃补登记并记日志，取得写锁后也会再核对；撤销未发出通知失败同样入队重试。队列不持久化，进程退出会记录剩余数，重启不恢复待登记项（周报仍按最近一期规则补发），已落库通知继续沿用 D2 投递重试。
 - 审批已决（批准/拒绝/超时/取消）后，该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；投递前若发现挂起已不在本进程（如 Hub 重启后）同样改 `dismissed` 不发。已发出的保持 `sent`。
 - 表结构：`webapi_notifications` 必填列不改，运营通知 `finding_id`/`verification_id`/`vuln_id` 为空串（唯一约束 `(dedupe_key, kind, verification_id)` 不受影响），`task_id` 为审批所属任务 / 失败运行已建的任务（无则空）/ 摘要为空。登记时冻结的内容存新表 `webapi_notification_ops(notification_id pk, title, asset_id, session_id, payload_json)`；markdown 在投递时按当时 `base_url` 生成。
 
