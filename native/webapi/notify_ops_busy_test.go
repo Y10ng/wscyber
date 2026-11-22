@@ -104,7 +104,8 @@ func TestNotifyOpsDeferredUpgradeBusy(t *testing.T) {
 		t.Fatalf("sqlite parameters = %s / %d", journal, timeout)
 	}
 	lock := holdOpsWriteLock(t, f)
-	tx, err := f.capability.store.db.BeginTx(t.Context(), nil)
+	deferred := openDeferredTestDB(t, f.database)
+	tx, err := deferred.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestNotifyOpsDeferredUpgradeBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 修复后的登记在事务首条语句等待写锁；锁释放后一次插入内容与通知。
+	// 生产登记通过 IMMEDIATE 在 Begin 等待写锁；锁释放后一次插入内容与通知。
 	registered := make(chan error, 1)
 	started = time.Now()
 	go func() {
@@ -161,7 +162,8 @@ func TestNotifyOpsNativeEventInvalidatesDeferredSnapshot(t *testing.T) {
 	if err := native.CreateSession(t.Context(), &types.SessionRecord{Session: &aop.Session{Id: "synthetic-ops-session"}}); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := f.capability.store.db.BeginTx(t.Context(), nil)
+	deferred := openDeferredTestDB(t, f.database)
+	tx, err := deferred.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

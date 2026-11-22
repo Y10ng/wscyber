@@ -160,7 +160,8 @@ func openTaskStore(database string) (*taskStore, error) {
 	if strings.TrimSpace(database) == "" {
 		return nil, fmt.Errorf("webapi 数据库路径不能为空")
 	}
-	db, err := sql.Open("sqlite", database+"?_journal_mode=WAL&_busy_timeout=5000")
+	// Begin 即取写锁并按 busy_timeout 等待，避免 deferred 先读后写升级立即 BUSY。
+	db, err := sql.Open("sqlite", database+"?_journal_mode=WAL&_busy_timeout=5000&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("打开 sqlite: %w", err)
 	}

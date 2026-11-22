@@ -76,12 +76,7 @@ func (s *taskStore) insertOpsNotification(ctx context.Context, model *notificati
 func (s *taskStore) insertOpsNotificationIf(ctx context.Context, model *notificationModel, ops *notificationOpsModel, valid func() bool) (bool, error) {
 	inserted := false
 	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// 首条语句即申请写锁（不改任何行），避免 deferred 事务先读后写升级时
-		// 立即 SQLITE_BUSY / BUSY_SNAPSHOT，绕过 busy_timeout。仅此登记事务调整。
-		if _, err := tx.ExecContext(ctx, `UPDATE webapi_notifications SET id = id WHERE 0`); err != nil {
-			return err
-		}
-		// 等待锁期间审批可能已决；取得锁后再核对，不能迟到补登记。
+		// IMMEDIATE 事务已在 Begin 取得写锁；等待期间审批可能已决，不能迟到补登记。
 		if valid != nil && !valid() {
 			return nil
 		}
