@@ -10,6 +10,7 @@
   python3 scripts/demo-stack.py egress-demo       经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）
   python3 scripts/demo-stack.py subagent-demo [--slow N]  并行探索 Oracle；可延迟子 Agent 每次回复 N 秒
   python3 scripts/demo-stack.py authz-demo        多账号登录、订单归属对比与候选（仅测试数据）
+  python3 scripts/demo-stack.py browser-demo      浏览器/爬虫出口记录与 Chromium 清理断言
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
@@ -449,6 +450,7 @@ def script_approval(conv, origin):
     return {'text': '\n'.join(lines)}
 
 
+BROWSER_MARK = '浏览器演示'
 EGRESS_MARK = '出口演示'
 EGRESS_DENIED_URL = 'http://127.0.0.1:18089/ping'  # 未授权端口，无服务；用于演示“授权外被代理拦截”
 
@@ -466,6 +468,21 @@ def script_egress(conv, origin):
         command = (result['args'] or {}).get('command', '?')
         lines.append(f'- 命令 {command}：{(result["raw"] or "（无输出）")[:240]}')
     return {'text': '\n'.join(lines)}
+
+
+def script_browser(conv, origin):
+    """三次模型交互：授权首页/标题与爬虫 → 越界导航 → 小结。"""
+    results = conv.of('bash')
+    if not results:
+        return {'text': '浏览器演示：打开授权首页并读取标题，同时用 katana 做深度 2 只读爬取。',
+                'calls': [('bash', {'command': f'playwright open {origin}/ --session demo --op-timeout 10 && playwright title demo'}),
+                          ('bash', {'command': f'katana -u {origin}/ -d 2 -ct 10s -timeout 5 -c 1 -silent', 'timeout': 30})]}
+    denied_command = f'playwright open {EGRESS_DENIED_URL} --session denied --op-timeout 10'
+    if not any((r['args'] or {}).get('command') == denied_command for r in results):
+        return {'text': '现在访问未授权本地端口；预期由出口拒绝，不连接该目标。',
+                'calls': [('bash', {'command': denied_command})]}
+    return {'text': '浏览器与爬虫演示结束；放行和拒绝以任务出口记录为准。\n' + '\n'.join(
+        f'- {r["args"].get("command", "?")}：{(r["raw"] or "（无输出）")[:400]}' for r in results)}
 
 
 AUTHZ_MARK = '多账号演示'
@@ -643,6 +660,8 @@ def script_research(conv):
         return script_parallel_research(conv, origin)
     if APPROVAL_MARK in conv.first_user:
         return script_approval(conv, origin)
+    if BROWSER_MARK in conv.first_user:
+        return script_browser(conv, origin)
     if EGRESS_MARK in conv.first_user:
         return script_egress(conv, origin)
     http_results, finding_results = conv.of('webapi_http'), conv.of('webapi_finding')
@@ -1058,7 +1077,8 @@ def cmd_up(args):
         sys.exit('模拟目标或模拟模型未能启动，见 var/demo/target.log、model.log')
     hub_log = DEMO / 'hub.log'
     offset = hub_log.stat().st_size if hub_log.exists() else 0
-    env = {'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent', 'LANG': 'C.UTF-8'}
+    env = {'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent', 'LANG': 'C.UTF-8',
+           'CYBER_BROWSER_PATH': '/usr/bin/chromium'}
     pids['hub'] = spawn([str(hub), '--local-hub', '--model-node', '--model-endpoint', MODEL_ENDPOINT,
                          '--listen', f'{HOST}:{HUB_PORT}', '--access-key-file', str(KEY_FILE),
                          '--state-dir', str(state), '--ui-dir', str(UI_DIR)], 'hub.log', env)
@@ -1605,6 +1625,87 @@ def cmd_egress_demo(_args):
             f'http_status={flow.get("http_status", "-")} error={flow.get("error") or "-"}')
 
 
+def chromium_processes():
+    """Linux 进程身份（含僵尸）；不停止或操作用户已有浏览器。"""
+    found = set()
+    for proc in Path('/proc').glob('[0-9]*'):
+        try:
+            name = (proc / 'comm').read_text().strip()
+            if name not in ('chromium', 'chrome', 'chrome_crashpad'):
+                continue
+            stat = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+            found.add((int(proc.name), stat[19]))  # PID + starttime，避免 PID 复用
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return found
+
+
+def cmd_browser_demo(_args):
+    node = demo_node()
+    if not node:
+        sys.exit('没有演示模型节点；先 up 并查看 status')
+    baseline = chromium_processes()
+    task_id = 'demo-browser-' + uuid.uuid4().hex[:8]
+    task = api('PUT', f'/api/webapi/tasks/{task_id}', {
+        'known_info': f'本地演示库存 API，地址 {ORIGIN}，全部为测试数据。',
+        'objective': BROWSER_MARK + '：授权首页与标题、未授权本地端口拒绝、katana 只读爬取。',
+        'authorization': {'confirmed': True, 'origins': [ORIGIN]}})['task']
+    policy = api('PUT', f'/api/webapi/tasks/{task_id}/policy',
+                 {'scope': 'origins', 'approval': 'off'})['policy']
+    log(f'[浏览器演示] task={task_id} 策略 scope={policy.get("scope")} approval={policy.get("approval")}')
+    session_id = task['initial_session_id']
+    first = '\n'.join(['开始探索任务。', '', f'目标／已知信息：{task["known_info"]}',
+                       f'希望达到的目标：{task["objective"]}', '',
+                       'HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：',
+                       *[f'- {o}' for o in task['origins']]])
+    try:
+        ended = run_session('浏览器演示', session_id, node['hello']['nodeId'], first)
+    finally:
+        # TurnEnded 只结束本轮，显式 CloseSession 才触发浏览器 SessionEnd 清理。
+        sock = AOPSocket()
+        try:
+            core_outcome(sock.request(pb_bytes(26, pb_bytes(2, session_id) + pb_bytes(3, 'demo complete'))),
+                         27, 'CloseSession')
+        finally:
+            sock.close()
+    clean = wait_for(lambda: not (chromium_processes() - baseline), 15)
+    flows = list_all(f'/api/webapi/tasks/{task_id}/egress')
+    log(f'[浏览器演示] 出口记录 {len(flows)} 条：')
+    for flow in flows:
+        log(f'- decision={flow.get("decision")} tool={flow.get("tool")} method={flow.get("method")} '
+            f'url={flow.get("url")} http_status={flow.get("http_status", "-")} error={flow.get("error") or "-"}')
+    events = rpc('cyber.rpc.chat.SessionService/ListEvents',
+                 {'sessionId': session_id, 'limit': 1000}).get('events', [])
+    runs = parent_run_summary(events)
+    log(f'[浏览器演示] Run 摘要：{json.dumps(runs, ensure_ascii=False)}')
+    tool_results = [d['event']['toolResult'] for d in events if 'toolResult' in d.get('event', {})]
+    messages = [d['event']['message'] for d in events if 'message' in d.get('event', {})]
+    checks = {
+        '工具调用无错误/超时': len(tool_results) == 3 and not any(r.get('isError') for r in tool_results),
+        '已读取首页标题': any('Title: 演示库存 API' in p.get('text', {}).get('text', '')
+            for r in tool_results for p in r.get('output', [])),
+        '最终小结已保存': any(m.get('role') == 'assistant' and any(
+            p.get('text', {}).get('text', '').startswith('浏览器与爬虫演示结束；')
+            for p in m.get('content', [])) for m in messages),
+        'browser 授权首页 allowed/200': any(f.get('tool') == 'browser' and f.get('decision') == 'allowed'
+            and f.get('url') == ORIGIN + '/' and f.get('http_status') == 200 for f in flows),
+        'browser 未授权端口 denied': any(f.get('tool') == 'browser' and f.get('decision') == 'denied'
+            and f.get('url') == EGRESS_DENIED_URL for f in flows),
+        'katana 授权 origin allowed/200': any(f.get('tool') == 'katana' and f.get('decision') == 'allowed'
+            and f.get('url', '').startswith(ORIGIN + '/') and f.get('http_status') == 200 for f in flows),
+        '单次 Run 模型交互 ≤3': len(runs) == 1 and 1 <= runs[0]['model_calls'] <= 3,
+        '会话无错误结束': not ended.get('error') and ended.get('stopReason') in ('completed', 'stopped'),
+        '无新增 Chromium 残留（含僵尸）': bool(clean),
+    }
+    for label, passed in checks.items():
+        log(f'[{"PASS" if passed else "FAIL"}] {label}')
+    if not clean:
+        log(f'新增残留进程：{sorted(chromium_processes() - baseline)}')
+    if not all(checks.values()):
+        raise RuntimeError('browser-demo 未通过；见上述断言与 var/demo/hub.log')
+    log('[浏览器演示] PASS')
+
+
 def parent_run_summary(events):
     runs = {}
     for delivery in events:
@@ -1799,6 +1900,7 @@ def main():
     selftest.add_argument('--chain', action='store_true', help='研究后继续跑验证、报告与两次复测')
     sub.add_parser('authz-demo', help='从资产发起多账号研究，打印占位符核对、证据、对比与候选')
     sub.add_parser('approval-demo', help='经 Hub API 走两次“审批演示”（全部批准 / 全部拒绝）')
+    sub.add_parser('browser-demo', help='浏览器与爬虫经出口放行/拒绝，并检查 Chromium 清理')
     sub.add_parser('egress-demo', help='经 Hub API 跑一次“出口演示”（终端 curl 授权内放行 / 授权外拒绝）')
     subagent_demo = sub.add_parser('subagent-demo', help='三个子 Agent 并行验证 Oracle，打印证据、候选与用量')
     subagent_demo.add_argument('--slow', type=float, default=0, metavar='N',
@@ -1814,7 +1916,7 @@ def main():
     if args.command == '_model':
         return serve_model()
     {'up': cmd_up, 'down': cmd_down, 'status': cmd_status, 'fix': cmd_fix, 'selftest': cmd_selftest,
-     'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo,
+     'approval-demo': cmd_approval_demo, 'egress-demo': cmd_egress_demo, 'browser-demo': cmd_browser_demo,
      'subagent-demo': cmd_subagent_demo, 'authz-demo': cmd_authz_demo}[args.command](args)
 
 
