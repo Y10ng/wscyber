@@ -73,13 +73,15 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 已提交 M5c 演示剧本 `browser-demo`（3c9ae4a）与 M5c 前端（aa13303：流量“工具出口”页签、终端/浏览器/爬虫标签与筛选、详情工具名与拒绝原文、出口说明文案）。**M5 完成**（子 Agent、多账号对比、浏览器/爬虫）。验收记下两处已修：浏览器后台降噪（1d2d9aa：netlog 定位为搜索引擎预连接，关 PreconnectToSearch 后 4→1；剩余 android.clients.google.com/checkin〔疑似 GCM〕1 条始终被拒，回归测试固定此上限）、工具出口 CONNECT 原文按 authority 形式显示（bfb861a）。构建脚本内存已修（默认 1536MB、`WSCYBER_UI_HEAP_MB` 可调、自动恢复 static/.gitkeep）。
 
-进行中：无。
+已提交：构建脚本内存（aa994de）。V2（AI 建议等级）已在 K1 完成。
+
+进行中：**V3 漏洞卡“申请复测”后端**（`var/v3-retest-backend/task.md`，o-latest）：`POST /vulns/{key}/card/retest` 由后端在代表候选原任务下发起复测（复用计划后续的 saveRetest+startSession），409 archived/false_positive/no_member/in_flight/no_model，审计 vuln.retest_request，卡片显示复测进行中与 lifecycle。之后 V3 前端、V4 运营通知。
 
 U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 普通对话会话入口未迁移；工作区顶栏未放 token 合计与待审批；侧栏任务计数在归档后要等切页/60s 才更新；验证会话时间线下方空白未撑满；进入任务会话后侧栏仍高亮原页面。
 
 ## 下一步
 
-1. 下一阶段（D3 需 SDL 接口文档；V2–V4、B3 审计页前端、U2e 走查可先做）。
+1. V3 → V4（D3 需 SDL 接口文档）。
 2. B3 审计页前端；U2e 走查；V2–V4。
 3. 小打磨：任务工作区顶栏在 390 宽下标题与页签重叠；Oracle 编号字体易看成 0-001（U2e）；用量按会话表按角色排序；scope=unrestricted 时首条消息仍写“仅限以下 origin”；总览待定级跳转应只列未修复条目。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
@@ -92,4 +94,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-无。
+- `v3`（wangsu-o-latest，11-22 启动，日志 `var/v3-retest-backend/exec.log`）。
