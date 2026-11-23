@@ -266,15 +266,29 @@ func TestWebAPICredentialFirstMessages(t *testing.T) {
 		t.Fatalf("research first message leaked or invented secret:\n%s", research)
 	}
 	source := &FindingDetail{Number: "WSC-000001", Content: findingContent{Title: "合成越权", Description: "中性描述"}}
-	for _, variant := range []pinnedMessageVariant{verificationMessageVariant, retestMessageVariant} {
-		base := pinnedFirstMessage(variant, f.task.Origins, source)
-		message, err := f.capability.followupFirstMessage(t.Context(), f.task.ID, base)
+	for _, scope := range []string{ScopeOrigins, ScopeUnrestricted} {
+		if _, err := f.capability.store.setPolicy(t.Context(), f.task.ID, scope, ApprovalHighRisk); err != nil {
+			t.Fatal(err)
+		}
+		// f.task 来自未附带策略的 Get；构造时必须现读，不能使用旧 Task 快照。
+		research, err := f.capability.assetFirstMessage(t.Context(), &assetModel{ID: "a1"}, f.task)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(message, base) || !strings.Contains(message, "测试账号（资产登记") || !strings.Contains(message, "{{cred:bob.secret}}") ||
-			strings.Contains(message, authzAliceSecret) || strings.Contains(message, authzBobSecret) {
-			t.Fatalf("followup first message:\n%s", message)
+		if !strings.Contains(research, scopeMessage(scope, false)) || !strings.Contains(research, "{{cred:bob.secret}}") ||
+			strings.Contains(research, authzAliceSecret) || strings.Contains(research, authzBobSecret) {
+			t.Fatalf("research first message (%s):\n%s", scope, research)
+		}
+		for _, variant := range []pinnedMessageVariant{verificationMessageVariant, retestMessageVariant} {
+			base := pinnedFirstMessage(variant, f.task.Origins, source, scope)
+			message, err := f.capability.followupFirstMessage(t.Context(), f.task.ID, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(message, base) || !strings.Contains(message, "测试账号（资产登记") || !strings.Contains(message, "{{cred:bob.secret}}") ||
+				strings.Contains(message, authzAliceSecret) || strings.Contains(message, authzBobSecret) {
+				t.Fatalf("followup first message (%s):\n%s", scope, message)
+			}
 		}
 	}
 }

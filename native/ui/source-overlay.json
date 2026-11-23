@@ -212,7 +212,7 @@
     },
     "src/hooks/useChatSession.ts": {
       "source_sha256": "51e84a673a79c80225be277f0182357638964de5d7dce405e06942f549847d81",
-      "sha256": "1527400a888c8e3923331e7984ff0a04ccdecf3fefdc6883734ea7cb7da57c6a"
+      "sha256": "fd83113ed21fe9aef57ef7a601fec2b2a85d5f7068f593ea1292277e1d2c591e"
     },
     "src/hooks/useWebApiTaskViewCounts.ts": {
       "source_sha256": null,
@@ -272,7 +272,7 @@
     },
     "src/lib/retest-message.ts": {
       "source_sha256": null,
-      "sha256": "a934770df6ab8264712446a22582795473d3757ed23e3ba43452e09d1d04b2ae"
+      "sha256": "0aa915bedd15ab75104ea77173cbc18d19ce35c93f0ad6a898479dd3a1e318a8"
     },
     "src/lib/session-agent.ts": {
       "source_sha256": "311ac1e5fecc1f60d67782bfdeae677e4887c0e94aaf7aa57a8b8291a3c604b2",
@@ -325,6 +325,10 @@
     "src/components/AuditPage.tsx": {
       "source_sha256": null,
       "sha256": "8e5f6995e363582cbfd29e57d03fcc8d61b125ac3115a1c0dcfd1e8946cd3878"
+    },
+    "src/lib/scope-message.ts": {
+      "source_sha256": null,
+      "sha256": "acff0ef81a34ad35c92c070ec6d17ab7dcb03a95e6c77bbcebe2335bed53d29c"
     }
   }
 }

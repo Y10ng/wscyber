@@ -486,13 +486,17 @@ func pickWebAPINode(agents []*types.AgentView) *types.AgentView {
 
 // webAPIFirstMessage 与前端 useChatSession.ts webApiFirstMessage 逐行一致。
 func webAPIFirstMessage(task *Task) []string {
+	scope := ScopeOrigins
+	if task.Policy != nil {
+		scope = task.Policy.Scope
+	}
 	lines := []string{
 		"开始探索任务。",
 		"",
 		"目标／已知信息：" + task.KnownInfo,
 		"希望达到的目标：" + task.Objective,
 		"",
-		"HTTP(S) 授权范围（仅限以下 origin，出站请求不得超出）：",
+		scopeMessage(scope, false),
 	}
 	for _, origin := range task.Origins {
 		lines = append(lines, "- "+origin)
@@ -503,7 +507,13 @@ func webAPIFirstMessage(task *Task) []string {
 // assetFirstMessage = 前端首条消息 + 测试账号占位符块 + 禁止行为块。
 // 有 secret 的账号仍先解密一次（credentialResolver），但不把明文写进消息；密钥缺失/损坏仍在 first_message 阶段失败。
 func (c *Capability) assetFirstMessage(ctx context.Context, asset *assetModel, task *Task) (string, error) {
-	lines := webAPIFirstMessage(task)
+	policy, err := c.store.policyForTask(ctx, task.ID)
+	if err != nil {
+		return "", err
+	}
+	current := *task
+	current.Policy = &policy
+	lines := webAPIFirstMessage(&current)
 	resolver, err := loadCredentialResolverForAsset(ctx, c.store, c.secrets, asset.ID)
 	if err != nil {
 		return "", err

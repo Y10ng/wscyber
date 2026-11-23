@@ -111,7 +111,7 @@ func TestVulnCardRetestRequestLaunch(t *testing.T) {
 	}
 	task, _ := f.capability.store.Get(t.Context(), "t1")
 	source, _ := f.capability.store.findingRevision(t.Context(), "t1", f1, rev2)
-	base := pinnedFirstMessage(retestMessageVariant, task.Origins, source)
+	base := pinnedFirstMessage(retestMessageVariant, task.Origins, source, ScopeOrigins)
 	text := runText(runs[0])
 	if !strings.HasPrefix(text, base+"\n\n测试账号（资产登记，仅用于上述授权范围内的测试）：\n") || !strings.HasPrefix(text, "复测：按固定修订复测以下候选是否仍可复现。") ||
 		!strings.Contains(text, "候选标题：订单接口越权读取（修订）") || !strings.Contains(text, "{{cred:c1.secret}}") || strings.Contains(text, assetTestSecret) {
