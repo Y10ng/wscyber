@@ -19,6 +19,9 @@ func TestKnownMigrations(t *testing.T) {
 	if !slices.Equal(names, []string{"0001"}) {
 		t.Fatalf("内嵌迁移 %v", names)
 	}
+	if v := pgschema.SchemaVersion(); v != 1 {
+		t.Fatalf("SchemaVersion = %d", v)
+	}
 }
 
 func TestMigrateEmptyDatabase(t *testing.T) {

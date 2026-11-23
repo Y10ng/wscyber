@@ -14,6 +14,11 @@
   python3 scripts/demo-stack.py down
 
 只用 Python 标准库。不读写 var/preview，不连接真实模型或真实目标。
+
+数据库：Hub 只用 PostgreSQL。up 取 ~/.config/wscyber/pg-dev.url 的主机/角色/口令，库名换成
+wscyber_demo，以该角色 DROP DATABASE IF EXISTS wscyber_demo WITH (FORCE) + CREATE DATABASE wscyber_demo
+（psql，凭据经 PG* 环境变量，不上命令行），演示连接串写入 var/demo/database.url（0600），
+以 --database-url-file 启动 Hub；down 不删库（便于事后排查），下次 up 重建。准备见 native/POSTGRES.md §7.2。
 """
 import argparse
 import base64
@@ -49,6 +54,9 @@ ORIGIN = f'http://{HOST}:{TARGET_PORT}'
 MODEL_ENDPOINT = f'http://{HOST}:{MODEL_PORT}/v1'
 HUB_URL = f'http://{HOST}:{HUB_PORT}'
 DEMO_MODEL_NAME = 'demo-scripted-model'
+PG_DEV_URL = Path.home() / '.config' / 'wscyber' / 'pg-dev.url'
+DEMO_DATABASE = 'wscyber_demo'
+DATABASE_URL_FILE = DEMO / 'database.url'
 
 
 def log(*parts):
@@ -1034,6 +1042,52 @@ def ensure_key():
         handle.write(secrets.token_urlsafe(24) + '\n')
 
 
+def demo_database_url():
+    """读 pg-dev.url，返回 (演示库 DSN, psql 用的 PG* 环境)。不打印、不记录连接串与口令。"""
+    try:
+        info = PG_DEV_URL.lstat()
+    except OSError:
+        sys.exit(f'找不到 {PG_DEV_URL}；本机 PostgreSQL 准备见 native/POSTGRES.md §7.2')
+    if not PG_DEV_URL.is_file() or PG_DEV_URL.is_symlink() or info.st_mode & 0o077:
+        sys.exit(f'{PG_DEV_URL} 须为属主私有（0600）普通文件')
+    raw = PG_DEV_URL.read_text().strip()
+    parts = urlparse.urlsplit(raw)
+    if parts.scheme not in ('postgres', 'postgresql') or not parts.hostname or not parts.username:
+        sys.exit(f'{PG_DEV_URL} 须为 postgres://角色:口令@主机:端口/库 形式（内容不回显）')
+    dsn = urlparse.urlunsplit((parts.scheme, parts.netloc, '/' + DEMO_DATABASE, parts.query, ''))
+    env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'HOME': '/nonexistent',
+           'PGHOST': parts.hostname, 'PGPORT': str(parts.port or 5432),
+           'PGUSER': urlparse.unquote(parts.username), 'PGDATABASE': 'postgres',
+           'PGAPPNAME': 'wscyber-demo-stack', 'PGCONNECT_TIMEOUT': '10'}
+    if parts.password is not None:
+        env['PGPASSWORD'] = urlparse.unquote(parts.password)
+    sslmode = urlparse.parse_qs(parts.query).get('sslmode')
+    if sslmode:
+        env['PGSSLMODE'] = sslmode[-1]
+    return dsn, env
+
+
+def recreate_demo_database(pg_env):
+    """以开发角色重建演示库（DROP … WITH (FORCE) + CREATE）。"""
+    args = ['psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1',
+            '-c', f'DROP DATABASE IF EXISTS {DEMO_DATABASE} WITH (FORCE)', '-c', f'CREATE DATABASE {DEMO_DATABASE}']
+    for attempt in range(10):
+        result = subprocess.run(args, env=pg_env, stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=DEMO)
+        if result.returncode == 0:
+            return
+        # PG18：非超级用户终止不了 autovacuum worker（42501），稍后重试。
+        if 'permission denied to terminate process' not in result.stderr or attempt == 9:
+            sys.exit(f'重建演示库 {DEMO_DATABASE} 失败：{result.stderr.strip()}')
+        time.sleep(0.2)
+
+
+def write_database_url_file(dsn):
+    DATABASE_URL_FILE.unlink(missing_ok=True)
+    fd = os.open(DATABASE_URL_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as handle:
+        handle.write(dsn + '\n')
+
+
 def spawn(args, log_name, env=None):
     handle = open(DEMO / log_name, 'ab')
     return subprocess.Popen(args, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -1062,13 +1116,17 @@ def cmd_up(args):
     busy = [port for port in (TARGET_PORT, MODEL_PORT, HUB_PORT) if port_open(port)]
     if busy:
         sys.exit(f'端口已被占用：{busy}')
+    dsn, pg_env = demo_database_url()
     DEMO.mkdir(parents=True, exist_ok=True)
     os.chmod(DEMO, 0o700)
     ensure_key()
+    recreate_demo_database(pg_env)
+    write_database_url_file(dsn)
+    log(f'演示库 {DEMO_DATABASE} 已重建（{pg_env["PGUSER"]}@{pg_env["PGHOST"]}:{pg_env["PGPORT"]}）')
     FIX_FLAG.unlink(missing_ok=True)
     state = DEMO / ('state-' + time.strftime('%Y%m%d-%H%M%S'))
     script = str(Path(__file__).resolve())
-    pids = {'state_dir': str(state), 'hub_binary': str(hub)}
+    pids = {'state_dir': str(state), 'hub_binary': str(hub), 'database': DEMO_DATABASE}
     pids['target'] = spawn([sys.executable, '-I', script, '_target', '--fix-flag', str(FIX_FLAG)], 'target.log')
     pids['model'] = spawn([sys.executable, '-I', script, '_model'], 'model.log')
     PIDS_FILE.write_text(json.dumps(pids, indent=2))
@@ -1081,7 +1139,8 @@ def cmd_up(args):
            'CYBER_BROWSER_PATH': '/usr/bin/chromium'}
     pids['hub'] = spawn([str(hub), '--local-hub', '--model-node', '--model-endpoint', MODEL_ENDPOINT,
                          '--listen', f'{HOST}:{HUB_PORT}', '--access-key-file', str(KEY_FILE),
-                         '--state-dir', str(state), '--ui-dir', str(UI_DIR)], 'hub.log', env)
+                         '--state-dir', str(state), '--ui-dir', str(UI_DIR),
+                         '--database-url-file', str(DATABASE_URL_FILE)], 'hub.log', env)
     PIDS_FILE.write_text(json.dumps(pids, indent=2))
 
     def ready():
@@ -1129,7 +1188,7 @@ def cmd_status(_args):
         log(f'{name:6} pid={pid} alive={bool(isinstance(pid, int) and pid_alive(pid))}')
     for name, port in (('target', TARGET_PORT), ('model', MODEL_PORT), ('hub', HUB_PORT)):
         log(f'{name:6} port {port} listening={port_open(port)}')
-    log(f'fixed mode={FIX_FLAG.exists()}  state={pids.get("state_dir")}')
+    log(f'fixed mode={FIX_FLAG.exists()}  state={pids.get("state_dir")}  database={pids.get("database")}')
     if port_open(HUB_PORT) and KEY_FILE.exists():
         try:
             for agent in rpc('cyber.rpc.agent.AgentService/ListAgents', {}).get('agents', []):

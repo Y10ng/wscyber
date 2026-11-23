@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"wscyber/native/internal/buildinfo"
 	"wscyber/native/internal/uiembed"
+	"wscyber/native/pgschema"
 )
 
 // 合成嵌入前端：与 syntheticUI 同内容，外加占位文件；不是原生 UI 构建产物。
@@ -61,8 +63,8 @@ func TestSubcommandDispatch(t *testing.T) {
 		t.Fatalf("legacy positional: %v", err)
 	}
 	out.Reset()
-	if err := run(t.Context(), []string{"--help"}, &out); err != nil || !strings.Contains(out.String(), "model-endpoint") || strings.Contains(out.String(), "database-url-file") {
-		t.Fatal("legacy help changed")
+	if err := run(t.Context(), []string{"--help"}, &out); err != nil || !strings.Contains(out.String(), "model-endpoint") || !strings.Contains(out.String(), "database-url-file") {
+		t.Fatal("legacy help lacks model-endpoint or database-url-file")
 	}
 	if err := run(t.Context(), nil, &out); err == nil || !strings.Contains(err.Error(), "--local-hub") {
 		t.Fatalf("no-args legacy behaviour changed: %v", err)
@@ -78,7 +80,7 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	if !strings.HasPrefix(text, "wscyber-hub dev (") || !strings.Contains(text, "cyber f4b1fb2f") || !strings.Contains(text, "ui 147423bd (未嵌入)") || !strings.Contains(text, "schema 0") {
+	if !strings.HasPrefix(text, "wscyber-hub dev (") || !strings.Contains(text, "cyber f4b1fb2f") || !strings.Contains(text, "ui 147423bd (未嵌入)") || !strings.Contains(text, "schema 1") {
 		t.Fatalf("version text: %q", text)
 	}
 	embedded := syntheticEmbeddedUI(t)
@@ -119,7 +121,8 @@ func TestResolveServeConfig(t *testing.T) {
 	}
 	all := env(map[string]string{envListen: "0.0.0.0:9000", envStateDir: "/srv/state", envAccessKeyFile: "/run/key", envDatabaseURLFile: "/run/db.url"})
 	got, err = resolveServeConfig(serveConfig{}, all)
-	if err != nil || got.listen != "0.0.0.0:9000" || got.stateDir != "/srv/state" || got.accessKeyFile != "/run/key" || got.databaseURLFile != "/run/db.url" {
+	// 连接串文件环境变量不在这里取，由 loadDatabaseURL（pgschema.ResolveDatabaseURL）统一处理。
+	if err != nil || got.listen != "0.0.0.0:9000" || got.stateDir != "/srv/state" || got.accessKeyFile != "/run/key" || got.databaseURLFile != "" {
 		t.Fatalf("env: %+v %v", got, err)
 	}
 	got, _ = resolveServeConfig(serveConfig{listen: "127.0.0.1:1", stateDir: "/flag", accessKeyFile: "/fk", databaseURLFile: "/fd", uiDir: "/ui"}, all)
@@ -195,23 +198,49 @@ func TestPrivateFilePermissions(t *testing.T) {
 	}
 }
 
+// loadDatabaseURL 只是 pgschema.ResolveDatabaseURL 加“读后删环境变量”；文件规则与错误文案由 pgschema 负责。
 func TestLoadDatabaseURL(t *testing.T) {
 	dir := t.TempDir()
 	const dsn = "postgres://wscyber:synthetic-pass@db.example.test:5432/wscyber?sslmode=disable"
 	file := filepath.Join(dir, "db.url")
 	mustWrite(t, file, []byte(dsn+"\n"))
-	t.Setenv(envDatabaseURL, "postgres://env:synthetic-env@db.example.test/other")
-	got, err := loadDatabaseURL(file)
-	if err != nil || got.dsn != dsn || got.source != "file" {
-		t.Fatalf("file: %+v %v", got, err)
+	envFile := filepath.Join(dir, "env-db.url")
+	mustWrite(t, envFile, []byte("postgres://envfile:synthetic-envfile@db.example.test/from_env_file\n"))
+	unset := func() {
+		t.Helper()
+		for _, name := range []string{envDatabaseURLFile, envDatabaseURL} {
+			if _, set := os.LookupEnv(name); set {
+				t.Fatalf("%s not unset after read", name)
+			}
+		}
 	}
-	if _, set := os.LookupEnv(envDatabaseURL); set {
-		t.Fatal("WSCYBER_DATABASE_URL not unset when file wins")
+	setEnv := func() {
+		t.Setenv(envDatabaseURLFile, envFile)
+		t.Setenv(envDatabaseURL, "postgres://env:synthetic-env@db.example.test/from_env")
+	}
+	setEnv()
+	got, err := loadDatabaseURL(file)
+	if err != nil || got.DSN() != dsn || got.Source() != "--database-url-file" || got.Database() != "wscyber" {
+		t.Fatalf("file: %s %v", got, err)
+	}
+	unset()
+	setEnv()
+	if got, err = loadDatabaseURL(""); err != nil || got.Database() != "from_env_file" || got.Source() != envDatabaseURLFile {
+		t.Fatalf("env file: %s %v", got, err)
+	}
+	unset()
+	t.Setenv(envDatabaseURL, "host=db.example.test user=wscyber password=synthetic-kv dbname=wscyber")
+	if got, err = loadDatabaseURL(""); err != nil || got.Source() != envDatabaseURL || !strings.HasPrefix(got.DSN(), "host=") {
+		t.Fatalf("env: %s %v", got, err)
+	}
+	unset()
+	if _, err := loadDatabaseURL(""); !errors.Is(err, pgschema.ErrNoDatabaseURL) {
+		t.Fatalf("absent: %v", err)
 	}
 	if err := os.Chmod(file, 0400); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := loadDatabaseURL(file); err != nil || got.dsn != dsn {
+	if got, err := loadDatabaseURL(file); err != nil || got.DSN() != dsn {
 		t.Fatalf("0400 file rejected: %v", err)
 	}
 	if err := os.Chmod(file, 0644); err != nil {
@@ -220,18 +249,7 @@ func TestLoadDatabaseURL(t *testing.T) {
 	if _, err := loadDatabaseURL(file); err == nil || strings.Contains(err.Error(), "synthetic-pass") {
 		t.Fatalf("0644 file accepted or leaked: %v", err)
 	}
-	t.Setenv(envDatabaseURL, "host=db.example.test user=wscyber password=synthetic-kv dbname=wscyber")
-	got, err = loadDatabaseURL("")
-	if err != nil || got.source != "env" || !strings.HasPrefix(got.dsn, "host=") {
-		t.Fatalf("env: %+v %v", got, err)
-	}
-	if _, set := os.LookupEnv(envDatabaseURL); set {
-		t.Fatal("WSCYBER_DATABASE_URL not unset after read")
-	}
-	if got, err := loadDatabaseURL(""); err != nil || got.source != "" {
-		t.Fatalf("absent: %+v %v", got, err)
-	}
-	for _, bad := range []string{"", "  \n", "postgres://a@b/c\npostgres://d", "mysql://u:synthetic-bad@h/d"} {
+	for _, bad := range []string{"", "  \n", "postgres://a@b/c\npostgres://d", "postgres://u:synthetic-bad@h:notaport/d"} {
 		mustWrite(t, file, []byte(bad))
 		if err := os.Chmod(file, 0600); err != nil {
 			t.Fatal(err)
@@ -242,6 +260,13 @@ func TestLoadDatabaseURL(t *testing.T) {
 	}
 	if _, err := loadDatabaseURL(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("missing file accepted")
+	}
+	link := filepath.Join(dir, "link.url")
+	if err := os.Symlink(envFile, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadDatabaseURL(link); err == nil {
+		t.Fatal("symlink accepted")
 	}
 }
 

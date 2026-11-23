@@ -17,8 +17,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// EnvDatabaseURL 是未给 --database-url-file 时读取的环境变量。
-const EnvDatabaseURL = "WSCYBER_DATABASE_URL"
+// 未给 --database-url-file 时依次读取的环境变量：先连接串文件路径，再连接串本身。
+// Hub 读完后应从进程环境删除两者（终端子进程继承环境）。
+const (
+	EnvDatabaseURLFile = "WSCYBER_DATABASE_URL_FILE"
+	EnvDatabaseURL     = "WSCYBER_DATABASE_URL"
+)
+
+// ErrNoDatabaseURL 表示三种来源都没有给出连接串。
+var ErrNoDatabaseURL = errors.New("未提供 PostgreSQL 连接串")
 
 // maxDatabaseURLFileBytes 限制连接串文件大小，防止误指向大文件。
 const maxDatabaseURLFileBytes = 64 << 10
@@ -34,24 +41,30 @@ type DatabaseURL struct {
 	user     string
 }
 
-// ResolveDatabaseURL 按 §1 的优先级取连接串：path 非空则读该文件（须为属主
-// 可读、group/other 无任何权限的普通文件，不跟随符号链接）；否则读环境变量
-// WSCYBER_DATABASE_URL；都没有则报错。getenv 为 nil 时用 os.Getenv。
+// ResolveDatabaseURL 按 §1 的优先级取连接串：path（--database-url-file）非空则读该文件
+// （须为属主可读、group/other 无任何权限的普通文件，不跟随符号链接）；否则环境变量
+// WSCYBER_DATABASE_URL_FILE 指向的文件；否则环境变量 WSCYBER_DATABASE_URL；都没有则
+// 返回 ErrNoDatabaseURL。前一来源给了但不合格时直接失败，不回退。getenv 为 nil 时用 os.Getenv。
 func ResolveDatabaseURL(path string, getenv func(string) string) (DatabaseURL, error) {
 	if getenv == nil {
 		getenv = os.Getenv
+	}
+	source := "--database-url-file"
+	if strings.TrimSpace(path) == "" {
+		path, source = strings.TrimSpace(getenv(EnvDatabaseURLFile)), EnvDatabaseURLFile
 	}
 	if strings.TrimSpace(path) != "" {
 		dsn, err := ReadDatabaseURLFile(path)
 		if err != nil {
 			return DatabaseURL{}, err
 		}
-		return parseDatabaseURL(dsn, "--database-url-file")
+		return parseDatabaseURL(dsn, source)
 	}
 	if dsn := strings.TrimSpace(getenv(EnvDatabaseURL)); dsn != "" {
 		return parseDatabaseURL(dsn, EnvDatabaseURL)
 	}
-	return DatabaseURL{}, fmt.Errorf("未提供 PostgreSQL 连接串：用 --database-url-file 指定 0600 文件，或设置环境变量 %s", EnvDatabaseURL)
+	return DatabaseURL{}, fmt.Errorf("%w：用 --database-url-file（或环境变量 %s）指定属主私有（0600/0400）的连接串文件，或设置环境变量 %s；本机准备见 native/POSTGRES.md §7.2",
+		ErrNoDatabaseURL, EnvDatabaseURLFile, EnvDatabaseURL)
 }
 
 // ParseDatabaseURL 解析连接串（URL 或 key=value 形式）。错误信息不回显原文。

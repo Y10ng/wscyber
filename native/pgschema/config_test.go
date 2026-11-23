@@ -1,6 +1,7 @@
 package pgschema_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,8 +131,30 @@ func TestResolveDatabaseURLPriority(t *testing.T) {
 		t.Fatalf("应回退环境变量: %v %s", err, u)
 	}
 	_, err = pgschema.ResolveDatabaseURL("", noEnv)
-	if err == nil || !strings.Contains(err.Error(), "--database-url-file") || !strings.Contains(err.Error(), pgschema.EnvDatabaseURL) {
-		t.Fatalf("都没有时应说明两种方式: %v", err)
+	if !errors.Is(err, pgschema.ErrNoDatabaseURL) || !strings.Contains(err.Error(), "--database-url-file") ||
+		!strings.Contains(err.Error(), pgschema.EnvDatabaseURL) || !strings.Contains(err.Error(), pgschema.EnvDatabaseURLFile) {
+		t.Fatalf("都没有时应说明三种方式: %v", err)
+	}
+	// WSCYBER_DATABASE_URL_FILE 位于旗标之后、WSCYBER_DATABASE_URL 之前；不合格时不回退。
+	envFile := writeFile(t, 0o600, fakeDSN)
+	both := func(key string) string {
+		switch key {
+		case pgschema.EnvDatabaseURLFile:
+			return envFile
+		case pgschema.EnvDatabaseURL:
+			return envDSN
+		}
+		return ""
+	}
+	u, err = pgschema.ResolveDatabaseURL("", both)
+	if err != nil || u.Database() != "wscyber_prod" || u.Source() != pgschema.EnvDatabaseURLFile {
+		t.Fatalf("环境变量文件应优先于环境变量连接串: %v %s", err, u)
+	}
+	if err := os.Chmod(envFile, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pgschema.ResolveDatabaseURL("", both); err == nil {
+		t.Fatal("环境变量文件不合格时应失败，不回退")
 	}
 }
 

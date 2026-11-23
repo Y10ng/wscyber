@@ -21,7 +21,7 @@ import (
 	"github.com/chainreactors/cyber/pkg/profile"
 	"github.com/chainreactors/cyber/pkg/rpc"
 
-	"wscyber/native/pgschema"
+	"wscyber/native/internal/testdb"
 	"wscyber/native/webapi"
 )
 
@@ -123,6 +123,9 @@ func TestProductModelNativeEntryAndReopen(t *testing.T) {
 	ready, done := make(chan string, 1), make(chan error, 1)
 	go func() { done <- serveLocalHub(ctx, opts, func(addr string) { ready <- addr }) }()
 	address := <-ready
+	// 先等节点登记并应用配置再停止：立即停止会撞上节点 Profile 尚未 Load 的收尾竞态（既有行为，
+	// 见 serve_e2e_test.go waitModelNode）；PG 下启动时序变化后此竞态更易出现。
+	providerCount(address)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second}
 	defer client.CloseIdleConnections()
 	configuration := rpc.NewConfigServiceClient(client, "http://"+address)
@@ -144,7 +147,7 @@ func TestProductModelSubagentDenied(t *testing.T) {
 		http.Error(w, "unexpected model request", http.StatusInternalServerError)
 	}))
 	defer endpoint.Close()
-	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, t.TempDir()) // P3b 接 testdb
+	capability, err := webapi.NewCapability(testdb.New(t).URL, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +188,7 @@ func TestProductModelSubagentDenied(t *testing.T) {
 // 第二个短专项只核对 borrowed Provider 的关闭时机和原生 Runtime 命名空间。
 func TestProductModelProfileOwnershipAndNativeProtocol(t *testing.T) {
 	stateDir := t.TempDir()
-	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, stateDir) // P3b 接 testdb
+	capability, err := webapi.NewCapability(testdb.New(t).URL, stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}

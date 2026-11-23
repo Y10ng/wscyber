@@ -214,7 +214,7 @@ func serveFixtureNode(ctx context.Context, config host.Config, stateDir, key str
 		}
 		return nodeErr
 	}
-	// host 取消并等待 StartNode 后才关闭 Web 扩展/SQLite。
+	// host 取消并等待 StartNode 后才关闭 Web 扩展/原生存储连接池。
 	resultErr = host.Serve(ctx, config)
 	if p != nil {
 		resultErr = errors.Join(resultErr, p.closeErr)

@@ -123,7 +123,8 @@ func TestFixtureNodeNativeFlowAndShutdown(t *testing.T) {
 	}
 	listener.Close()
 	assertNoStateFD(t, opts.stateDir)
-	store, err := webservice.NewSQLiteStore(filepath.Join(opts.stateDir, "hub.sqlite"), webapitasks.SchemaModule())
+	assertNoHubConnections(t, opts.database)
+	store, err := webservice.NewSQLiteStore(opts.database.DSN(), webapitasks.SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}

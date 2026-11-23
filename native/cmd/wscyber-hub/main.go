@@ -14,29 +14,36 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unicode"
 
 	"github.com/chainreactors/cyber/core/telemetry"
 	webext "github.com/chainreactors/cyber/exts/web"
 	"github.com/chainreactors/cyber/pkg/web/host"
 
+	"wscyber/native/internal/buildinfo"
 	"wscyber/native/pgschema"
 	"wscyber/native/webapi"
 )
 
 type options struct {
-	localHub      bool
-	listen        string
-	keyFile       string
-	stateDir      string
-	uiDir         string
-	fixtureNode   bool
-	modelConfig   bool
-	modelNode     bool
-	modelEndpoint string
-	modelReport   *modelNodeReport   // 仅收尾诊断，不是节点应用回执。
-	fixtureReport *fixtureNodeReport // 仅收尾验收摘要，不是业务状态。
+	localHub bool
+	listen   string
+	keyFile  string
+	stateDir string
+	uiDir    string
+	// PostgreSQL 连接串：database 非零时直接使用（serve 已解析、测试注入）；
+	// 否则由 serveLocalHub 按 databaseURLFile > $WSCYBER_DATABASE_URL_FILE > $WSCYBER_DATABASE_URL 读取。
+	databaseURLFile string
+	database        pgschema.DatabaseURL
+	fixtureNode     bool
+	modelConfig     bool
+	modelNode       bool
+	modelEndpoint   string
+	modelReport     *modelNodeReport   // 仅收尾诊断，不是节点应用回执。
+	fixtureReport   *fixtureNodeReport // 仅收尾验收摘要，不是业务状态。
 	// serve 子命令专用：允许非 loopback 监听、密钥文件 0600/0400、无 --ui-dir 时使用嵌入前端。
 	serve   bool
 	embedUI fs.FS
@@ -44,10 +51,11 @@ type options struct {
 	status *hubStatus
 }
 
-// hubStatus 只记录启动时实际选用的前端来源与清单哈希，不含 key 等私有信息。
+// hubStatus 只记录启动时实际选用的前端来源、清单哈希与数据库位置，不含 key、口令等私有信息。
 type hubStatus struct {
 	frontend       string // "ui-dir" | "embed" | ""
 	manifestSHA256 string
+	database       pgschema.DatabaseURL // ready 事件只取 host/port/database/user
 }
 
 func main() {
@@ -85,6 +93,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	flags.StringVar(&opts.keyFile, "access-key-file", "", "0600 普通文件，内含本机专用非空测试 key")
 	flags.StringVar(&opts.stateDir, "state-dir", "", "必须是尚不存在的新目录；父目录须已存在")
 	flags.StringVar(&opts.uiDir, "ui-dir", "", "可选固定原生UI构建产物目录；不配置仍无前端，key/state必须在其外")
+	flags.StringVar(&opts.databaseURLFile, "database-url-file", "", "PostgreSQL 连接串文件（属主私有 0600/0400）；默认 $"+pgschema.EnvDatabaseURLFile+"，或读 $"+pgschema.EnvDatabaseURL+"（读后从环境删除）")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			flags.SetOutput(output)
@@ -126,6 +135,7 @@ func runHub(ctx context.Context, opts options, output io.Writer, extra map[strin
 			"execution_node": false, "fixture_node_configured": opts.fixtureNode, "frontend": opts.status.frontend != "",
 			"model_config_management": opts.modelConfig || opts.modelNode, "model_node_configured": opts.modelNode,
 			"version": currentBuildInfo(opts.status.manifestSHA256).Version, "browser": browser,
+			"database": databaseEvent(opts.status.database), "schema": buildinfo.SchemaVersion,
 			// ready 仅指 Hub 监听；节点就绪必须通过原生握手和实际 API 核验。
 		}
 		for name, value := range extra {
@@ -148,7 +158,45 @@ func runHub(ctx context.Context, opts options, output io.Writer, extra map[strin
 	return encoder.Encode(map[string]string{"event": "stopped"})
 }
 
-func serveLocalHub(ctx context.Context, opts options, ready func(string)) error {
+// databaseEvent 是 ready 事件里的数据库位置；只含 host/port/database/user，不含口令。
+func databaseEvent(u pgschema.DatabaseURL) map[string]any {
+	return map[string]any{"host": u.Host(), "port": u.Port(), "database": u.Database(), "user": u.User()}
+}
+
+// instanceLockCheckInterval 是单实例锁存活检查周期；测试可调小。
+var instanceLockCheckInterval = 30 * time.Second
+
+// errInstanceLockLost 表示运行中单实例锁丢失（PG 重启、连接被终止等）；Hub 正常走停止流程后以非 0 退出。
+var errInstanceLockLost = errors.New("PostgreSQL 单实例锁丢失，Hub 已停止")
+
+// watchInstanceLock 每 interval 检查一次锁；丢失时调用 lost 并结束。返回的 stop 取消检查并等待
+// 检查协程退出（须在释放锁之前调用，避免与 Release 并发使用锁连接）。
+func watchInstanceLock(ctx context.Context, lock *pgschema.InstanceLock, interval time.Duration, lost func(error)) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			checkCtx, cancelCheck := context.WithTimeout(ctx, 10*time.Second)
+			err := lock.Check(checkCtx)
+			cancelCheck()
+			if err != nil && ctx.Err() == nil {
+				lost(err)
+				return
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
+}
+
+func serveLocalHub(ctx context.Context, opts options, ready func(string)) (err error) {
 	if !opts.localHub {
 		return fmt.Errorf("必须显式指定 --local-hub")
 	}
@@ -167,12 +215,18 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 	} else if err != nil || !addr.Addr().IsLoopback() || addr.Addr().Zone() != "" {
 		return fmt.Errorf("--listen 必须为明确的 loopback IP:port")
 	}
-	if strings.TrimSpace(opts.stateDir) == "" || strings.ContainsAny(opts.stateDir, "?#") {
-		return fmt.Errorf("--state-dir 必须指定，且不得含 SQLite URI 分隔符")
+	if strings.TrimSpace(opts.stateDir) == "" {
+		return fmt.Errorf("--state-dir 必须指定")
 	}
 	stateDir, err := filepath.Abs(opts.stateDir)
 	if err != nil {
 		return err
+	}
+	database := opts.database
+	if database.IsZero() {
+		if database, err = loadDatabaseURL(opts.databaseURLFile); err != nil {
+			return err
+		}
 	}
 	key, err := readPrivateKey(opts.keyFile, opts.serve)
 	if err != nil {
@@ -201,11 +255,36 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 		manifestSHA = assets.manifestSHA256
 	}
 	if opts.status != nil {
-		opts.status.frontend, opts.status.manifestSHA256 = source, manifestSHA
+		opts.status.frontend, opts.status.manifestSHA256, opts.status.database = source, manifestSHA, database
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// 数据库先于 state-dir：角色检查 → 单实例锁 → 迁移（pgschema.Start）。同库已有 Hub、
+	// 角色不安全或库比本程序新时在此失败，不创建 state-dir。Instance 持有到本函数返回，
+	// 晚于 host/webapi 关闭才释放锁（defer 逆序）。
+	instance, err := pgschema.Start(ctx, database, func(format string, args ...any) { notice(format, args...) })
+	if err != nil {
+		return fmt.Errorf("启动 PostgreSQL: %w", err)
+	}
+	defer func() { err = errors.Join(err, instance.Close()) }()
+	var lostMu sync.Mutex
+	var lostErr error
+	ctx, cancelHub := context.WithCancel(ctx)
+	defer cancelHub()
+	stopWatch := watchInstanceLock(ctx, instance.Lock(), instanceLockCheckInterval, func(cause error) {
+		lostMu.Lock()
+		lostErr = fmt.Errorf("%w：%v", errInstanceLockLost, cause)
+		lostMu.Unlock()
+		notice("PostgreSQL 单实例锁丢失（%v）；停止 Hub", cause)
+		cancelHub()
+	})
+	defer func() {
+		stopWatch()
+		lostMu.Lock()
+		defer lostMu.Unlock()
+		err = errors.Join(err, lostErr)
+	}()
 	// 验收模式仍独占新目录；正式模式只重开本入口自己的已有状态，不清空/迁移。
 	if opts.modelNode && opts.modelEndpoint == "" {
 		if err := os.MkdirAll(stateDir, 0700); err != nil {
@@ -223,17 +302,17 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 		// 原生 io.Discard 日志器，禁止改接控制台/全局 logger。
 		Logger: telemetry.NopLogger(),
 		Management: webext.Config{
-			Product:  "wscyber-local-hub",
-			Database: filepath.Join(stateDir, "hub.sqlite"), AccessKey: key,
+			Product: "wscyber-local-hub",
+			// 上游原生存储（P2 overlay 的 PG 版）用此 DSN 自建运行池；上游只校验非空、不打印。
+			Database: database.DSN(), AccessKey: key,
 			// 默认不构造 Profile、ConfigStore、RuntimeLLM 或 Scans，
 			// 不发现/读取宿主配置；UI仅通过原生host.Config.Static挂载。
 		},
 		Ready: ready,
 	}
 	// 原生Web业务扩展：保存“两输入+明确授权”任务记录、HTTP Flow证据、候选验证及报告。
-	// P3a 占位：webapi 已只接 PostgreSQL（NewCapability 要连接串），Hub 的连接串与迁移接线在 P3b；
-	// 在此之前传空连接串，启动在这里明确失败（“连接串不能为空”）。
-	webapiCapability, err := webapi.NewCapability(pgschema.DatabaseURL{}, stateDir)
+	// 与原生存储同库、各自连接池；state-dir 只放凭据密钥、出口 CA 等文件。
+	webapiCapability, err := webapi.NewCapability(database, stateDir)
 	if err != nil {
 		return fmt.Errorf("初始化 webapi 能力: %w", err)
 	}

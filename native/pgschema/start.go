@@ -9,6 +9,9 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// ControlPoolSize 是 Start 打开的控制池连接上限（锁 + 迁移）。
+const ControlPoolSize = 2
+
 // Instance 是 Hub 启动阶段取得的数据库控制面：角色已检查、单实例锁已持有、
 // schema 已迁移到本二进制版本。运行池（原生存储、webapi）另行 OpenDB。
 type Instance struct {
@@ -23,7 +26,9 @@ func Start(ctx context.Context, u DatabaseURL, logf func(format string, args ...
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	db, err := OpenDB(u, AppControl, PoolOptions{MaxOpenConns: 3, MaxIdleConns: 1})
+	// 控制池 2 条：单实例锁连接（兼作迁移锁连接）+ 迁移/校验连接。
+	// 与原生、webapi 两个运行池（各 8）合计 ≤ 18。
+	db, err := OpenDB(u, AppControl, PoolOptions{MaxOpenConns: ControlPoolSize, MaxIdleConns: 1})
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +50,9 @@ func Start(ctx context.Context, u DatabaseURL, logf func(format string, args ...
 		return fail(err)
 	}
 	instance.lock = lock
-	result, err := Migrate(ctx, db)
+	// 迁移锁取在单实例锁的同一会话上（advisory lock 可在一个会话内叠加），
+	// 迁移本身用池里另一条连接；故控制池 2 条即够，不会自锁。
+	result, err := migrateLocked(ctx, db, lock.conn)
 	if err != nil {
 		return fail(err)
 	}

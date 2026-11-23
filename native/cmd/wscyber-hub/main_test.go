@@ -24,6 +24,8 @@ import (
 	webapi "github.com/chainreactors/cyber/pkg/web/api"
 	webservice "github.com/chainreactors/cyber/pkg/web/service"
 
+	"wscyber/native/internal/testdb"
+	"wscyber/native/pgschema"
 	webapitasks "wscyber/native/webapi"
 )
 
@@ -35,7 +37,8 @@ func testOptions(t *testing.T) (options, string) {
 	if err := os.WriteFile(keyFile, []byte(key+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	return options{localHub: true, listen: "127.0.0.1:0", keyFile: keyFile, stateDir: filepath.Join(root, "state")}, key
+	// 每个测试一个从已迁移模板克隆的独立 PG 库 + 专属 state-dir（native/POSTGRES.md §7.1）。
+	return options{localHub: true, listen: "127.0.0.1:0", keyFile: keyFile, stateDir: filepath.Join(root, "state"), database: testdb.New(t).URL}, key
 }
 
 func TestRejectUnsafeConfig(t *testing.T) {
@@ -62,7 +65,18 @@ func TestRejectUnsafeConfig(t *testing.T) {
 			o.keyFile = link
 		},
 		"missing-state": func(o *options) { o.stateDir = "" },
-		"sqlite-uri":    func(o *options) { o.stateDir += "?mode=memory" },
+		"missing-database": func(o *options) {
+			o.database = pgschema.DatabaseURL{}
+			t.Setenv(envDatabaseURLFile, "")
+			t.Setenv(envDatabaseURL, "")
+		},
+		"public-database-file": func(o *options) {
+			o.databaseURLFile = writeDatabaseURLFile(t, o.database)
+			o.database = pgschema.DatabaseURL{}
+			if err := os.Chmod(o.databaseURLFile, 0644); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"existing-state": func(o *options) {
 			if err := os.Mkdir(o.stateDir, 0700); err != nil {
 				t.Fatal(err)
@@ -85,6 +99,9 @@ func TestRejectUnsafeConfig(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), key) {
 				t.Fatal("error exposed private test key")
+			}
+			if !opts.database.IsZero() && strings.Contains(err.Error(), opts.database.DSN()) {
+				t.Fatal("error exposed database URL")
 			}
 			if name == "existing-state" {
 				data, err := os.ReadFile(filepath.Join(opts.stateDir, "keep"))
@@ -220,14 +237,15 @@ func TestLocalHubNativeAPIAndShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoStateFD(t, opts.stateDir)
-	store, err := webservice.NewSQLiteStore(filepath.Join(opts.stateDir, "hub.sqlite"), webapitasks.SchemaModule())
+	assertNoHubConnections(t, opts.database)
+	store, err := webservice.NewSQLiteStore(opts.database.DSN(), webapitasks.SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows, listErr := store.ListSessions(t.Context(), 1)
 	closeErr := store.Close()
 	if listErr != nil || closeErr != nil || len(rows) != 0 {
-		t.Fatal("native empty SQLite reopen/list/close failed")
+		t.Fatal("native empty store reopen/list/close failed")
 	}
 	assertNoStateFD(t, opts.stateDir)
 	output, err := os.ReadFile(capture.Name())
@@ -255,11 +273,12 @@ func TestListenFailureClosesStore(t *testing.T) {
 		t.Fatal("startup failure exposed key")
 	}
 	assertNoStateFD(t, opts.stateDir)
+	assertNoHubConnections(t, opts.database)
 }
 
 func TestEmptyHubUnavailable(t *testing.T) {
 	// 不请求实际目标/模型；直接验证所复用的原生 Service 对缺失 node 的语义。
-	web := webext.New(webext.Config{Product: "wscyber-local-hub", Database: filepath.Join(t.TempDir(), "hub.sqlite"), AccessKey: rand.Text()})
+	web := webext.New(webext.Config{Product: "wscyber-local-hub", Database: testdb.New(t).DSN(), AccessKey: rand.Text()})
 	set, err := extension.New(web)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +310,7 @@ func assertNoStateFD(t *testing.T, stateDir string) {
 	for _, f := range files {
 		target, err := os.Readlink(filepath.Join("/proc/self/fd", f.Name()))
 		if err == nil && strings.HasPrefix(target, stateDir+string(os.PathSeparator)) {
-			t.Fatal("SQLite state descriptor remains open")
+			t.Fatal("state descriptor remains open")
 		}
 	}
 }
