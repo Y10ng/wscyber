@@ -93,7 +93,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **P2 已完成（3d2d7a2，分支 pg-migration）**：overlay 改为清单驱动整文件替换（上游源/派生副本哈希校验）；上游原生存储三文件 PG 版 + `store_pg_identity`（每事务 set_config 身份，无身份＝system+default）；事件/制品游标 advisory lock；排序 `COLLATE "C"` 等价 SQLite 字节序；契约测试 32 个。记下（P5 必须处理）：上游 `events.go` 直接用 `s.store.orm` 查游标、后台一律 `context.Background()`，RLS 启用后与非默认租户会话冲突。
 
-**P3a 进行中**（`var/p3a-webapi-store/task.md`，o-latest）：webapi 存储层迁 PG（读写助手 + 全局写锁复现单写者语义、SQL 改写、排序 COLLATE、删阶段机制、测试改 testdb）。之后 P3b：Hub 接 `pgschema.Start`、cmd 测试、演示环境用 PG，主会话走全链后合回 main。
+**P3a 已完成（1b0aa7e，分支 pg-migration）**：webapi 存储迁 PG——read/write 助手（每事务身份 GUC、写事务全局 advisory lock 复现单写者）、SQLite 方言全部改写、99 处 `COLLATE "C"`、删阶段机制与 19 个升级测试、busy 测试改写为 PG 锁语义、新增并发测试；`./webapi` 全过（主会话复跑 90s 通过）。行为变化：读不再排在写后面；等锁上限 10s；父行不存在的子行插入被触发器拒绝（验证/复测/报告 PUT 已映射回 404）；Oracle 事件 ID 改为可排序格式代替 rowid。
+
+**P3b 进行中**（`var/p3b-hub-pg/task.md`，o-latest）：Hub 接 `pgschema.Start`（两种启动形式，无连接串即失败）、cmd 测试改 testdb、testdb 删库 42501 重试、`demo-stack.py` 每次 up 重建 `wscyber_demo` 库。之后主会话演示环境走全链，合回 main，再做 P4 删 SQLite。
 
 **D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
 
@@ -115,4 +117,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `p3a-store`（wangsu-o-latest，分支 pg-migration，日志 `var/p3a-webapi-store/exec.log`）
+- `p3b-hub`（wangsu-o-latest，分支 pg-migration，日志 `var/p3b-hub-pg/exec.log`）
