@@ -168,7 +168,7 @@ func (t *authzCompareTool) Execute(ctx context.Context, arguments string) (*aop.
 	}
 	args, err := coretool.ParseArgs[authzCompareArguments](arguments)
 	if err != nil {
-		return stopTool("参数不是合法请求JSON；0发送"), nil
+		return stopTool(strictToolJSONError(err, arguments).Error() + "；期望合法请求JSON；0发送"), nil
 	}
 	task, err := t.store.taskForSession(ctx, inv.SessionID)
 	if err != nil || task == nil {
@@ -181,61 +181,68 @@ func (t *authzCompareTool) Execute(ctx context.Context, arguments string) (*aop.
 	fail := func(message string) (*aop.ToolResult, error) {
 		return redactToolResult(stopTool(message), resolver), nil
 	}
+	var problems toolValidationErrors
 	args.EvidenceID = strings.TrimSpace(args.EvidenceID)
 	if args.EvidenceID == "" {
-		return fail("evidence_id 必填；0发送")
+		problems.add(fmt.Errorf("evidence_id 必填；期望本任务已发送且有响应的证据 ID；0发送"))
 	}
 	if len(args.Variants) < 1 || len(args.Variants) > 4 {
-		return fail("variants 须为 1 至 4 个；0发送")
+		problems.add(fmt.Errorf("variants 须为 1 至 4 个；0发送"))
 	}
 	for index := range args.Variants {
 		variant := &args.Variants[index]
 		variant.Label = strings.TrimSpace(variant.Label)
-		if variant.Label == "" || utf8.RuneCountInString(variant.Label) > 40 {
-			return fail(fmt.Sprintf("variants[%d].label 必填且不超过 40 字；0发送", index))
+		if variant.Label == "" {
+			problems.add(fmt.Errorf("variants[%d].label: 必填为空；期望去空白后非空的变体名称；0发送", index))
+		}
+		if utf8.RuneCountInString(variant.Label) > 40 {
+			problems.add(fmt.Errorf("variants[%d].label: 超长；期望不超过 40 字的变体名称；0发送", index))
 		}
 		for _, name := range sortedHeaderNames(variant.SetHeaders) {
 			if anonymousAuthHeader(name) && variant.Anonymous {
-				return fail(fmt.Sprintf("variants[%d] anonymous=true 时 set_headers 不得同时设置 %s；0发送", index, name))
+				problems.add(fmt.Errorf("variants[%d].set_headers[%q]: anonymous=true 时 set_headers 不得同时设置身份头；请省略该头；0发送", index, name))
 			}
 			if err := checkRequestHeader(name, variant.SetHeaders[name]); err != nil {
-				return fail(fmt.Sprintf("variants[%d].set_headers：%v；0发送", index, err))
+				problems.add(fmt.Errorf("variants[%d].set_headers[%q]: 头名或头值非法；期望合法且非 Host 的 HTTP 头（无换行/控制字符）；0发送", index, name))
 			}
 			value, err := resolver.replace(variant.SetHeaders[name])
 			if err != nil {
-				return fail(fmt.Sprintf("variants[%d].set_headers[%s]：%v；0发送", index, name, err))
+				problems.add(fmt.Errorf("variants[%d].set_headers[%q]：%v；只能用本任务关联资产的 {{cred:<id>.username|secret}}；0发送", index, name, err))
 			}
 			variant.SetHeaders[name] = value
 		}
-		for _, name := range variant.RemoveHeaders {
+		for headerIndex, name := range variant.RemoveHeaders {
 			if !httpgutsValidHeader(name, "") || strings.EqualFold(name, "Host") {
-				return fail(fmt.Sprintf("variants[%d].remove_headers 含非法头名 %q；0发送", index, name))
+				problems.add(fmt.Errorf("variants[%d].remove_headers[%d] 含非法头名 %q；期望合法且非 Host 的 HTTP 头名；0发送", index, headerIndex, name))
 			}
 		}
 	}
+	if err := problems.err(); err != nil {
+		return fail(err.Error())
+	}
 	original, err := t.store.evidenceByID(ctx, task.ID, args.EvidenceID)
 	if err != nil {
-		return fail("读取原证据失败；0发送")
+		return fail("evidence_id: 读取原证据失败；0发送")
 	}
 	if original == nil {
-		return fail("原证据不存在于本任务；0发送")
+		return fail("evidence_id: 原证据不存在于本任务；只能引用本任务 webapi_http 返回的 evidence_id；0发送")
 	}
 	if !original.Sent.Valid || !original.Sent.Bool || !original.StatusCode.Valid {
-		return fail("原证据必须是本任务已发送且有 HTTP 状态码的记录（sent=1）；0发送")
+		return fail("evidence_id: 原证据必须是本任务已发送且有 HTTP 状态码的记录（sent=1）；0发送")
 	}
 	originalFlow, err := decodeEvidenceFlow(original)
 	if err != nil || originalFlow.GetRequest() == nil || originalFlow.GetResponse() == nil {
-		return fail("原证据 Flow 缺少可比较的请求或响应；0发送")
+		return fail("evidence_id: 原证据 Flow 缺少可比较的请求或响应；0发送")
 	}
 	policy, err := t.store.policyForTask(ctx, task.ID)
 	if err != nil {
 		return fail("无法读取任务测试策略；0发送")
 	}
 	prepared := make([]preparedAuthzVariant, 0, len(args.Variants))
-	for _, variant := range args.Variants {
+	for index, variant := range args.Variants {
 		req, _, err := replayHTTPRequest(originalFlow)
 		if err != nil {
-			return fail("原证据请求无法原样重建：" + err.Error() + "；0发送")
+			return fail("evidence_id: 原证据请求无法原样重建：" + err.Error() + "；0发送")
 		}
 		for _, name := range variant.RemoveHeaders {
 			req.Header.Del(http.CanonicalHeaderKey(name))
@@ -247,7 +254,7 @@ func (t *authzCompareTool) Execute(ctx context.Context, arguments string) (*aop.
 		for _, name := range sortedHeaderNames(variant.SetHeaders) {
 			value := variant.SetHeaders[name]
 			if err := checkRequestHeader(name, value); err != nil {
-				return fail(fmt.Sprintf("变体 %s 的 header %s 非法；0发送", variant.Label, name))
+				return fail(fmt.Sprintf("variants[%d].set_headers[%q]: 替换后的头值非法；期望合法 HTTP 头值（无换行/控制字符）；0发送", index, name))
 			}
 			req.Header.Set(http.CanonicalHeaderKey(name), value)
 		}

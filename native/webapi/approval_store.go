@@ -12,16 +12,16 @@ import (
 // 所有写入走 s.write（全局写锁）；回调内只用 tx，不嵌套 s.read/s.write。
 
 const (
-	approvalStatusPending   = "pending"
-	approvalStatusApproved  = "approved"
-	approvalStatusRejected  = "rejected"
-	approvalStatusExpired   = "expired"
-	approvalStatusCancelled = "cancelled"
+	approvalStatusPending  = "pending"
+	approvalStatusApproved = "approved"
+	approvalStatusRejected = "rejected"
+	approvalStatusExpired  = "expired"
+	approvalStatusCanceled = "canceled"
 
 	approvalRestartReason = "Hub 重启，调用已中断"
 )
 
-var approvalStatuses = map[string]bool{approvalStatusPending: true, approvalStatusApproved: true, approvalStatusRejected: true, approvalStatusExpired: true, approvalStatusCancelled: true}
+var approvalStatuses = map[string]bool{approvalStatusPending: true, approvalStatusApproved: true, approvalStatusRejected: true, approvalStatusExpired: true, approvalStatusCanceled: true}
 
 // approvalModel 是一次危险操作审批。summary/reason 已按资产测试账号回替占位符并经 guardrail 遮盖。
 // hub_instance 是写入进程的随机实例 ID：启动时只把其它实例遗留的 pending 判为“Hub 重启中断”。
@@ -126,7 +126,7 @@ func closeApprovalNotificationsTx(ctx context.Context, tx bun.Tx, approvalID, op
 	return err
 }
 
-// cancelInterruptedApprovals：Hub 启动时把其它实例遗留的 pending 行改为 cancelled（system，“Hub 重启，调用已中断”），
+// cancelInterruptedApprovals：Hub 启动时把其它实例遗留的 pending 行改为 canceled（system，“Hub 重启，调用已中断”），
 // 同一事务里每行追加一条 approval.cancel 审计、删除其待登记、撤销未发出的待审批通知。返回被改的行。
 func (s *taskStore) cancelInterruptedApprovals(ctx context.Context, instance, decidedAt string, audit func(approvalModel, string) (*auditEventModel, error)) ([]approvalModel, error) {
 	var rows []approvalModel
@@ -138,7 +138,7 @@ func (s *taskStore) cancelInterruptedApprovals(ctx context.Context, instance, de
 		}
 		for i := range rows {
 			row := &rows[i]
-			row.Status, row.DecidedBy, row.StatusReason, row.DecidedAt = approvalStatusCancelled, auditActorSystem, approvalRestartReason, sql.NullString{String: decidedAt, Valid: true}
+			row.Status, row.DecidedBy, row.StatusReason, row.DecidedAt = approvalStatusCanceled, auditActorSystem, approvalRestartReason, sql.NullString{String: decidedAt, Valid: true}
 			if _, err := tx.NewUpdate().Model(row).Column("status", "decided_by", "status_reason", "decided_at").WherePK().Exec(ctx); err != nil {
 				return err
 			}

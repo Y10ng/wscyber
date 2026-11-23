@@ -325,7 +325,7 @@ func TestBoardToolsPermissionsMapAndFacts(t *testing.T) {
 	if export.RequestCount != 0 || export.AuthSeen != "" || export.Note != "main.js 中出现" || export.Source != boardSourceModel {
 		t.Fatalf("model endpoint = %+v", export)
 	}
-	f.toolError(mapTool, f.inv, `{"endpoints":[{"method":"GET","url":"ftp://api.example.test/x"}]}`, "endpoints[0] url 须为无 userinfo 的绝对 http(s) URL")
+	f.toolError(mapTool, f.inv, `{"endpoints":[{"method":"GET","url":"ftp://api.example.test/x"}]}`, "endpoints[0].url: 须为无 userinfo 的绝对 http(s) URL")
 	f.toolError(mapTool, f.inv, `{"endpoints":[]}`, "endpoints 数量须为 1..50")
 	// 之后被实际请求的模型端点转为流量来源。
 	f.request(f.task.ID, "we_export", "GET", "https://api.example.test/api/admin/export", nil, "", 401, true, true, f.at(20))

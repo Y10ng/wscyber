@@ -113,13 +113,17 @@ type storedFindingPayload struct {
 
 var (
 	errFindingCallConflict = errors.New("同一原生call已保存不同候选载荷，拒绝冲突重投")
-	errFindingNotFound     = errors.New("本任务候选不存在")
+	errFindingNotFound     = errors.New("finding_id: 本任务候选不存在；更新只能引用本任务已保存的 finding_id")
 	errFindingRevision     = errors.New("expected_revision已陈旧，未覆盖当前候选")
 	errFindingEvidence     = errors.New("证据必须是当前任务已保存的真实HTTP记录且不得重复")
 	errFindingSaveUnknown  = errors.New("候选保存结果未确认，请先按原生call核对；不自动重试")
 )
 
 func publicFindingError(err error) string {
+	var input fieldInputError
+	if errors.As(err, &input) {
+		return input.Error()
+	}
 	for _, expected := range []error{errFindingCallConflict, errFindingNotFound, errFindingRevision, errFindingEvidence, errFindingSaveUnknown} {
 		if errors.Is(err, expected) {
 			return expected.Error()
@@ -186,15 +190,20 @@ func (s *taskStore) saveFinding(ctx context.Context, inv operation.Invocation, t
 			}
 			return nil
 		}
-		for _, reference := range args.Content.Evidence {
+		var problems toolValidationErrors
+		for index, reference := range args.Content.Evidence {
 			var model requestModel
 			if err := tx.NewSelect().Model(&model).Where("task_id = ? AND id = ?", taskID, reference.EvidenceID).Limit(1).Scan(ctx); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					return errFindingEvidence
+					problems.add(fieldInputError{errFindingEvidence, fmt.Sprintf("content.evidence[%d].evidence_id: 证据必须是当前任务已保存的真实HTTP记录且不得重复；只能引用本任务 webapi_http 返回的 evidence_id", index)})
+					continue
 				}
 				return err
 			}
 			evidence = append(evidence, model)
+		}
+		if err := problems.err(); err != nil {
+			return fieldInputError{errFindingEvidence, err.Error()}
 		}
 		snapshots := make([]FindingEvidenceSnapshot, len(evidence))
 		for index := range evidence {

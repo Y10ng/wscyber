@@ -61,7 +61,7 @@ func findingTextError(field, value string, maximum int, required bool) error {
 		return fmt.Errorf("%s超长：实际 %d 字符（%d 字节），上限 %d 字节", field, utf8.RuneCountInString(value), len(value), maximum)
 	}
 	if required && strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s必填为空", field)
+		return fmt.Errorf("%s必填为空；期望非空值", field)
 	}
 	return nil
 }
@@ -75,27 +75,28 @@ func validateFindingArguments(arguments string) (findingToolArguments, []byte, e
 	if err := decodeStrictToolPayloadLimit(arguments, &args, "候选", maxFindingPayloadBytes); err != nil {
 		return args, nil, err
 	}
+	var problems toolValidationErrors
 	if !utf8.ValidString(arguments) {
-		return args, nil, errors.New("候选参数必须是有效UTF8")
+		problems.add(errors.New("$: 候选参数必须是有效UTF8"))
 	}
 	if strings.ContainsRune(arguments, 0) {
-		return args, nil, errors.New("候选参数不能包含NUL")
+		problems.add(errors.New("$: 候选参数不能包含NUL"))
 	}
 	if args.ExpectedRevision < 0 {
-		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision不能小于0")
+		problems.add(errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision不能小于0"))
 	}
 	if args.FindingID == "" && args.ExpectedRevision != 0 {
-		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：finding_id为空")
+		problems.add(errors.New("更新必须同时提供finding_id与正的expected_revision：finding_id为空"))
 	}
 	if args.FindingID != "" && args.ExpectedRevision == 0 {
-		return args, nil, errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision为0")
+		problems.add(errors.New("更新必须同时提供finding_id与正的expected_revision：expected_revision为0"))
 	}
 	if args.FindingID != "" {
 		if len(args.FindingID) > 128 {
-			return args, nil, fmt.Errorf("finding_id超长：实际 %d 字符（%d 字节），上限 128 字节", utf8.RuneCountInString(args.FindingID), len(args.FindingID))
+			problems.add(fmt.Errorf("finding_id超长：实际 %d 字符（%d 字节），上限 128 字节", utf8.RuneCountInString(args.FindingID), len(args.FindingID)))
 		}
 		if strings.ContainsAny(args.FindingID, "/\\?#%") || strings.ContainsFunc(args.FindingID, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return args, nil, errors.New("finding_id含非法字符")
+			problems.add(errors.New("finding_id含非法字符；期望不含 /、反斜杠、?、#、%、控制字符的 ID"))
 		}
 	}
 	content := args.Content
@@ -111,64 +112,67 @@ func validateFindingArguments(arguments string) (findingToolArguments, []byte, e
 		{"content.limitations", content.Limitations, 4096, false},
 	} {
 		if err := findingTextError(field.path, field.value, field.maximum, field.required); err != nil {
-			return args, nil, err
+			problems.add(err)
 		}
 	}
 	if len(content.Steps) < 1 {
-		return args, nil, fmt.Errorf("content.steps数量不足：实际 %d，至少 1", len(content.Steps))
+		problems.add(fmt.Errorf("content.steps数量不足：实际 %d，至少 1", len(content.Steps)))
 	}
 	if len(content.Steps) > 16 {
-		return args, nil, fmt.Errorf("content.steps数量过多：实际 %d，上限 16", len(content.Steps))
+		problems.add(fmt.Errorf("content.steps数量过多：实际 %d，上限 16", len(content.Steps)))
 	}
 	if len(content.Evidence) < 1 {
-		return args, nil, fmt.Errorf("content.evidence数量不足：实际 %d，至少 1", len(content.Evidence))
+		problems.add(fmt.Errorf("content.evidence数量不足：实际 %d，至少 1", len(content.Evidence)))
 	}
 	if len(content.Evidence) > 16 {
-		return args, nil, fmt.Errorf("content.evidence数量过多：实际 %d，上限 16", len(content.Evidence))
+		problems.add(fmt.Errorf("content.evidence数量过多：实际 %d，上限 16", len(content.Evidence)))
 	}
 	seenEvidence := make(map[string]bool, len(content.Evidence))
 	for index, evidence := range content.Evidence {
 		path := fmt.Sprintf("content.evidence[%d]", index)
 		if evidence.EvidenceID == "" {
-			return args, nil, fmt.Errorf("%s.evidence_id必填为空", path)
+			problems.add(fmt.Errorf("%s.evidence_id必填为空；期望非空值", path))
 		}
 		if len(evidence.EvidenceID) > 128 {
-			return args, nil, fmt.Errorf("%s.evidence_id超长：实际 %d 字符（%d 字节），上限 128 字节", path, utf8.RuneCountInString(evidence.EvidenceID), len(evidence.EvidenceID))
+			problems.add(fmt.Errorf("%s.evidence_id超长：实际 %d 字符（%d 字节），上限 128 字节", path, utf8.RuneCountInString(evidence.EvidenceID), len(evidence.EvidenceID)))
 		}
 		if seenEvidence[evidence.EvidenceID] {
-			return args, nil, fmt.Errorf("%s.evidence_id重复", path)
+			problems.add(fmt.Errorf("%s.evidence_id重复；请删除重复项", path))
 		}
 		if evidence.Relation != "supporting" && evidence.Relation != "counterevidence" && evidence.Relation != "limitation" {
-			return args, nil, fmt.Errorf("%s.relation仅支持supporting/counterevidence/limitation", path)
+			problems.add(fmt.Errorf("%s.relation仅支持supporting/counterevidence/limitation", path))
 		}
 		seenEvidence[evidence.EvidenceID] = true
 	}
 	for index, step := range content.Steps {
 		path := fmt.Sprintf("content.steps[%d]", index)
 		if err := findingTextError(path+".text", step.Text, 1024, true); err != nil {
-			return args, nil, err
+			problems.add(err)
 		}
 		if len(step.EvidenceIndices) > 16 {
-			return args, nil, fmt.Errorf("%s.evidence_indices数量过多：实际 %d，上限 16", path, len(step.EvidenceIndices))
+			problems.add(fmt.Errorf("%s.evidence_indices数量过多：实际 %d，上限 16", path, len(step.EvidenceIndices)))
 		}
 		seenIndices := make(map[int]bool, len(step.EvidenceIndices))
 		for evidenceIndex, index := range step.EvidenceIndices {
 			indexPath := fmt.Sprintf("%s.evidence_indices[%d]", path, evidenceIndex)
 			if index < 0 {
-				return args, nil, fmt.Errorf("%s不能小于0", indexPath)
+				problems.add(fmt.Errorf("%s不能小于0", indexPath))
 			}
 			if index >= len(content.Evidence) {
-				return args, nil, fmt.Errorf("%s证据索引越界：上限 %d", indexPath, len(content.Evidence)-1)
+				problems.add(fmt.Errorf("%s证据索引越界：上限 %d", indexPath, len(content.Evidence)-1))
 			}
 			if seenIndices[index] {
-				return args, nil, fmt.Errorf("%s重复", indexPath)
+				problems.add(fmt.Errorf("%s重复；请删除重复项", indexPath))
 			}
 			seenIndices[index] = true
 		}
 	}
+	if err := problems.err(); err != nil {
+		return args, nil, err
+	}
 	canonical, err := json.Marshal(args)
 	if err != nil || len(canonical) > maxFindingPayloadBytes {
-		return args, nil, errors.New("候选规范载荷超过24KiB")
+		return args, nil, errors.New("$: 候选规范载荷超过24KiB；期望规范 JSON 不超过24KiB")
 	}
 	return args, canonical, nil
 }

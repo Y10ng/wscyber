@@ -123,7 +123,7 @@ func TestApprovalRecordLifecycle(t *testing.T) {
 		{opID, approvalStatusApproved, auditActorUser, "", "approval.approve"},
 		{rejectID, approvalStatusRejected, auditActorUser, "", "approval.deny"},
 		{expireID, approvalStatusExpired, auditActorSystem, approvalExpiredReason, "approval.expire"},
-		{cancelID, approvalStatusCancelled, auditActorSystem, approvalCancelledReason, ""},
+		{cancelID, approvalStatusCanceled, auditActorSystem, approvalCanceledReason, ""},
 	} {
 		row := approvalByOperation(t, c, want.id)
 		if row.Status != want.status || row.DecidedBy != want.by || row.StatusReason != want.reason || !row.DecidedAt.Valid || row.DecidedAt.String < row.CreatedAt {
@@ -151,9 +151,9 @@ func TestApprovalRecordLifecycle(t *testing.T) {
 	if found, err := databaseContains(t.Context(), c.store, "hunter2"); err != nil || found {
 		t.Fatalf("库中出现命令口令：%v %v", found, err)
 	}
-	status, body := f.approvalList("/api/webapi/tasks/t1/approvals?status=" + approvalStatusCancelled)
-	if status != 200 || body.PendingCount != 0 || len(body.Items) != 1 || body.Items[0].Actionable || body.Items[0].DecidedBy != auditActorSystem || body.Items[0].DecidedAt == nil {
-		t.Fatalf("cancelled list = %d %+v", status, body)
+	status, body := f.approvalList("/api/webapi/tasks/t1/approvals?status=" + approvalStatusCanceled)
+	if status != 200 || body.PendingCount != 0 || len(body.Items) != 1 || body.Items[0].Status != "canceled" || body.Items[0].Actionable || body.Items[0].DecidedBy != auditActorSystem || body.Items[0].DecidedAt == nil {
+		t.Fatalf("canceled list = %d %+v", status, body)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestApprovalFinishUpsertsAndKeepsTerminal(t *testing.T) {
 		t.Fatalf("upsert = %v %v", changed, err)
 	}
 	again := final
-	again.Status, again.DecidedBy = approvalStatusCancelled, auditActorSystem
+	again.Status, again.DecidedBy = approvalStatusCanceled, auditActorSystem
 	if changed, err := c.store.finishApproval(t.Context(), again, audit); err != nil || changed {
 		t.Fatalf("terminal overwritten = %v %v", changed, err)
 	}
@@ -184,7 +184,7 @@ func TestApprovalFinishUpsertsAndKeepsTerminal(t *testing.T) {
 	requireAudit(t, c, "approval.approve", 1)
 }
 
-// 模拟重启：上次进程遗留的 pending → cancelled（system，“Hub 重启，调用已中断”）并写 approval.cancel 审计；
+// 模拟重启：上次进程遗留的 pending → canceled（system，“Hub 重启，调用已中断”）并写 approval.cancel 审计；
 // 未登记的待登记与已登记未发出的 approval_pending 通知都不再投递；本进程新挂起的审批不受清理影响；清理幂等。
 func TestApprovalRecordRestartCancelsAndStopsNotifications(t *testing.T) {
 	f, task, h := opsApprovalFixture(t, false, `"notify_approval":true`)
@@ -236,7 +236,7 @@ func TestApprovalRecordRestartCancelsAndStopsNotifications(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 	for _, row := range rows {
-		if row.Status != approvalStatusCancelled || row.DecidedBy != auditActorSystem || row.StatusReason != approvalRestartReason || !row.DecidedAt.Valid || row.HubInstance != oldInstance {
+		if row.Status != approvalStatusCanceled || row.DecidedBy != auditActorSystem || row.StatusReason != approvalRestartReason || !row.DecidedAt.Valid || row.HubInstance != oldInstance {
 			t.Fatalf("restart row = %+v", row)
 		}
 	}
@@ -273,7 +273,7 @@ func TestApprovalRecordRestartCancelsAndStopsNotifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	if row := approvalByOperation(t, c, opC); row.Status != approvalStatusPending {
-		t.Fatalf("current instance row cancelled: %+v", row)
+		t.Fatalf("current instance row canceled: %+v", row)
 	}
 	if n := len(auditByAction(auditRows(t, c), "approval.cancel")); n != 2 {
 		t.Fatalf("cancel audits after second recovery = %d", n)
@@ -388,7 +388,7 @@ func TestApprovalListFiltersByTask(t *testing.T) {
 		t.Fatalf("分页取到 %d 项", len(seen))
 	}
 
-	for _, bad := range []string{"/api/webapi/approvals?status=canceled", "/api/webapi/approvals?task_id=a/b", "/api/webapi/approvals?session_id=%20x",
+	for _, bad := range []string{"/api/webapi/approvals?status=cancelled", "/api/webapi/approvals?task_id=a/b", "/api/webapi/approvals?session_id=%20x",
 		"/api/webapi/approvals?cursor=***", "/api/webapi/approvals?limit=0", "/api/webapi/approvals?limit=201"} {
 		if status, _, raw := f.do("GET", bad, ""); status != 400 {
 			t.Fatalf("%s = %d %s", bad, status, raw)

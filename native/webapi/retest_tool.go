@@ -48,10 +48,14 @@ func validateRetestArguments(arguments string) (retestToolPayload, []byte, error
 	if err := decodeStrictToolPayload(arguments, &args, "复测"); err != nil {
 		return args, nil, err
 	}
+	var problems toolValidationErrors
 	if args.Conclusion != "reproducible" && args.Conclusion != "fixed_in_scope" && args.Conclusion != "inconclusive" {
-		return args, nil, errors.New("conclusion仅支持reproducible/fixed_in_scope/inconclusive")
+		problems.add(errors.New("conclusion仅支持reproducible/fixed_in_scope/inconclusive"))
 	}
 	if err := validateResultBody(args.Method, args.Preconditions, args.Summary, args.Limitations, retestEvidenceRefs(args.Evidence), "复测"); err != nil {
+		problems.add(err)
+	}
+	if err := problems.err(); err != nil {
 		return args, nil, err
 	}
 	canonical, err := canonicalToolPayload(args, "复测")
@@ -76,7 +80,7 @@ func (t *retestTool) Execute(ctx context.Context, arguments string) (*aop.ToolRe
 		return coretool.ErrorResult(err.Error()), nil
 	}
 	if (args.Conclusion == "reproducible" && !qualifies["supporting"]) || (args.Conclusion == "fixed_in_scope" && !qualifies["counterevidence"]) {
-		return coretool.ErrorResult("当前conclusion缺少对应relation的完整新HTTP证据；登录失败、不可达、超时不等于已修复，应给inconclusive"), nil
+		return coretool.ErrorResult(requiredRelationError("conclusion", args.Conclusion, map[string]string{"reproducible": "supporting", "fixed_in_scope": "counterevidence"}[args.Conclusion])), nil
 	}
 	result, err := t.store.saveRetestResult(ctx, inv, retest, canonical, args, evidence)
 	if err != nil {

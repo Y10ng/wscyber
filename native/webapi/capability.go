@@ -364,7 +364,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		if err := c.store.releaseOrphanSubsessions(context.Background(), time.Now()); err != nil {
 			log.Printf("webapi 遗留子会话释放失败：%v", err)
 		}
-		// 上次进程遗留的待审批：调用已随进程中断，记录改为 cancelled 并写审计，对应待审批通知不再登记/发送（R2）。
+		// 上次进程遗留的待审批：调用已随进程中断，记录改为 canceled 并写审计，对应待审批通知不再登记/发送（R2）。
 		if err := c.recoverInterruptedApprovals(context.Background()); err != nil {
 			log.Printf("webapi 遗留待审批清理失败：%v", err)
 		}

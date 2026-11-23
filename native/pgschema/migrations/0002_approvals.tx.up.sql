@@ -23,7 +23,7 @@ CREATE TABLE webapi_approvals (
     decided_at text,
     tenant_id text NOT NULL REFERENCES tenants (id),
     PRIMARY KEY (id),
-    CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled')),
+    CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'canceled')),
     CHECK (decided_by IN ('', 'user', 'system')),
     CHECK ((status = 'pending') = (decided_at IS NULL))
 );

@@ -212,15 +212,15 @@ func strictToolJSONError(err error, arguments string) error {
 	}
 	var syntaxError *json.SyntaxError
 	if errors.As(err, &syntaxError) {
-		return fmt.Errorf("参数不是strict JSON：JSON语法错误，字节位置 %d", syntaxError.Offset)
+		return fmt.Errorf("$: 参数不是strict JSON：JSON语法错误，字节位置 %d", syntaxError.Offset)
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("参数不是strict JSON：JSON语法错误，字节位置 %d（内容不完整）", len(arguments)+1)
+		return fmt.Errorf("$: 参数不是strict JSON：JSON语法错误，字节位置 %d（内容不完整）", len(arguments)+1)
 	}
 	if errors.Is(err, io.EOF) {
-		return errors.New("参数不是strict JSON：JSON内容为空")
+		return errors.New("$: 参数不是strict JSON：JSON内容为空；期望 JSON 对象")
 	}
-	return errors.New("参数不是strict JSON：无法解码")
+	return errors.New("$: 参数不是strict JSON：无法解码；期望 JSON 对象")
 }
 
 // decodeStrictToolPayload 是验证/复测结果共用的strict单对象JSON解码；label为“验证”或“复测”。
@@ -230,11 +230,16 @@ func decodeStrictToolPayload(arguments string, target any, label string) error {
 
 func decodeStrictToolPayloadLimit(arguments string, target any, label string, maximum int) error {
 	if len(arguments) > maximum {
-		return fmt.Errorf("%s载荷超过%dKiB", label, maximum>>10)
+		return fmt.Errorf("$: %s载荷超过%dKiB；期望不超过此字节上限的 JSON 对象", label, maximum>>10)
 	}
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		if strings.HasPrefix(err.Error(), "json: unknown field ") {
+			if fields := unknownToolFields(arguments, target); fields != nil {
+				return fields
+			}
+		}
 		return strictToolJSONError(err, arguments)
 	}
 	var trailing any
@@ -242,13 +247,14 @@ func decodeStrictToolPayloadLimit(arguments string, target any, label string, ma
 		if err != nil {
 			return strictToolJSONError(err, arguments)
 		}
-		return errors.New("参数只能包含一个JSON对象")
+		return errors.New("$: 参数只能包含一个JSON对象")
 	}
 	return nil
 }
 
 // validateResultBody 校验验证/复测结果共用的正文长度与证据引用形状。
 func validateResultBody(method, preconditions, summary, limitations string, evidence []verificationEvidenceInput, label string) error {
+	var problems toolValidationErrors
 	for _, field := range []struct {
 		path     string
 		value    string
@@ -260,36 +266,36 @@ func validateResultBody(method, preconditions, summary, limitations string, evid
 		{"limitations", limitations, false},
 	} {
 		if err := findingTextError(field.path, field.value, 4096, field.required); err != nil {
-			return fmt.Errorf("%s参数校验失败：%w", label, err)
+			problems.add(fmt.Errorf("%s参数校验失败：%w", label, err))
 		}
 	}
 	if len(evidence) > 16 {
-		return fmt.Errorf("%s参数 evidence 数量过多：实际 %d，上限 16", label, len(evidence))
+		problems.add(fmt.Errorf("%s参数 evidence 数量过多：实际 %d，上限 16", label, len(evidence)))
 	}
 	seen := map[string]bool{}
 	for index, item := range evidence {
 		path := fmt.Sprintf("evidence[%d]", index)
 		if item.EvidenceID == "" {
-			return fmt.Errorf("%s参数 %s.evidence_id 必填为空", label, path)
+			problems.add(fmt.Errorf("%s参数 %s.evidence_id 必填为空；期望非空值", label, path))
 		}
 		if len(item.EvidenceID) > 128 {
-			return fmt.Errorf("%s参数 %s.evidence_id 超长：实际 %d 字节，上限 128 字节", label, path, len(item.EvidenceID))
+			problems.add(fmt.Errorf("%s参数 %s.evidence_id 超长：实际 %d 字节，上限 128 字节", label, path, len(item.EvidenceID)))
 		}
 		if seen[item.EvidenceID] {
-			return fmt.Errorf("%s参数 %s.evidence_id 重复", label, path)
+			problems.add(fmt.Errorf("%s参数 %s.evidence_id 重复；请删除重复项", label, path))
 		}
 		if item.Relation != "supporting" && item.Relation != "counterevidence" && item.Relation != "limitation" {
-			return fmt.Errorf("%s参数 %s.relation 仅支持supporting/counterevidence/limitation", label, path)
+			problems.add(fmt.Errorf("%s参数 %s.relation 仅支持supporting/counterevidence/limitation", label, path))
 		}
 		seen[item.EvidenceID] = true
 	}
-	return nil
+	return problems.err()
 }
 
 func canonicalToolPayload(args any, label string) ([]byte, error) {
 	canonical, err := json.Marshal(args)
 	if err != nil || len(canonical) > maxVerificationPayloadBytes {
-		return nil, errors.New(label + "规范载荷超过24KiB")
+		return nil, errors.New("$: " + label + "规范载荷超过24KiB；期望规范 JSON 不超过24KiB")
 	}
 	return canonical, nil
 }
@@ -299,13 +305,17 @@ func validateVerificationArguments(arguments string) (verificationToolPayload, [
 	if err := decodeStrictToolPayload(arguments, &args, "验证"); err != nil {
 		return args, nil, err
 	}
+	var problems toolValidationErrors
 	if args.Verdict != "supported" && args.Verdict != "counterevidence" && args.Verdict != "inconclusive" {
-		return args, nil, errors.New("verdict仅支持supported/counterevidence/inconclusive")
+		problems.add(errors.New("verdict仅支持supported/counterevidence/inconclusive"))
 	}
 	if err := validateResultBody(args.Method, args.Preconditions, args.Summary, args.Limitations, args.Evidence, "验证"); err != nil {
-		return args, nil, err
+		problems.add(err)
 	}
 	if err := validateReproFields(args); err != nil {
+		problems.add(err)
+	}
+	if err := problems.err(); err != nil {
 		return args, nil, err
 	}
 	canonical, err := canonicalToolPayload(args, "验证")
@@ -321,14 +331,14 @@ func reproTextError(path, value string, maximum int, required bool) error {
 		return fmt.Errorf("验证参数 %s 超长：实际 %d 字，上限 %d 字", path, count, maximum)
 	}
 	if required && strings.TrimSpace(value) == "" {
-		return fmt.Errorf("验证参数 %s 必填为空", path)
+		return fmt.Errorf("验证参数 %s 必填为空；期望非空值", path)
 	}
 	return nil
 }
 
 func reproEvidenceIDError(path, value string) error {
 	if value == "" {
-		return fmt.Errorf("验证参数 %s 必填为空", path)
+		return fmt.Errorf("验证参数 %s 必填为空；期望非空值", path)
 	}
 	if len(value) > 128 {
 		return fmt.Errorf("验证参数 %s 超长：实际 %d 字节，上限 128 字节", path, len(value))
@@ -338,19 +348,20 @@ func reproEvidenceIDError(path, value string) error {
 
 // reproMarksError：最多 5 个，每个为非空单行文本、不超过 100 字（与证据图片 mark 一致）。
 func reproMarksError(path string, marks []string) error {
+	var problems toolValidationErrors
 	if len(marks) > maxReproMarksPerSide {
-		return fmt.Errorf("验证参数 %s 数量过多：实际 %d，上限 %d", path, len(marks), maxReproMarksPerSide)
+		problems.add(fmt.Errorf("验证参数 %s 数量过多：实际 %d，上限 %d", path, len(marks), maxReproMarksPerSide))
 	}
 	for index, mark := range marks {
 		item := fmt.Sprintf("%s[%d]", path, index)
 		if err := reproTextError(item, mark, evidenceMaxMarkRunes, true); err != nil {
-			return err
+			problems.add(err)
 		}
 		if strings.ContainsAny(mark, "\r\n") {
-			return fmt.Errorf("验证参数 %s 必须是单行文本片段", item)
+			problems.add(fmt.Errorf("验证参数 %s 必须是单行文本片段", item))
 		}
 	}
-	return nil
+	return problems.err()
 }
 
 // reproFieldsPresent 返回已填写的最小复现/建议等级字段名（按参数顺序）。
@@ -375,72 +386,82 @@ func reproFieldsPresent(args verificationToolPayload) []string {
 // 非 supported 填写任一字段即拒绝；supported 时 impact 与 key_steps 必填。
 func validateReproFields(args verificationToolPayload) error {
 	if args.Verdict != "supported" {
-		if present := reproFieldsPresent(args); len(present) > 0 {
-			return fmt.Errorf("验证参数 %s 仅在 verdict=supported 时填写（最小复现与建议等级只描述已支持的问题）", strings.Join(present, "、"))
+		var problems toolValidationErrors
+		present := reproFieldsPresent(args)
+		for index, field := range present {
+			// Preserve the existing combined restriction on the first line; each
+			// offending field still has its own correction and error-budget slot.
+			if index == 0 {
+				problems.add(fmt.Errorf("验证参数 %s 仅在 verdict=supported 时填写（最小复现与建议等级只描述已支持的问题）；%s: 当前 verdict 下请省略该字段", strings.Join(present, "、"), field))
+			} else {
+				problems.add(fmt.Errorf("验证参数 %s 仅在 verdict=supported 时填写；当前 verdict 下请省略该字段", field))
+			}
 		}
-		return nil
+		return problems.err()
 	}
+	var problems toolValidationErrors
 	if err := reproTextError("impact", args.Impact, maxReproImpactRunes, true); err != nil {
-		return err
+		problems.add(err)
 	}
 	if len(args.KeySteps) == 0 {
-		return errors.New("验证参数 key_steps 必填为空：supported 须给出最小复现（只留能证明问题的 1–3 个请求）")
+		problems.add(errors.New("验证参数 key_steps 必填为空：supported 须给出最小复现（只留能证明问题的 1–3 个请求）"))
 	}
 	if len(args.KeySteps) > maxReproSteps {
-		return fmt.Errorf("验证参数 key_steps 数量过多：实际 %d，上限 %d（删去非必要步骤）", len(args.KeySteps), maxReproSteps)
+		problems.add(fmt.Errorf("验证参数 key_steps 数量过多：实际 %d，上限 %d（删去非必要步骤）", len(args.KeySteps), maxReproSteps))
 	}
 	seen := map[string]int{}
 	for index, step := range args.KeySteps {
 		path := fmt.Sprintf("key_steps[%d]", index)
 		if err := reproTextError(path+".title", step.Title, maxReproTitleRunes, true); err != nil {
-			return err
+			problems.add(err)
 		}
 		if err := reproEvidenceIDError(path+".evidence_id", step.EvidenceID); err != nil {
-			return err
+			problems.add(err)
 		}
 		if previous, ok := seen[step.EvidenceID]; ok {
-			return fmt.Errorf("验证参数 %s.evidence_id 与 key_steps[%d] 重复", path, previous)
+			problems.add(fmt.Errorf("验证参数 %s.evidence_id 与 key_steps[%d] 重复；请删除重复项", path, previous))
 		}
 		seen[step.EvidenceID] = index
 		if err := reproMarksError(path+".request_marks", step.RequestMarks); err != nil {
-			return err
+			problems.add(err)
 		}
 		if err := reproMarksError(path+".response_marks", step.ResponseMarks); err != nil {
-			return err
+			problems.add(err)
 		}
 	}
 	if contrast := args.Contrast; contrast != nil {
 		if err := reproEvidenceIDError("contrast.normal_evidence_id", contrast.NormalEvidenceID); err != nil {
-			return err
+			problems.add(err)
 		}
 		if err := reproEvidenceIDError("contrast.abnormal_evidence_id", contrast.AbnormalEvidenceID); err != nil {
-			return err
+			problems.add(err)
 		}
 		if contrast.NormalEvidenceID == contrast.AbnormalEvidenceID {
-			return errors.New("验证参数 contrast.normal_evidence_id 与 contrast.abnormal_evidence_id 不能相同")
+			problems.add(errors.New("验证参数 contrast.normal_evidence_id 与 contrast.abnormal_evidence_id 不能相同"))
 		}
 		if err := reproTextError("contrast.note", contrast.Note, maxReproNoteRunes, false); err != nil {
-			return err
+			problems.add(err)
 		}
 	}
 	if len(args.Remediation) > maxReproRemediation {
-		return fmt.Errorf("验证参数 remediation 数量过多：实际 %d，上限 %d", len(args.Remediation), maxReproRemediation)
+		problems.add(fmt.Errorf("验证参数 remediation 数量过多：实际 %d，上限 %d", len(args.Remediation), maxReproRemediation))
 	}
 	for index, item := range args.Remediation {
 		if err := reproTextError(fmt.Sprintf("remediation[%d]", index), item, maxReproRemedyRunes, true); err != nil {
-			return err
+			problems.add(err)
 		}
 	}
 	if err := reproTextError("retest_method", args.RetestMethod, maxReproRetestRunes, false); err != nil {
-		return err
+		problems.add(err)
 	}
 	if args.SuggestedSeverity != "" && !triageSeveritySet[args.SuggestedSeverity] {
-		return errors.New("验证参数 suggested_severity 仅支持critical/high/medium/low/info")
+		problems.add(errors.New("验证参数 suggested_severity 仅支持critical/high/medium/low/info"))
 	}
 	if args.SuggestedSeverity == "" && args.SeverityReason != "" {
-		return errors.New("验证参数 severity_reason 须与 suggested_severity 一起填写")
+		problems.add(errors.New("验证参数 severity_reason 须与 suggested_severity 一起填写"))
 	}
-	return reproTextError("severity_reason", args.SeverityReason, maxReproReasonRunes, args.SuggestedSeverity != "")
+	problems.add(reproTextError("severity_reason", args.SeverityReason, maxReproReasonRunes, args.SuggestedSeverity != ""))
+	return problems.err()
 }
 
 // reproEvidenceIDs 返回最小复现引用的全部证据（key_steps 与 contrast）及其参数路径。
@@ -458,20 +479,24 @@ func reproEvidenceIDs(args verificationToolPayload) [][2]string {
 // checkReproEvidence：最小复现引用同现有规则——只接受本验证session在本任务产生的新HTTP证据，
 // 且须已发送、收到响应、完整捕获（关键请求与对照都要能展示原件）。
 func (s *taskStore) checkReproEvidence(ctx context.Context, taskID, sessionID string, args verificationToolPayload) error {
+	var problems toolValidationErrors
 	for _, ref := range reproEvidenceIDs(args) {
 		model, err := s.evidenceByID(ctx, taskID, ref[1])
 		if err != nil || model == nil || model.SessionID != sessionID {
-			return fmt.Errorf("验证参数 %s 只接受本验证session在本任务产生的新HTTP证据", ref[0])
+			problems.add(fmt.Errorf("验证参数 %s 只接受本验证session在本任务产生的新HTTP证据", ref[0]))
+			continue
 		}
 		var flow traffic.Flow
 		if proto.Unmarshal(model.FlowPB, &flow) != nil {
-			return fmt.Errorf("验证参数 %s 的HTTP原件无法核对，结果未保存", ref[0])
+			problems.add(fmt.Errorf("验证参数 %s 的HTTP原件无法核对，结果未保存", ref[0]))
+			continue
 		}
 		if !(model.Status == requestCompleted && model.Sent.Valid && model.Sent.Bool && model.StatusCode.Valid && flow.GetComplete() && !model.CaptureTruncated && flow.GetResponse() != nil) {
-			return fmt.Errorf("验证参数 %s 必须是已发送、收到响应且完整捕获的新HTTP原件", ref[0])
+			problems.add(fmt.Errorf("验证参数 %s 必须是已发送、收到响应且完整捕获的新HTTP原件", ref[0]))
+			continue
 		}
 	}
-	return nil
+	return problems.err()
 }
 
 // sessionResultEvidence 核对结果引用：只接受本session在本任务产生的新HTTP证据；
@@ -480,24 +505,30 @@ func (s *taskStore) checkReproEvidence(ctx context.Context, taskID, sessionID st
 func (s *taskStore) sessionResultEvidence(ctx context.Context, taskID, sessionID string, refs []verificationEvidenceInput, label string) ([]requestModel, map[string]bool, error) {
 	evidence := make([]requestModel, 0, len(refs))
 	qualifies := map[string]bool{}
-	for _, reference := range refs {
+	var problems toolValidationErrors
+	for index, reference := range refs {
 		model, err := s.evidenceByID(ctx, taskID, reference.EvidenceID)
 		if err != nil || model == nil || model.SessionID != sessionID {
-			return nil, nil, errors.New("只接受本" + label + "session在本任务产生的新HTTP证据")
+			problems.add(fmt.Errorf("evidence[%d].evidence_id: 只接受本%ssession在本任务产生的新HTTP证据", index, label))
+			continue
 		}
 		var flow traffic.Flow
 		if proto.Unmarshal(model.FlowPB, &flow) != nil {
-			return nil, nil, errors.New("HTTP原件无法核对，结果未保存")
+			problems.add(fmt.Errorf("evidence[%d].evidence_id: HTTP原件无法核对，结果未保存；请引用可读取的本会话新HTTP证据", index))
+			continue
 		}
 		complete := model.Status == requestCompleted && model.Sent.Valid && model.Sent.Bool && model.StatusCode.Valid && flow.GetComplete() && !model.CaptureTruncated && flow.GetResponse() != nil
 		if reference.Relation == "limitation" {
 			// 失败、未发送和截断仅作为限制保存；完整响应也可以作为限制引用。
 		} else if !complete {
-			return nil, nil, errors.New("支持/反证引用必须是已发送、收到响应且完整捕获的新HTTP原件")
+			problems.add(fmt.Errorf("evidence[%d].evidence_id: 支持/反证引用必须是已发送、收到响应且完整捕获的新HTTP原件；不完整证据只能用 relation=limitation", index))
 		} else {
 			qualifies[reference.Relation] = true
 		}
 		evidence = append(evidence, *model)
+	}
+	if err := problems.err(); err != nil {
+		return nil, nil, err
 	}
 	return evidence, qualifies, nil
 }
@@ -520,7 +551,7 @@ func (t *verificationTool) Execute(ctx context.Context, arguments string) (*aop.
 		return coretool.ErrorResult(err.Error()), nil
 	}
 	if (args.Verdict == "supported" && !qualifies["supporting"]) || (args.Verdict == "counterevidence" && !qualifies["counterevidence"]) {
-		return coretool.ErrorResult("当前verdict缺少对应relation的完整新HTTP证据；HTTP状态码不决定资格"), nil
+		return coretool.ErrorResult(requiredRelationError("verdict", args.Verdict, map[string]string{"supported": "supporting", "counterevidence": "counterevidence"}[args.Verdict])), nil
 	}
 	if err := t.store.checkReproEvidence(ctx, verification.TaskID, verification.SessionID, args); err != nil {
 		return coretool.ErrorResult(err.Error()), nil

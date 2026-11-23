@@ -23,9 +23,9 @@ const (
 	approvalPersistWait  = 10 * time.Second
 	approvalPersistRetry = time.Second
 
-	approvalExpiredReason   = "超时未处理，视为拒绝"
-	approvalCancelledReason = "调用已取消（会话或轮次结束、节点关闭）"
-	approvalUnscrubbed      = "（读取资产测试账号失败，摘要未保存）"
+	approvalExpiredReason  = "超时未处理，视为拒绝"
+	approvalCanceledReason = "调用已取消（会话或轮次结束、节点关闭）"
+	approvalUnscrubbed     = "（读取资产测试账号失败，摘要未保存）"
 )
 
 // approvalDraft 是 admitTool 在挂起前准备的记录（不含原始参数）；persist 回调补 operation 与时间后落库。
@@ -128,7 +128,7 @@ func approvalStatusOf(state guardrail.ReviewState) (status, decidedBy, reason st
 	case guardrail.ReviewState_REVIEW_STATE_EXPIRED:
 		return approvalStatusExpired, auditActorSystem, approvalExpiredReason
 	default:
-		return approvalStatusCancelled, auditActorSystem, approvalCancelledReason
+		return approvalStatusCanceled, auditActorSystem, approvalCanceledReason
 	}
 }
 
@@ -190,7 +190,7 @@ func (c *Capability) retryApprovalBacklog(ctx context.Context) {
 	}
 }
 
-// recoverInterruptedApprovals：Hub 启动时（模型节点随 Hub 进程启动）把上次进程遗留的 pending 行改为 cancelled
+// recoverInterruptedApprovals：Hub 启动时（模型节点随 Hub 进程启动）把上次进程遗留的 pending 行改为 canceled
 // （system，“Hub 重启，调用已中断”），并登记 approval.cancel 审计、撤销其待审批通知与待登记。
 func (c *Capability) recoverInterruptedApprovals(ctx context.Context) error {
 	rows, err := c.store.cancelInterruptedApprovals(ctx, c.instance, notifyTime(time.Now()), func(row approvalModel, assetID string) (*auditEventModel, error) {
@@ -200,7 +200,7 @@ func (c *Capability) recoverInterruptedApprovals(ctx context.Context) error {
 		return err
 	}
 	if len(rows) > 0 {
-		log.Printf("webapi 审批：Hub 重启，%d 项遗留待审批已标记为中断（cancelled）", len(rows))
+		log.Printf("webapi 审批：Hub 重启，%d 项遗留待审批已标记为中断（canceled）", len(rows))
 	}
 	return nil
 }
@@ -285,7 +285,7 @@ func (c *Capability) serveApprovals(w http.ResponseWriter, r *http.Request, task
 		return
 	}
 	if filter.status != "" && !approvalStatuses[filter.status] {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("status 只能是 %s/%s/%s/%s/%s", approvalStatusPending, approvalStatusApproved, approvalStatusRejected, approvalStatusExpired, approvalStatusCancelled))
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("status 只能是 %s/%s/%s/%s/%s", approvalStatusPending, approvalStatusApproved, approvalStatusRejected, approvalStatusExpired, approvalStatusCanceled))
 		return
 	}
 	afterAt, afterID, hasCursor, err := decodeKeyCursor(query.Get("cursor"))

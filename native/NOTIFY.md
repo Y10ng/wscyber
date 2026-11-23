@@ -95,7 +95,7 @@
 - **待登记持久化（R2，迁移 `0002`）**：审批挂起与计划运行失败不直接写通知，而是在各自的业务写事务里插一行待登记 `webapi_notify_registrations(key pk, kind, approval_id, args_json, attempts, next_attempt_at, last_error, created_at, tenant_id)`（审批：与 `webapi_approvals` pending 行同事务，键 `approval:<operation_id>`；计划失败：与运行记录 `recordScheduleRun` 同事务，键 `schedule_run:<asset_id>/<scheduled_for>`，`args_json` 为 `{asset_id, scheduled_for, cron}`，不含口令）。行存在＝待登记（register_pending）。审批的 PENDING 事件先于落库发出，不等待 webapi 全局写锁。
 - 推送 goroutine 启动即处理一轮、之后每轮（10s，或有新待登记时被唤醒）取 `next_attempt_at ≤ now`（真实时钟）的行，最早在前、每轮最多 50 条：单次尝试 10s 超时；成功、开关已关、或审批已决/过期/取消（放弃并记日志，取得写锁后也再核对）即删除该行；失败（含 PostgreSQL 锁等待超时）记日志、`attempts+1`、`last_error`、至少 10s 后重试，直至成功或开关关闭；Hub 关闭打断时保留、不计次。**重启后从表继续**；同一去重键的数据库检查保证不重复登记。审批类待登记按审批记录（已遮盖的摘要、原因、到期时间）生成内容，登记时再读任务标题与资产测试账号（读不到密钥时失败重试，不外发明文）；挂起时就读不到资产密钥的审批，摘要不落库、也不插待登记（不登记通知）。
 - 每周摘要不经待登记表：每轮按“最近一期尚未登记即登记”从库状态重算（停机错过多周只补最近一次），失败至少间隔 10s 再试，重启后同样按此规则补发。
-- 审批已决（批准/拒绝/超时/取消）后，与审批记录终态**同一事务**删除其待登记、把该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；Hub 启动时遗留的待审批被判为中断（见 `POLICY.md`「审批记录」）时同样处理；投递前若发现挂起已不在本进程同样改 `dismissed` 不发。已发出的保持 `sent`。
+- 审批已决（批准/拒绝/超时/取消；取消状态统一为 `canceled`）后，与审批记录终态**同一事务**删除其待登记、把该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；Hub 启动时遗留的待审批被判为中断（见 `POLICY.md`「审批记录」）时同样处理；投递前若发现挂起已不在本进程同样改 `dismissed` 不发。已发出的保持 `sent`。
 - 表结构：`webapi_notifications` 必填列不改，运营通知 `finding_id`/`verification_id`/`vuln_id` 为空串（唯一约束 `(dedupe_key, kind, verification_id)` 不受影响），`task_id` 为审批所属任务 / 失败运行已建的任务（无则空）/ 摘要为空。登记时冻结的内容存新表 `webapi_notification_ops(notification_id pk, title, asset_id, session_id, payload_json)`；markdown 在投递时按当时 `base_url` 生成。
 
 ### markdown 版式

@@ -287,7 +287,7 @@ func TestNotifyOpsApprovalResolvedDuringWriteLock(t *testing.T) {
 			if len(f.wecom.received()) != 0 || pendingOpsCount(t, c) != 0 {
 				t.Fatal("已决审批仍被投递或保留待登记")
 			}
-			want := map[string]string{"approved": approvalStatusApproved, "rejected": approvalStatusRejected, "canceled": approvalStatusCancelled, "expired": approvalStatusExpired}[outcome]
+			want := map[string]string{"approved": approvalStatusApproved, "rejected": approvalStatusRejected, "canceled": approvalStatusCanceled, "expired": approvalStatusExpired}[outcome]
 			if record := approvalByOperation(t, c, pending.GetOperation().GetOperationId()); record == nil || record.Status != want {
 				t.Fatalf("审批记录 = %+v，期望 %s", record, want)
 			}

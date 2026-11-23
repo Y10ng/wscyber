@@ -43,6 +43,7 @@ func validateReportDraftArguments(arguments string) (reportDraftPayload, []byte,
 	if err := decodeStrictToolPayloadLimit(arguments, &args, "报告草稿", maxReportDraftBytes); err != nil {
 		return args, nil, err
 	}
+	var problems toolValidationErrors
 	for _, field := range []struct {
 		path     string
 		value    string
@@ -54,22 +55,22 @@ func validateReportDraftArguments(arguments string) (reportDraftPayload, []byte,
 		{"limitations", args.Limitations, 8192, false},
 	} {
 		if err := findingTextError(field.path, field.value, field.maximum, field.required); err != nil {
-			return args, nil, err
+			problems.add(err)
 		}
 	}
 	if len(args.Items) < 1 {
-		return args, nil, fmt.Errorf("items数量不足：实际 %d，至少 1", len(args.Items))
+		problems.add(fmt.Errorf("items数量不足：实际 %d，至少 1", len(args.Items)))
 	}
 	if len(args.Items) > maxReportItems {
-		return args, nil, fmt.Errorf("items数量过多：实际 %d，上限 %d", len(args.Items), maxReportItems)
+		problems.add(fmt.Errorf("items数量过多：实际 %d，上限 %d", len(args.Items), maxReportItems))
 	}
 	for index, item := range args.Items {
 		path := fmt.Sprintf("items[%d]", index)
 		if item.FindingID == "" {
-			return args, nil, fmt.Errorf("%s.finding_id必填为空", path)
+			problems.add(fmt.Errorf("%s.finding_id必填为空；期望非空值", path))
 		}
 		if !validReferenceID(item.FindingID) {
-			return args, nil, fmt.Errorf("%s.finding_id非法：需为有效引用ID", path)
+			problems.add(fmt.Errorf("%s.finding_id非法：需为有效引用ID（非空、最多128字节、不含 /、反斜杠、?、#、%%、控制字符）", path))
 		}
 		for _, field := range []struct {
 			name     string
@@ -82,30 +83,33 @@ func validateReportDraftArguments(arguments string) (reportDraftPayload, []byte,
 			{"remediation", item.Remediation, 4096, false},
 		} {
 			if err := findingTextError(path+"."+field.name, field.value, field.maximum, field.required); err != nil {
-				return args, nil, err
+				problems.add(err)
 			}
 		}
 		if len(item.EvidenceIDs) > 16 {
-			return args, nil, fmt.Errorf("%s.evidence_ids数量过多：实际 %d，上限 16", path, len(item.EvidenceIDs))
+			problems.add(fmt.Errorf("%s.evidence_ids数量过多：实际 %d，上限 16", path, len(item.EvidenceIDs)))
 		}
 		seen := map[string]bool{}
 		for evidenceIndex, evidenceID := range item.EvidenceIDs {
 			evidencePath := fmt.Sprintf("%s.evidence_ids[%d]", path, evidenceIndex)
 			if evidenceID == "" {
-				return args, nil, fmt.Errorf("%s必填为空", evidencePath)
+				problems.add(fmt.Errorf("%s必填为空；期望非空值", evidencePath))
 			}
 			if !validReferenceID(evidenceID) {
-				return args, nil, fmt.Errorf("%s非法：需为有效引用ID", evidencePath)
+				problems.add(fmt.Errorf("%s非法：需为有效引用ID（非空、最多128字节、不含 /、反斜杠、?、#、%%、控制字符）", evidencePath))
 			}
 			if seen[evidenceID] {
-				return args, nil, fmt.Errorf("%s重复", evidencePath)
+				problems.add(fmt.Errorf("%s重复；请删除重复项", evidencePath))
 			}
 			seen[evidenceID] = true
 		}
 	}
+	if err := problems.err(); err != nil {
+		return args, nil, err
+	}
 	canonical, err := json.Marshal(args)
 	if err != nil || len(canonical) > maxReportDraftBytes {
-		return args, nil, errors.New("报告草稿规范载荷超过128KiB")
+		return args, nil, errors.New("$: 报告草稿规范载荷超过128KiB；期望规范 JSON 不超过128KiB")
 	}
 	return args, canonical, nil
 }
@@ -130,28 +134,33 @@ func allowedReportEvidence(item ReportItemDetail) map[string]FindingEvidenceSnap
 }
 
 func checkDraftAgainstReport(args reportDraftPayload, detail *ReportDetail) error {
+	var problems toolValidationErrors
 	if len(args.Items) != len(detail.Items) {
-		return errors.New("草稿items必须与报告固定items一一对应")
+		problems.add(fmt.Errorf("items: 草稿items必须与报告固定items一一对应；实际 %d 项，期望 %d 项", len(args.Items), len(detail.Items)))
 	}
 	pinned := make(map[string]ReportItemDetail, len(detail.Items))
 	for _, item := range detail.Items {
 		pinned[item.FindingID] = item
 	}
 	seen := map[string]bool{}
-	for _, item := range args.Items {
+	for index, item := range args.Items {
 		source, ok := pinned[item.FindingID]
-		if !ok || seen[item.FindingID] {
-			return errors.New("草稿items必须与报告固定items一一对应")
+		if !ok {
+			problems.add(fmt.Errorf("items[%d].finding_id: 不是报告固定候选；草稿items必须与报告固定items一一对应", index))
+			continue
+		}
+		if seen[item.FindingID] {
+			problems.add(fmt.Errorf("items[%d].finding_id: 重复；草稿items必须与报告固定items一一对应，每个 finding_id 只能出现一次", index))
 		}
 		seen[item.FindingID] = true
 		allowed := allowedReportEvidence(source)
-		for _, evidenceID := range item.EvidenceIDs {
+		for evidenceIndex, evidenceID := range item.EvidenceIDs {
 			if _, ok := allowed[evidenceID]; !ok {
-				return errors.New("evidence_ids只能来自该候选固定修订的证据快照或所附验证结果的证据")
+				problems.add(fmt.Errorf("items[%d].evidence_ids[%d]: evidence_ids只能来自该候选固定修订的证据快照或所附验证结果的证据", index, evidenceIndex))
 			}
 		}
 	}
-	return nil
+	return problems.err()
 }
 
 func (t *reportDraftTool) Execute(ctx context.Context, arguments string) (*aop.ToolResult, error) {

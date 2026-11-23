@@ -118,23 +118,24 @@ func boardJSONResult(value any) (*aop.ToolResult, error) {
 }
 
 func validateEvidenceIDs(path string, ids []string) error {
+	var problems toolValidationErrors
 	if len(ids) > 20 {
-		return fmt.Errorf("%s 数量过多：实际 %d，上限 20", path, len(ids))
+		problems.add(fmt.Errorf("%s 数量过多：实际 %d，上限 20", path, len(ids)))
 	}
 	seen := map[string]bool{}
 	for index, id := range ids {
 		if id == "" {
-			return fmt.Errorf("%s[%d] 必填为空", path, index)
+			problems.add(fmt.Errorf("%s[%d] 必填为空；期望非空值", path, index))
 		}
 		if len(id) > 128 {
-			return fmt.Errorf("%s[%d] 超长：上限 128 字节", path, index)
+			problems.add(fmt.Errorf("%s[%d] 超长：上限 128 字节", path, index))
 		}
 		if seen[id] {
-			return fmt.Errorf("%s[%d] 重复", path, index)
+			problems.add(fmt.Errorf("%s[%d] 重复；请删除重复项", path, index))
 		}
 		seen[id] = true
 	}
-	return nil
+	return problems.err()
 }
 
 func decodeBoardArguments(arguments string, target any) error {
@@ -158,41 +159,52 @@ func (t *boardReadTool) Execute(ctx context.Context, arguments string) (*aop.Too
 	if err := decodeBoardArguments(arguments, &args); err != nil {
 		return coretool.ErrorResult(err.Error()), nil
 	}
+	var problems toolValidationErrors
 	limit := boardReadDefault
 	if args.Limit != 0 {
 		if args.Limit < 1 || args.Limit > boardReadMax {
-			return coretool.ErrorResult(fmt.Sprintf("limit 须为 1..%d：实际 %d", boardReadMax, args.Limit)), nil
+			problems.add(errors.New(fmt.Sprintf("limit 须为 1..%d：实际 %d", boardReadMax, args.Limit)))
 		}
 		limit = args.Limit
 	}
 	switch args.Section {
 	case "summary":
 		if args.Status != "" || args.Category != "" || args.Limit != 0 {
-			return coretool.ErrorResult("section=summary 不接受 status/category/limit"), nil
+			for _, field := range []struct {
+				name    string
+				present bool
+			}{{"status", args.Status != ""}, {"category", args.Category != ""}, {"limit", args.Limit != 0}} {
+				if field.present {
+					problems.add(fmt.Errorf("%s: section=summary 不接受 status/category/limit；请省略该字段", field.name))
+				}
+			}
 		}
 	case "endpoints":
 		if args.Status != "" && args.Status != "untested" {
-			return coretool.ErrorResult("section=endpoints 的 status 仅支持 untested（尚无 Oracle 引用）"), nil
+			problems.add(errors.New("section=endpoints 的 status 仅支持 untested（尚无 Oracle 引用）"))
 		}
 		if args.Category != "" {
-			return coretool.ErrorResult("section=endpoints 不接受 category"), nil
+			problems.add(errors.New("section=endpoints 不接受 category"))
 		}
 	case "facts":
 		if args.Status != "" && args.Status != factActive && args.Status != factRetracted {
-			return coretool.ErrorResult("section=facts 的 status 仅支持 active/retracted（默认 active）"), nil
+			problems.add(errors.New("section=facts 的 status 仅支持 active/retracted（默认 active）"))
 		}
 		if args.Category != "" && !slices.Contains(boardFactKinds, args.Category) {
-			return coretool.ErrorResult("section=facts 的 category（kind）仅支持 " + strings.Join(boardFactKinds, "/")), nil
+			problems.add(errors.New("section=facts 的 category（kind）仅支持 " + strings.Join(boardFactKinds, "/")))
 		}
 	case "oracles":
 		if args.Status != "" && !slices.Contains(boardOracleStatuses, args.Status) {
-			return coretool.ErrorResult("section=oracles 的 status 仅支持 " + strings.Join(boardOracleStatuses, "/")), nil
+			problems.add(errors.New("section=oracles 的 status 仅支持 " + strings.Join(boardOracleStatuses, "/")))
 		}
 		if args.Category != "" && !slices.Contains(boardOracleCategory, args.Category) {
-			return coretool.ErrorResult("section=oracles 的 category 仅支持 " + strings.Join(boardOracleCategory, "/")), nil
+			problems.add(errors.New("section=oracles 的 category 仅支持 " + strings.Join(boardOracleCategory, "/")))
 		}
 	default:
-		return coretool.ErrorResult("section 仅支持 summary/endpoints/facts/oracles"), nil
+		problems.add(errors.New("section 仅支持 summary/endpoints/facts/oracles"))
+	}
+	if err := problems.err(); err != nil {
+		return coretool.ErrorResult(err.Error()), nil
 	}
 	setup, message := boardToolSetup(ctx, t.store, false)
 	if setup == nil {
@@ -324,8 +336,9 @@ func (t *boardMapTool) Execute(ctx context.Context, arguments string) (*aop.Tool
 	if err := decodeBoardArguments(arguments, &args); err != nil {
 		return coretool.ErrorResult(err.Error()), nil
 	}
+	var problems toolValidationErrors
 	if len(args.Endpoints) < 1 || len(args.Endpoints) > 50 {
-		return coretool.ErrorResult(fmt.Sprintf("endpoints 数量须为 1..50：实际 %d", len(args.Endpoints))), nil
+		problems.add(fmt.Errorf("endpoints 数量须为 1..50：实际 %d", len(args.Endpoints)))
 	}
 	keys, notes := []string{}, []string{}
 	position := map[string]int{}
@@ -333,10 +346,13 @@ func (t *boardMapTool) Execute(ctx context.Context, arguments string) (*aop.Tool
 		path := fmt.Sprintf("endpoints[%d]", index)
 		key, err := normalizeEndpoint(item.Method, item.URL)
 		if err != nil {
-			return coretool.ErrorResult(path + " " + err.Error()), nil
+			problems.add(endpointFieldError(path, err))
 		}
 		if err := boardTextError(path+".note", item.Note, 500, false); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
+		}
+		if err != nil {
+			continue
 		}
 		note := strings.TrimSpace(item.Note)
 		if existing, ok := position[key]; ok {
@@ -347,6 +363,9 @@ func (t *boardMapTool) Execute(ctx context.Context, arguments string) (*aop.Tool
 		}
 		position[key] = len(keys)
 		keys, notes = append(keys, key), append(notes, note)
+	}
+	if err := problems.err(); err != nil {
+		return coretool.ErrorResult(err.Error()), nil
 	}
 	setup, message := boardToolSetup(ctx, t.store, true)
 	if setup == nil {
@@ -372,47 +391,51 @@ func (*boardFactTool) Definition() *aop.ToolDefinition {
 }
 
 func validateFactArguments(args boardFactArguments) error {
+	var problems toolValidationErrors
 	if len(args.Add) == 0 && len(args.Retract) == 0 {
-		return errors.New("add 与 retract 至少提供一项")
+		problems.add(errors.New("add 与 retract 至少提供一项"))
 	}
 	if len(args.Add) > 20 {
-		return fmt.Errorf("add 数量过多：实际 %d，上限 20", len(args.Add))
+		problems.add(fmt.Errorf("add 数量过多：实际 %d，上限 20", len(args.Add)))
 	}
 	if len(args.Retract) > 20 {
-		return fmt.Errorf("retract 数量过多：实际 %d，上限 20", len(args.Retract))
+		problems.add(fmt.Errorf("retract 数量过多：实际 %d，上限 20", len(args.Retract)))
 	}
 	for index, item := range args.Add {
 		path := fmt.Sprintf("add[%d]", index)
 		if !slices.Contains(boardFactKinds, item.Kind) {
-			return fmt.Errorf("%s.kind 仅支持 %s", path, strings.Join(boardFactKinds, "/"))
+			problems.add(fmt.Errorf("%s.kind 仅支持 %s", path, strings.Join(boardFactKinds, "/")))
 		}
 		if err := boardTextError(path+".subject", item.Subject, 200, true); err != nil {
-			return err
+			problems.add(err)
 		}
 		if err := boardTextError(path+".statement", item.Statement, 2000, true); err != nil {
-			return err
+			problems.add(err)
 		}
 		if item.Confidence != factConfirmed && item.Confidence != factInferred {
-			return fmt.Errorf("%s.confidence 仅支持 confirmed/inferred", path)
+			problems.add(fmt.Errorf("%s.confidence 仅支持 confirmed/inferred", path))
 		}
 		if err := validateEvidenceIDs(path+".evidence_ids", item.EvidenceIDs); err != nil {
-			return err
+			problems.add(err)
 		}
 		if item.Confidence == factConfirmed && len(item.EvidenceIDs) == 0 {
-			return fmt.Errorf("%s.evidence_ids 数量不足：confidence=confirmed 至少 1 条本任务已发送的 evidence_id；无证据请用 inferred", path)
+			problems.add(fmt.Errorf("%s.evidence_ids 数量不足：confidence=confirmed 至少 1 条本任务已发送的 evidence_id；无证据请用 inferred", path))
 		}
 	}
 	seen := map[string]bool{}
 	for index, id := range args.Retract {
-		if id == "" || len(id) > 128 {
-			return fmt.Errorf("retract[%d] 为空或超过 128 字节", index)
+		if id == "" {
+			problems.add(fmt.Errorf("retract[%d]: 必填为空；期望本任务非空事实 ID", index))
+		}
+		if len(id) > 128 {
+			problems.add(fmt.Errorf("retract[%d]: 超长；上限 128 字节", index))
 		}
 		if seen[id] {
-			return fmt.Errorf("retract[%d] 重复", index)
+			problems.add(fmt.Errorf("retract[%d] 重复；请删除重复项", index))
 		}
 		seen[id] = true
 	}
-	return nil
+	return problems.err()
 }
 
 func (t *boardFactTool) Execute(ctx context.Context, arguments string) (*aop.ToolResult, error) {
@@ -427,13 +450,17 @@ func (t *boardFactTool) Execute(ctx context.Context, arguments string) (*aop.Too
 	if setup == nil {
 		return coretool.ErrorResult(message), nil
 	}
+	var problems toolValidationErrors
 	add := make([]boardFactInput, 0, len(args.Add))
 	for index, item := range args.Add {
 		if err := t.store.boardCheckEvidence(ctx, setup.task.ID, fmt.Sprintf("add[%d].evidence_ids", index), item.EvidenceIDs); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
 		item.Subject, item.Statement = strings.TrimSpace(item.Subject), strings.TrimSpace(item.Statement)
 		add = append(add, item)
+	}
+	if err := problems.err(); err != nil {
+		return coretool.ErrorResult(err.Error()), nil
 	}
 	result, err := t.store.boardWriteFacts(ctx, setup.task.ID, setup.inv.SessionID, setup.inv.TurnID, setup.inv.CallID, add, args.Retract, time.Now())
 	if err != nil {
@@ -457,16 +484,13 @@ func (*boardOracleTool) Definition() *aop.ToolDefinition {
 func (args boardOracleArguments) unexpected(allowed ...string) error {
 	present := map[string]bool{"items": len(args.Items) > 0, "number": args.Number != "", "status": args.Status != "", "summary": args.Summary != "",
 		"evidence_ids": len(args.EvidenceIDs) > 0, "finding_id": args.FindingID != ""}
-	extra := []string{}
+	var problems toolValidationErrors
 	for _, field := range []string{"items", "number", "status", "summary", "evidence_ids", "finding_id"} {
 		if present[field] && !slices.Contains(allowed, field) {
-			extra = append(extra, field)
+			problems.add(fmt.Errorf("%s: action=%s 不接受字段 %s；请省略该字段", field, args.Action, field))
 		}
 	}
-	if len(extra) > 0 {
-		return fmt.Errorf("action=%s 不接受字段 %s", args.Action, strings.Join(extra, "/"))
-	}
-	return nil
+	return problems.err()
 }
 
 func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.ToolResult, error) {
@@ -474,45 +498,49 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 	if err := decodeBoardArguments(arguments, &args); err != nil {
 		return coretool.ErrorResult(err.Error()), nil
 	}
+	var problems toolValidationErrors
 	var number int64
 	switch args.Action {
 	case "propose":
 		if err := args.unexpected("items"); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
 		if len(args.Items) < 1 || len(args.Items) > 20 {
-			return coretool.ErrorResult(fmt.Sprintf("items 数量须为 1..20：实际 %d", len(args.Items))), nil
+			problems.add(errors.New(fmt.Sprintf("items 数量须为 1..20：实际 %d", len(args.Items))))
 		}
 	case "claim", "close", "drop":
 		allowed := map[string][]string{"claim": {"number"}, "close": {"number", "status", "summary", "evidence_ids", "finding_id"}, "drop": {"number", "summary"}}[args.Action]
 		if err := args.unexpected(allowed...); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
 		value, ok := parseOracleNumber(args.Number)
 		if !ok {
-			return coretool.ErrorResult("number 必填，须为 Oracle 编号（如 O-001）"), nil
+			problems.add(errors.New("number 必填，须为 Oracle 编号（如 O-001）"))
 		}
 		number = value
 	default:
-		return coretool.ErrorResult("action 仅支持 propose/claim/close/drop"), nil
+		problems.add(errors.New("action 仅支持 propose/claim/close/drop"))
 	}
 	proposals := []boardOracleProposal{}
 	for index, item := range args.Items {
 		proposal, err := validateOracleInput(fmt.Sprintf("items[%d]", index), item)
 		if err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
 		proposals = append(proposals, proposal)
 	}
 	if args.Action == "close" {
 		if err := validateOracleClose(args); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
 	}
 	if args.Action == "drop" {
 		if err := boardTextError("summary", args.Summary, 2000, true); err != nil {
-			return coretool.ErrorResult(err.Error()), nil
+			problems.add(err)
 		}
+	}
+	if err := problems.err(); err != nil {
+		return coretool.ErrorResult(err.Error()), nil
 	}
 	setup, message := boardToolSetup(ctx, t.store, true)
 	if setup == nil {
@@ -592,35 +620,36 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 }
 
 func validateOracleClose(args boardOracleArguments) error {
+	var problems toolValidationErrors
 	if args.Status != oracleHolds && args.Status != oracleRefuted && args.Status != oracleBlocked {
-		return errors.New("status 仅支持 holds/refuted/blocked")
+		problems.add(errors.New("status 仅支持 holds/refuted/blocked"))
 	}
 	if err := boardTextError("summary", args.Summary, 2000, true); err != nil {
-		return err
+		problems.add(err)
 	}
 	if err := validateEvidenceIDs("evidence_ids", args.EvidenceIDs); err != nil {
-		return err
+		problems.add(err)
 	}
 	switch args.Status {
 	case oracleHolds:
 		if args.FindingID == "" {
-			return errors.New("status=holds 必须提供 finding_id：先用 webapi_finding 保存候选，再关联其 finding_id")
+			problems.add(errors.New("status=holds 必须提供 finding_id：先用 webapi_finding 保存候选，再关联其 finding_id"))
 		}
 		if len(args.EvidenceIDs) == 0 {
-			return errors.New("status=holds 的 evidence_ids 数量不足：至少 1 条本任务已发送的 evidence_id")
+			problems.add(errors.New("status=holds 的 evidence_ids 数量不足：至少 1 条本任务已发送的 evidence_id"))
 		}
 	case oracleRefuted:
 		if len(args.EvidenceIDs) == 0 {
-			return errors.New("status=refuted 的 evidence_ids 数量不足：至少 1 条本任务已发送的 evidence_id")
+			problems.add(errors.New("status=refuted 的 evidence_ids 数量不足：至少 1 条本任务已发送的 evidence_id"))
 		}
 	}
 	if args.FindingID != "" && args.Status != oracleHolds {
-		return errors.New("finding_id 只用于 status=holds")
+		problems.add(errors.New("finding_id 只用于 status=holds"))
 	}
 	if len(args.FindingID) > 128 {
-		return errors.New("finding_id 超长：上限 128 字节")
+		problems.add(errors.New("finding_id 超长：上限 128 字节"))
 	}
-	return nil
+	return problems.err()
 }
 
 func holderText(holder string) string {

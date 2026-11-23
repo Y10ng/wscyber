@@ -28,6 +28,17 @@
 - 登录失败、目标不可达、超时都不等于已修复，应给 `inconclusive`（工具描述里写明了）。
 - 结论不可变：同一 Invocation 用同一规范载荷可以回读，其余情况拒绝。
 
+### 参数错误
+
+沿用工具错误结果返回，校验规则不变。可独立判定的错误逐行列出，最多 10 条；明确字段路径、违反的规则与期望形态。例如：
+
+```text
+复测参数校验失败：method必填为空；期望非空值
+复测参数 evidence[0].relation 仅支持supporting/counterevidence/limitation
+```
+
+形状校验通过后，跨会话证据会返回 `evidence[0].evidence_id: 只接受本复测session在本任务产生的新HTTP证据`；缺少结论所需证据时明确 `evidence` 的期望 relation（`reproducible` 对应 `supporting`，`fixed_in_scope` 对应 `counterevidence`），不因失败、不可达、超时放宽资格。
+
 ## 表与旧库
 
 `webapi_retests`、`webapi_retest_results`，列和语义与验证两表对齐（session 唯一索引；finding+created 分页索引）。`PrepareWebAPISchema` 新增已知阶段“含报告八表”：经原生校验后在单个事务里只补这两张表和索引，不 DROP/ALTER；半成结构拒绝。

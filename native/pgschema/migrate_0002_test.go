@@ -138,6 +138,13 @@ VALUES ('approval:op-ap-1', 'approval_pending', 'ap-1', '{}', 0, '2026-11-23T00:
 	if _, err := db.ExecContext(ctx, `UPDATE webapi_approvals SET tenant_id = 'default' WHERE id = 'ap-1'`); err == nil {
 		t.Fatal("tenant_id 不可修改")
 	}
+	// 取消拼写与 guardrail 事件一致：canceled 可落库，旧拼写不再接受。
+	if _, err := db.ExecContext(ctx, `UPDATE webapi_approvals SET status = 'cancelled', decided_at = '2026-11-23T00:01:00.000Z' WHERE id = 'ap-1'`); !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("旧取消拼写应被 CHECK 拒绝: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE webapi_approvals SET status = 'canceled', decided_by = 'system', decided_at = '2026-11-23T00:01:00.000Z' WHERE id = 'ap-1'`); err != nil {
+		t.Fatalf("canceled 应可落库: %v", err)
+	}
 
 	// 同库再走完整启动路径（单实例锁 + 迁移 + 运行池校验）两次：幂等。
 	for range 2 {

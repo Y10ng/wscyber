@@ -642,22 +642,24 @@ func (s *taskStore) boardMapEndpoints(ctx context.Context, taskID string, keys, 
 
 // boardCheckEvidence：每条须为本任务已发送的 webapi_http 证据。
 func (s *taskStore) boardCheckEvidence(ctx context.Context, taskID, path string, ids []string) error {
+	var problems toolValidationErrors
 	for index, id := range ids {
 		var sent sql.NullBool
 		err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
 			return db.NewSelect().Model((*requestModel)(nil)).Column("sent").Where("task_id = ? AND id = ?", taskID, id).Limit(1).Scan(ctx, &sent)
 		})
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%s[%d]=%q 不是本任务的证据（只能引用本任务 webapi_http 返回的 evidence_id）", path, index, id)
+			problems.add(fmt.Errorf("%s[%d]=%q 不是本任务的证据（只能引用本任务 webapi_http 返回的 evidence_id）", path, index, id))
+			continue
 		}
 		if err != nil {
-			return errors.New("核对证据失败")
+			return fmt.Errorf("%s[%d]: 核对证据失败；请先确认本任务证据可读取，本次未写入", path, index)
 		}
 		if !sent.Valid || !sent.Bool {
-			return fmt.Errorf("%s[%d]=%q 未实际发送（拒绝/待审批/结果未知），不能作为证据", path, index, id)
+			problems.add(fmt.Errorf("%s[%d]=%q 未实际发送（拒绝/待审批/结果未知），不能作为证据；期望本任务已发送证据", path, index, id))
 		}
 	}
-	return nil
+	return problems.err()
 }
 
 func (s *taskStore) boardFindingNumber(ctx context.Context, taskID, findingID string) (string, error) {
@@ -857,25 +859,29 @@ type boardProposeResult struct {
 
 // validateOracleInput 逐字段校验并归一端点（去重排序）。
 func validateOracleInput(path string, item boardOracleInput) (boardOracleProposal, error) {
+	var problems toolValidationErrors
 	if err := boardTextError(path+".question", item.Question, 500, true); err != nil {
-		return boardOracleProposal{}, err
+		problems.add(err)
 	}
 	if !slices.Contains(boardOracleCategory, item.Category) {
-		return boardOracleProposal{}, fmt.Errorf("%s.category 仅支持 %s", path, strings.Join(boardOracleCategory, "/"))
+		problems.add(fmt.Errorf("%s.category 仅支持 %s", path, strings.Join(boardOracleCategory, "/")))
 	}
 	if !slices.Contains(boardOraclePriority, item.Priority) {
-		return boardOracleProposal{}, fmt.Errorf("%s.priority 仅支持 high/medium/low", path)
+		problems.add(fmt.Errorf("%s.priority 仅支持 high/medium/low", path))
 	}
 	if len(item.EndpointKeys) > 20 {
-		return boardOracleProposal{}, fmt.Errorf("%s.endpoint_keys 数量过多：实际 %d，上限 20", path, len(item.EndpointKeys))
+		problems.add(fmt.Errorf("%s.endpoint_keys 数量过多：实际 %d，上限 20", path, len(item.EndpointKeys)))
 	}
 	keys := make([]string, 0, len(item.EndpointKeys))
 	for index, raw := range item.EndpointKeys {
 		key, err := normalizeEndpointRef(raw)
 		if err != nil {
-			return boardOracleProposal{}, fmt.Errorf("%s.endpoint_keys[%d] %v", path, index, err)
+			problems.add(fmt.Errorf("%s.endpoint_keys[%d] %v", path, index, err))
 		}
 		keys = append(keys, key)
+	}
+	if err := problems.err(); err != nil {
+		return boardOracleProposal{}, err
 	}
 	sort.Strings(keys)
 	keys = slices.Compact(keys)
@@ -893,7 +899,7 @@ func boardTextError(field, value string, maximum int, required bool) error {
 		return fmt.Errorf("%s 超长：实际 %d 字，上限 %d 字", field, count, maximum)
 	}
 	if required && strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s 必填为空", field)
+		return fmt.Errorf("%s 必填为空；期望非空值", field)
 	}
 	return nil
 }
