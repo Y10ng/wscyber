@@ -66,7 +66,7 @@
 
 ## 管理 API
 
-- `GET /api/webapi/notifications?status=&limit=1..200(默认50)&cursor=` → `{items:[View], has_more, next_cursor}`，按 `created_at` 倒序（偏移游标，同全局列表）；status 非法、limit 越界、cursor 非法 400。
+- `GET /api/webapi/notifications?status=&limit=1..200(默认50)&cursor=` → `{items:[View], has_more, next_cursor, status_counts:{all,pending_confirm,queued,sending,sent,failed,dismissed}}`，按 `created_at` 倒序（偏移游标，同全局列表）；status 非法、limit 越界、cursor 非法 400。`status_counts` 一次 GROUP BY 统计全部通知，不受本次 status 过滤、limit 或 cursor 影响；七个键始终输出，无则 0，all 为全部状态之和。
 - View = `{id, kind（new/regression/manual）, status, dedupe_key, task_id, finding_id, finding_number, verification_id, verification_session_id, vuln_id|null, title（验证固定修订标题）, asset:{id,name}|null, attempts, last_error, next_attempt_at|null, created_at, sent_at|null}`。
 - `POST /api/webapi/notifications/{id}/confirm`：pending_confirm → queued（立即到期）；`…/dismiss`：pending_confirm|failed → dismissed；`…/retry`：failed → queued，attempts 清零、立即到期。成功 200 返回 View；不存在 404；状态不符 409。
 

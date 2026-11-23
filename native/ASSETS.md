@@ -3,6 +3,9 @@
 资产是服务端 `webapi_assets` 实体（与上游浏览器“资产池”无关）。路由均在原生鉴权内（`/api/webapi`）。仅临时库合成数据 Go 测试通过；前端、真实节点端到端未验。
 
 - `GET /assets?archived=0|1`（默认 0）→ `{assets:[Asset]}`，最近更新在前；`GET /assets/{id}` → Asset，不存在 404。
+- 列表每项额外返回 `overdue_vulns`（int，始终输出，无则 0；详情接口不新增此字段）：该资产的漏洞条目按总览同一 `vulnTodo`、`triage.view` 与 Hub 本地日期判定的逾期数，归档资产也照常计算。只计 new/present 且处置 open/fixing、有效期限早于今天的条目；期限当天、已修复、误报、接受风险不计。使用最早存在事件与 SLA 派生期限；多个候选归并为一个条目只计一次。
+  - 总览范围不变：**未归档资产逾期之和 + 无资产任务漏洞逾期数 = 总览 `vulns.overdue`**（同一数据与本地日期）；归档资产自身有计数，但不计入总览。全部漏洞均属于未归档资产时，资产逾期之和才等于总览。
+  - 批量计算：共享 triage 上下文 3 次查询 + 候选/归并关系 1 次 + 验证/复测结果 UNION ALL 1 次，不按资产逐个查询。未同步候选在内存按 C3 端点键归组，已有人工归并优先，不为列表计数写入漏洞库。
 - `PUT /assets/{id}`（id 由客户端生成，规则同任务 id）`{name, owner, environment, known_info, objective, origins[], forbidden, scope?, approval?, archived?}`：整份覆盖、保存即生效，新建 201、更新 200（保留 `created_at`）。校验：name 去首尾空白后必填、≤128 字；origins ≥1，规范化/去重/排序同任务；scope/approval 枚举同 `POLICY.md`，空＝`origins`/`high_risk`。未知字段忽略。
 - Asset = 以上字段 + `id, created_at, updated_at, credentials:[{id,label,username,has_secret,note,updated_at}]`；**任何响应都不含 secret**。
 - `PUT /assets/{id}/credentials/{cid}` `{label, username, secret?, note}`（未知字段 400）：secret 省略或 `""` 保留原值；`cid` 已属其他资产 409。`DELETE` 同路径，不存在 404。两者返回资产视图。

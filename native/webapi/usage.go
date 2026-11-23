@@ -174,11 +174,20 @@ func parseUsageDay(name, value string) (time.Time, error) {
 // usageSessions 读取任务会话映射；taskID 为空时读全部任务。研究 > 验证 > 报告 > 复测 > 子 Agent，
 // 同一 session 只取首个角色。
 func (s *taskStore) usageSessions(ctx context.Context, taskID string) (map[string]usageSessionRef, map[string]string, error) {
+	var taskIDs []string
+	if taskID != "" {
+		taskIDs = []string{taskID}
+	}
+	return s.usageSessionsForTasks(ctx, taskIDs)
+}
+
+// nil taskIDs 表示全局；任务列表传本页 ID，一次读取每类会话。
+func (s *taskStore) usageSessionsForTasks(ctx context.Context, taskIDs []string) (map[string]usageSessionRef, map[string]string, error) {
 	sessions := map[string]usageSessionRef{}
 	titles := map[string]string{}
 	filter, args := "", []any{}
-	if taskID != "" {
-		filter, args = " WHERE task_id = ?", []any{taskID}
+	if taskIDs != nil {
+		filter, args = " WHERE task_id IN (?)", []any{bun.In(taskIDs)}
 	}
 	taskFilter := strings.Replace(filter, "task_id", "id", 1)
 	queries := []struct {
@@ -251,35 +260,17 @@ func (s *taskStore) Usage(ctx context.Context, taskID string, from, to time.Time
 	}
 	report := &UsageReport{Timezone: localZoneName(), ByDay: []UsageDay{}, ByModel: []UsageModel{}}
 
-	var where []string
-	var args []any
+	var taskIDs []string
 	if taskID != "" {
+		taskIDs = []string{taskID}
 		if len(sessions) == 0 {
 			report.BySession = &[]UsageSession{}
 			return report, nil
 		}
-		placeholders := make([]string, 0, len(sessions))
-		for session := range sessions {
-			placeholders = append(placeholders, "?")
-			args = append(args, session)
-		}
-		where = append(where, "session_id IN ("+strings.Join(placeholders, ",")+")")
 	}
-	// created_at 为 UTC RFC3339Nano；先按 UTC 日期前缀粗筛，精确边界在 Go 内按本地时间判定。
-	var start, end time.Time
-	if !from.IsZero() {
-		start = from
-		where = append(where, `substr(created_at, 1, 10) COLLATE "C" >= ?`)
-		args = append(args, start.UTC().Format("2006-01-02"))
-	}
+	start, end := from, time.Time{}
 	if !to.IsZero() {
 		end = to.AddDate(0, 0, 1)
-		where = append(where, `substr(created_at, 1, 10) COLLATE "C" <= ?`)
-		args = append(args, end.UTC().Format("2006-01-02"))
-	}
-	query := `SELECT session_id, created_at, event_proto FROM chat_aop_events`
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	days := map[string]*UsageTotals{}
 	models := map[string]*UsageTotals{}
@@ -291,65 +282,16 @@ func (s *taskStore) Usage(ctx context.Context, taskID string, from, to time.Time
 		}
 		return m[key]
 	}
-	count := func(session, createdAt string, usage *aop.TokenUsage) {
-		at, timeErr := time.Parse(time.RFC3339Nano, createdAt)
-		if timeErr != nil {
-			report.SkippedEvents++
-			return
-		}
+	report.SkippedEvents, err = s.scanUsage(ctx, sessions, taskIDs, start, end, nil, func(session, task string, at time.Time, usage *aop.TokenUsage) {
 		at = at.In(time.Local)
-		if (!start.IsZero() && at.Before(start)) || (!end.IsZero() && !at.Before(end)) {
-			return
-		}
 		report.Totals.add(usage)
 		bucket(days, at.Format("2006-01-02")).add(usage)
 		bucket(models, usage.GetModel()).add(usage)
 		if taskID != "" {
 			bucket(bySession, session).add(usage)
 		} else {
-			bucket(tasks, sessions[session].taskID).add(usage)
+			bucket(tasks, task).add(usage)
 		}
-	}
-	subQuery := `SELECT session_id, model, input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, created_at FROM webapi_subsession_usage`
-	var subArgs []any
-	if taskID != "" {
-		subQuery += ` WHERE task_id = ?`
-		subArgs = append(subArgs, taskID)
-	}
-	err = s.read(ctx, func(ctx context.Context, db bun.IDB) error {
-		if err := scanRows(db.QueryContext(ctx, query, args...))(func(rows *sql.Rows) error {
-			var session, createdAt string
-			var raw []byte
-			if err := rows.Scan(&session, &createdAt, &raw); err != nil {
-				return err
-			}
-			// 子 Agent 会话的用量只取节点侧登记表（Hub 不持久化子会话事件；若将来持久化也不重复计）。
-			if sessions[session].role == "subagent" {
-				return nil
-			}
-			usage, decodeErr := eventUsage(raw)
-			if decodeErr != nil {
-				report.SkippedEvents++
-				return nil
-			}
-			if usage == nil {
-				return nil
-			}
-			count(session, createdAt, usage)
-			return nil
-		}); err != nil {
-			return err
-		}
-		return scanRows(db.QueryContext(ctx, subQuery, subArgs...))(func(subRows *sql.Rows) error {
-			var session, model, createdAt string
-			var input, output, total, cacheRead, cacheWrite uint64
-			if err := subRows.Scan(&session, &model, &input, &output, &total, &cacheRead, &cacheWrite, &createdAt); err != nil {
-				return err
-			}
-			count(session, createdAt, &aop.TokenUsage{Model: model, InputTokens: input, OutputTokens: output, TotalTokens: total,
-				Detail: map[string]uint64{"cache_read": cacheRead, "cache_write": cacheWrite}})
-			return nil
-		})
 	})
 	if err != nil {
 		return nil, err

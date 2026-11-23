@@ -14,7 +14,7 @@
 - `status`：研究会话（`initial_session_id`）持久化事件里没有任何带 turn_id 的事件 → `not_started`；否则调 C2a 的 `SessionRunning`：true → `running`，false → `idle`，出错 → `unknown`。`status=` 过滤同取值（其他值 400）。
 - `last_activity_at` = 任务全部业务会话（研究/验证/复测/报告）`chat_aop_events` 最新事件时间；无事件为 `created_at`。
 - `supported_count` = 每个候选取最新保存的验证判读（同 C3 `latest_verdict`），为 `supported` 的候选数。
-- `total_tokens` = 任务全部会话 `Event_Usage` 汇总（解析同 `USAGE.md`，损坏行跳过）。
+- `total_tokens` = 与 `/usage?task_id=`（无日期过滤）的 `totals.total_tokens` 同口径：共用研究/验证/报告/复测/子 Agent 会话映射与扫描；子 Agent 只取 `webapi_subsession_usage`，其余取 `chat_aop_events` 顶层 `Event_Usage`，损坏 proto/时间跳过，total=0 回退 input+output。见 `USAGE.md`。
 - 响应 `{items, has_more, next_cursor, counts:{all, running, idle, not_started, unknown, archived}}`；状态计数受 q/asset_id/archived 影响、不受 status 影响。`archived` 为同一 q/asset_id 下已归档任务总数（与 archived 参数无关），供前端“已归档 N”胶囊。
 
 ## `GET /vulns?status=&asset_id=&q=&limit=&cursor=`
@@ -72,7 +72,7 @@ OV2 新增（只加字段，旧字段不变；处置/期限派生见 `TRIAGE.md`
 
 ## 性能说明
 
-- 任务列表：全部任务一条 SQL（含 `EXISTS` 走 `chat_aop_events (session_id, cursor)` 唯一索引判断有无轮次）＋计划运行集合一条；有轮次的任务逐个调 `SessionRunning`（生产实现先看节点 Busy，空闲时不读事件），以便计算 counts。计数、supported、会话集合与事件扫描只对**本页**任务批量 `IN (...)`（每块 500）：约 4+1+3+1 条 SQL；事件扫描按 session_id 走索引，读取这些会话的全部事件行。
+- 任务列表：全部任务一条 SQL（含 `EXISTS` 走 `chat_aop_events (session_id, cursor)` 唯一索引判断有无轮次）＋计划运行集合一条；有轮次的任务逐个调 `SessionRunning`（生产实现先看节点 Busy，空闲时不读事件），以便计算 counts。计数、supported、会话集合与事件扫描只对**本页**任务批量 `IN (...)`（每块 500）：计数 4 条、supported 1 条、共用会话映射 5 条，原生事件按每块 500 个会话扫描，另 1 条批量读取本页子 Agent 用量；不逐任务调用用量接口。事件扫描按 session_id 走索引，读取这些会话的全部事件行。
 - 全局漏洞：每个未归档资产一次同步＋C3 派生（约 5 条 SQL），无资产候选 3 条；内存排序。适合数千条目量级。
 - 总览：在上述两者之上加一次 `Usage`（与 `/usage` 相同，按 UTC 日期前缀粗筛后扫描 `chat_aop_events` 区间内全部行）。
 - 总览 OV2 字段：复用同一次已加载的全局漏洞条目与 triage 上下文（不重复同步、不重读处置），另加通知计数 1 条、资产与关联任务各 1 条、失败运行 1 条（＋每条非失败运行 1 条取后续错误，≤3）、每个运行中任务 1 条首轮次事件查询（走 `(session_id, cursor)` 索引）＋前 5 个各 3 条黑板计数。

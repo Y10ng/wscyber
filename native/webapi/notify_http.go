@@ -206,7 +206,12 @@ func (c *Capability) handleNotificationList(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "读取推送记录失败")
 		return
 	}
-	response := map[string]any{"items": items, "has_more": false, "next_cursor": nil}
+	counts, err := c.store.notificationStatusCounts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取推送状态计数失败")
+		return
+	}
+	response := map[string]any{"items": items, "has_more": false, "next_cursor": nil, "status_counts": counts}
 	if len(items) > limit {
 		response["items"], response["has_more"], response["next_cursor"] = items[:limit], true, encodeOffsetCursor(offset+limit)
 	}

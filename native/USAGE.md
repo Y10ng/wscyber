@@ -11,5 +11,6 @@
 - 日期按 Hub 进程本地时区（`timezone` 字段；`/etc/localtime` 场景从链接取 IANA 名），`from/to` 可选闭区间；格式非法或 from>to 400。
 - U = `input_tokens, output_tokens, total_tokens, cache_read_tokens, cache_write_tokens, calls`；total 缺失（0）时用 input+output；cache 取 `detail["cache_read"/"cache_write"]`；calls = Usage 事件数。
 - 排序：`by_day` 升序；`by_model/by_task/by_session` 按 total 降序，同值按键升序。数组无数据时为 `[]`。
+- 任务列表 `GET /task-list` 的每项 `total_tokens` 与同一任务 `/usage?task_id=`（不传日期过滤）的 `totals.total_tokens` 口径相同：共用会话映射与事件扫描，研究/验证/报告/复测读 `chat_aop_events`，子 Agent 只读 `webapi_subsession_usage`，即使 Hub 有子会话事件也不重复计。损坏 proto、非法事件时间均跳过；total=0 时同样回退 input+output。列表按本页任务批量读取，不逐任务调用 Usage。独立请求之间若有新用量写入，数值可随之变化。
 - 不做费用（上游无价格配置）。
 - 未计入：上下文压缩摘要调用、recap 扩展、JEV（声明/编译/反射）模型调用均不发 `Event_Usage`；非 oracle_explorer 的子代理在平台准入即被拒绝，不产生用量。

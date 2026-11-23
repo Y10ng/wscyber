@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	aop "github.com/chainreactors/cyber/aop"
 	"github.com/uptrace/bun"
 )
 
@@ -264,67 +265,29 @@ func (s *taskStore) supportedByTask(ctx context.Context, taskIDs []string) (map[
 	return out, err
 }
 
-// taskSessions 返回本页任务全部业务会话（研究/验证/报告/复测）到任务的映射；同一会话取首个。
-func (s *taskStore) taskSessions(ctx context.Context, rows []*taskListRow) (map[string]string, error) {
-	sessions := map[string]string{}
-	taskIDs := make([]string, 0, len(rows))
+// taskSessions 与用量接口共用会话集合与角色优先级（包括子 Agent）。
+func (s *taskStore) taskSessions(ctx context.Context, rows []*taskListRow) (map[string]usageSessionRef, error) {
+	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
-		taskIDs = append(taskIDs, row.item.TaskID)
-		if session := row.item.InitialSessionID; session != "" {
-			sessions[session] = row.item.TaskID
-		}
+		ids = append(ids, row.item.TaskID)
 	}
-	for _, table := range []string{"webapi_verifications", "webapi_reports", "webapi_retests"} {
-		err := inChunks(taskIDs, func(placeholders string, args []any) error {
-			return s.queryRows(ctx, func(result *sql.Rows) error {
-				var taskID, session string
-				if err := result.Scan(&taskID, &session); err != nil {
-					return err
-				}
-				if _, seen := sessions[session]; session != "" && !seen {
-					sessions[session] = taskID
-				}
-				return nil
-			}, `SELECT task_id, session_id FROM `+table+` WHERE task_id IN (`+placeholders+`)`, args...)
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return sessions, nil
+	sessions, _, err := s.usageSessionsForTasks(ctx, ids)
+	return sessions, err
 }
 
-// sessionActivity 对给定会话一次扫描 chat_aop_events：最新事件时间与 Event_Usage token 汇总（解析同 usage.go）。
-// 损坏行跳过（同 USAGE 的 skipped_events，不计入）。
-func (s *taskStore) sessionActivity(ctx context.Context, sessions map[string]string) (map[string]time.Time, map[string]*UsageTotals, error) {
-	ids := make([]string, 0, len(sessions))
-	for session := range sessions {
-		ids = append(ids, session)
-	}
-	sort.Strings(ids)
+// sessionActivity 保留业务会话最新活动时间，token 复用 Usage 的双来源扫描、时间校验和损坏行跳过规则。
+func (s *taskStore) sessionActivity(ctx context.Context, sessions map[string]usageSessionRef, taskIDs []string) (map[string]time.Time, map[string]*UsageTotals, error) {
 	lastAt := map[string]time.Time{}
 	tokens := map[string]*UsageTotals{}
-	err := inChunks(ids, func(placeholders string, args []any) error {
-		return s.queryRows(ctx, func(rows *sql.Rows) error {
-			var session, createdAt string
-			var raw []byte
-			if err := rows.Scan(&session, &createdAt, &raw); err != nil {
-				return err
-			}
-			taskID := sessions[session]
-			if at := parseAt(createdAt); !at.IsZero() && at.After(lastAt[taskID]) {
-				lastAt[taskID] = at
-			}
-			usage, decodeErr := eventUsage(raw)
-			if decodeErr != nil || usage == nil {
-				return nil
-			}
-			if tokens[taskID] == nil {
-				tokens[taskID] = &UsageTotals{}
-			}
-			tokens[taskID].add(usage)
-			return nil
-		}, `SELECT session_id, created_at, event_proto FROM chat_aop_events WHERE session_id IN (`+placeholders+`)`, args...)
+	_, err := s.scanUsage(ctx, sessions, taskIDs, time.Time{}, time.Time{}, func(task string, at time.Time) {
+		if at.After(lastAt[task]) {
+			lastAt[task] = at
+		}
+	}, func(_ string, task string, _ time.Time, usage *aop.TokenUsage) {
+		if tokens[task] == nil {
+			tokens[task] = &UsageTotals{}
+		}
+		tokens[task].add(usage)
 	})
 	return lastAt, tokens, err
 }
@@ -354,7 +317,7 @@ func (s *taskStore) fillTaskListPage(ctx context.Context, rows []*taskListRow) e
 	if err != nil {
 		return err
 	}
-	lastAt, tokens, err := s.sessionActivity(ctx, sessions)
+	lastAt, tokens, err := s.sessionActivity(ctx, sessions, taskIDs)
 	if err != nil {
 		return err
 	}

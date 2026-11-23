@@ -147,7 +147,16 @@ func (c *Capability) handleAssetList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取资产失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"assets": assets})
+	counts, err := c.assetOverdueCounts(r.Context(), assets)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取资产逾期计数失败")
+		return
+	}
+	items := make([]AssetListItem, 0, len(assets))
+	for _, asset := range assets {
+		items = append(items, AssetListItem{Asset: asset, OverdueVulns: counts[asset.ID]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"assets": items})
 }
 
 func (c *Capability) handleAssetGet(w http.ResponseWriter, r *http.Request) {

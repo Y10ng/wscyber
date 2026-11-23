@@ -297,6 +297,25 @@ func (s *taskStore) notificationViews(ctx context.Context, filter notificationFi
 	})
 }
 
+// notificationStatusCounts 不接收列表过滤或游标，一次 GROUP BY 返回全部状态。
+func (s *taskStore) notificationStatusCounts(ctx context.Context) (map[string]int, error) {
+	counts := map[string]int{"all": 0}
+	for status := range notifyStatuses {
+		counts[status] = 0
+	}
+	err := s.queryRows(ctx, func(rows *sql.Rows) error {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return err
+		}
+		counts[status] = count
+		counts["all"] += count
+		return nil
+	}, `SELECT status, COUNT(*) FROM webapi_notifications GROUP BY status`)
+	return counts, err
+}
+
 func scanNotificationViews(rows *sql.Rows, err error) ([]NotificationView, error) {
 	if err != nil {
 		return nil, err
