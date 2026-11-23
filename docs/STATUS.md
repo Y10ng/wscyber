@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-23 11:47 UTC 从 ef1751a 构建，schema 2，含 U2g、F4 与 HTTP 安全错误分类；用户授权更新，升级前旧二进制/state/PG 备份在 `var/http-diagnostics-deploy/backup-20261123T114720Z/`，停机一致备份为其中 `state-stopped/`、`pg-wscyber_preview-stopped.dump`；日志 `var/http-diagnostics-deploy/hub-20261123T114720Z.log`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-23 14:21 UTC 从 a6dd8bc 构建，schema 2，含 U2g、F4、HTTP 安全错误分类与严格 TLS 自动补链；用户授权更新，升级前旧二进制/state/PG 备份在 `var/tls-fix-deploy-retest/backup-20261123T142107Z/`，停机一致备份为其中 `state-stopped/`、`pg-wscyber_preview-stopped.dump`；日志 `var/tls-fix-deploy-retest/hub-20261123T142107Z.log`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
@@ -112,7 +112,9 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 **用户真实任务早期失败已定位到 HTTP 传输阶段，尚未恢复：** Astra 只读排查确认模型已返回工具调用、黑板读取成功；首条 `webapi_http` 发送/接收错误被记为 `unknown`，随后未决 HTTP 保护阻止下一次模型调用。旧代码丢弃底层错误，无法追溯是超时、DNS、TLS 或其它传输问题；不归因于模型提供方。脱敏诊断见 `var/startup-failure-debug/diagnosis.md`。
 
-**HTTP 错误可诊断性补丁已完成（ef1751a），经用户授权部署预览：** `http_tool.go` 将发送/响应头与响应体读取失败按固定安全类别写入现有 reason，不输出底层错误原文或秘密，不改变 unknown/sent/防重发/模型阻断逻辑，不追填历史数据。新增分类、防泄露及本机断连/短响应体落库回归；主会话复跑 9 项相关定向测试通过（7.238s）。Astra 部署前确认无活跃执行，完成备份/构建/重启，ready、health 与版本核验通过，结构化结果见 `var/http-diagnostics-deploy/result.md`。未做浏览器验收或真实调用；真实故障未确认、未修复。任何后续真实诊断请求仍需对应授权，不自动重跑或清空原任务 unknown。
+**HTTP 错误可诊断性补丁已完成（ef1751a），经用户授权部署预览：** `http_tool.go` 将发送/响应头与响应体读取失败按固定安全类别写入现有 reason，不输出底层错误原文或秘密，不改变 unknown/sent/防重发/模型阻断逻辑，不追填历史数据。新增分类、防泄露及本机断连/短响应体落库回归；主会话复跑 9 项相关定向测试通过（7.238s）。Astra 部署前确认无活跃执行，完成备份/构建/重启，ready、health 与版本核验通过，结构化结果见 `var/http-diagnostics-deploy/result.md`。该诊断片未做浏览器验收或真实调用，本身不修复底层故障；后续用户授权的 TLS 定位与新目标复测见下段。原任务 unknown 保留，不自动重跑或清空。
+
+**TLS 缺链定位与修复复测完成（a6dd8bc）：** 真实诊断确认目标只发叶证书；用原系统 CA 库补齐两级中间链即可严格验证通过，并非 Linux 缺根。HTTP 发送路径新增 AIA 自动补链，材料只作 intermediates，保留域名/有效期/serverAuth/系统根校验；主会话复跑补链、拒绝不可信证书、HTTP unknown 与 Replay 等定向测试通过（8.957s）。用户明确允许补链 URL/HTTP 跳转不逐次确认及不受任务 origins 限制，例外与限制已写 AGENTS/RUNNING。已备份并部署；Astra 以用户最新地址新建 `tls-retest-9da74546de43`，真实产品模型只调用一次 HTTP：`completed / sent=true / HTTP 200`，回合正常 completed，无 error/unknown/子 Agent，最终 idle。会话链接 http://127.0.0.1:42453/sessions/adc3a95c76c1be1a 。结构化结果 `var/tls-fix-deploy-retest/result.md`；主会话不读取原始资料。未访问换址前目标、不修改历史 unknown；仅首请求验证通过，不代表全部新挖掘能力已实测。
 
 ## 下一步
 

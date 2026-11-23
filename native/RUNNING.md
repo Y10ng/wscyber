@@ -94,7 +94,13 @@ env CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off python3 -I scripts/cyber-go-over
 
 模型节点的 `playwright`/`katana -headless` 需要本机 Chrome/Chromium（系统包，不随仓库分发，**不自动下载**）。路径：环境变量 `CYBER_BROWSER_PATH`（显式优先，须可执行）→ 系统查找（go-rod `launcher.LookPath`，含 `/usr/bin/chromium`、`chromium-browser`、`google-chrome` 等）。找不到时命令返回“未找到 Chromium 可执行文件…”。本机：Debian `chromium 145.0.7632.159-1`（`chromium --version`）。上面 `env -i` 启动方式需要时加 `CYBER_BROWSER_PATH=/usr/bin/chromium`。katana 的配置目录：未设 `XDG_CONFIG_HOME` 时 Hub 用 `STATE_DIR/tool-config`。见 `native/BROWSER.md`。
 
-## 6. 限制
+## 6. TLS 缺链兼容
+
+`webapi_http` 及共用发送路径在证书无法链到系统信任根时，会按 AIA caIssuers 自动获取公网 HTTP 证书并跟随 HTTP 跳转；无需额外配置或逐次确认（用户确认的证书验证出网例外，不受任务 origins 限制）。补取材料只作中间证书，仍严格验证系统根、目标域名/IP、有效期、用途与签名链，不安装新信任根。
+
+单次握手最多补取 4 次，每次最多 5 秒/64KB，URL 缓存最多 64 项；仅支持 DER/PEM，不支持 PKCS#7、HTTPS/LDAP AIA 或私网发布点。补链也使用直连；无法获取或仍不可信时继续返回 `tls_certificate`，不重发目标请求。辅助补链请求当前不记录为任务 HTTP 证据或审计，不等于普通目标请求获准越界。
+
+## 7. 限制
 
 - `webapi_http` 按任务测试策略：scope=origins（默认）只发授权 origins，unrestricted 不限；危险操作审批见 `native/POLICY.md`。终端、浏览器、爬虫经全工具出口代理强制（非系统级隔离，见 `native/POLICY.md`、`native/BROWSER.md`）。
 - 正式入口不自动恢复/重放历史任务。
