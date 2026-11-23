@@ -20,11 +20,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "64d8f440d935197f2e10f4ece1a6a483cfb3104a5f5b95aada2e42233ce3e8e4"
+      "sha256": "236a60d1d42437d35dfc81d1f254c771e6e160e85e7f3df1d968ca7841127cbf"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "09a71ee890568e1910488743694914ca36d3c23c5394304b1d290de75182d4b7"
+      "sha256": "b1171f07427de08ed56d394506cb9984a1a495d24e27602aac11de90dd985674"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -124,7 +124,7 @@
     },
     "src/components/WebApiExecutionTimeline.tsx": {
       "source_sha256": null,
-      "sha256": "afcfc1da09e2f8a942ee0d09f240a4b99aafd936c59b950a7c86810accf15d0c"
+      "sha256": "aa4833ae95300a4de4dfb4ad33abbb42e2de7363025c43b6ced5f1590d579c8e"
     },
     "src/components/WebApiFindingsPanel.css": {
       "source_sha256": null,
@@ -168,7 +168,7 @@
     },
     "src/components/WebApiTaskBar.tsx": {
       "source_sha256": null,
-      "sha256": "ebf5c687ed2b38d5b0653e4cad2448c5eac36cff89a74e6b5e0b304652a2f5db"
+      "sha256": "8892e29c33c345a0abfd06ea74e75090d55148cb20ebbc8aa58e2fc9131d11a8"
     },
     "src/components/WebApiTaskDialog.tsx": {
       "source_sha256": null,
@@ -256,7 +256,7 @@
     },
     "src/lib/execution-timeline.ts": {
       "source_sha256": null,
-      "sha256": "80b2a91d03a936f904a325f27d4200a634840c35edc9ba011ef1c3a1121a335a"
+      "sha256": "4e3ce391c63d5b0700eefe887095b460227a897c941d3a888b4b73dc5446fe08"
     },
     "src/lib/finding-draft.ts": {
       "source_sha256": null,

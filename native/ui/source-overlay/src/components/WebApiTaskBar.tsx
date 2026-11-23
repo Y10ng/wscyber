@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Boxes, Compass, Globe, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Boxes, Compass, Globe, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { Button, Callout, Popover, PopoverContent, PopoverTrigger, Spinner } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { getWebApiTask, putWebApiTaskScenario, type WebApiScenario, type WebApiTask, type WebApiTaskPolicy } from '../api'
@@ -25,6 +25,10 @@ interface Props {
   onViewChange: (view: WebApiView) => void
   /** 失效信号：新建验证/报告成功后 App bump，页签计数重取。 */
   countsRevision?: number
+  /** 本任务 pending 审批数（GET /tasks/{id}/approvals 的 pending_count，App 轮询）。 */
+  pendingApprovals?: number
+  /** 点击“待审批 N”：切执行视图并定位第一条待审批。 */
+  onLocatePending?: () => void
 }
 
 const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'board' | 'findings' | 'reports' | null }[] = [
@@ -38,7 +42,7 @@ const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'bo
 
 // 任务工作区顶栏（高 48px）：返回 · 资产标签 · 任务标题 · origin · 策略指示
 // …… 右侧视图页签（替代原左侧任务导航列；计数取数逻辑抽到 useWebApiTaskViewCounts）。
-export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0 }: Props) {
+export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0, pendingApprovals = 0, onLocatePending }: Props) {
   const { t } = useTranslation('chat')
   const counts = useWebApiTaskViewCounts(task.id, countsRevision)
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
@@ -235,6 +239,23 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
             </div>
           </PopoverContent>
         </Popover>
+        {/* 待审批徽标：任务级 pending 数（审批记录接口），点击切执行视图并定位第一条。 */}
+        {pendingApprovals > 0 && (
+          <button
+            type="button"
+            data-pending-approvals={pendingApprovals}
+            aria-label={t('webapi.pendingApprovalsControl', { count: pendingApprovals })}
+            title={t('webapi.pendingApprovalsControl', { count: pendingApprovals })}
+            onClick={() => {
+              if (view !== 'execution') onViewChange('execution')
+              onLocatePending?.()
+            }}
+            className="flex h-5 shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 text-[11px] font-medium text-warning transition-colors hover:bg-warning/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+          >
+            <ShieldAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="whitespace-nowrap">{t('webapi.pendingApprovalsLabel', { count: pendingApprovals })}</span>
+          </button>
+        )}
       </div>
       </div>
       {/* 视图页签：执行 / 流量 / 候选 / 报告 / 用量（原左侧任务导航列）。

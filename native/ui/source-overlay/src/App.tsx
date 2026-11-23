@@ -33,8 +33,8 @@ import MentionPicker from './components/MentionPicker'
 import { useObservations } from '@/viewer'
 import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@cyber/ui'
 import { ThemeProvider } from '@cyber/theme'
-import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiSessionKinds, getWebApiVerificationBySession } from './api'
-import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiReportDetail, WebApiRetestDetail, WebApiTask, WebApiVerificationDetail } from './api'
+import { activateLLMProfile, APIError, getConfigStatus, getIOAOverview, getStatus, getWebApiReportBySession, getWebApiRetestBySession, getWebApiTask, getWebApiTaskBySession, getWebApiSessionKinds, getWebApiVerificationBySession, listWebApiTaskApprovals } from './api'
+import type { IOAMessage, IOANode, LLMProviderView, ServerStatus, WebApiApproval, WebApiReportDetail, WebApiRetestDetail, WebApiTask, WebApiVerificationDetail } from './api'
 import type { SCONode } from '@cyber/cstx-easm'
 import type { MentionPopupApi } from './viewer'
 import { useChatSession } from './hooks/useChatSession'
@@ -57,6 +57,15 @@ const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'vulns', 'r
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
+
+// 执行视图审批记录（当前任务的 pending 与全部记录）的空值；任务变化时整体替换。
+interface ExecutionApprovalData {
+  taskId: string
+  pendingCount: number
+  pending: WebApiApproval[]
+  records: WebApiApproval[]
+}
+const EMPTY_APPROVAL_DATA: ExecutionApprovalData = { taskId: '', pendingCount: 0, pending: [], records: [] }
 
 // Respect a previously-chosen theme on boot. ThemeProvider's own initializer is
 // short-circuited by the `initial` prop (it returns `initial` before ever reading
@@ -164,6 +173,10 @@ export default function App({ services }: { services: HubServices }) {
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null)
   const [focusReportId, setFocusReportId] = useState<string | null>(null)
   const [focusEvidenceId, setFocusEvidenceId] = useState<string | null>(null)
+  // 审批记录（R2）：执行视图按当前任务取 pending 判定归属，全部记录补全终态。
+  const [executionApprovalData, setExecutionApprovalData] = useState<ExecutionApprovalData>(EMPTY_APPROVAL_DATA)
+  // 顶栏“待审批 N”点击：切执行视图并滚动到第一条待审批（信号递增）。
+  const [pendingApprovalFocusTick, setPendingApprovalFocusTick] = useState(0)
   const pendingFindingIdRef = useRef<{ sessionID: string; findingID: string } | null>(null)
   const pendingReportIdRef = useRef<{ sessionID: string; reportID: string } | null>(null)
   // 漏洞卡“在流量中查看”：先按 task 解析初始会话，任务加载后切流量视图并定位证据。
@@ -602,27 +615,99 @@ export default function App({ services }: { services: HubServices }) {
   const webApiVerificationActive = webapiEnabled && !!activeWebApiVerification && activeWebApiVerification.session_id === chat.activeSessionID
   const webApiReportActive = webapiEnabled && !!activeWebApiReport && activeWebApiReport.session_id === chat.activeSessionID
   const webApiRetestActive = webapiEnabled && !!activeWebApiRetest && activeWebApiRetest.session_id === chat.activeSessionID
-  // 执行时间线数据：验证/报告/复测/任务会话的「执行」视图都显示（纯函数派生，不新增接口）。
+  // 执行时间线数据：验证/报告/复测/任务会话的「执行」视图都显示（纯函数派生）。
   const executionSessionActive = webApiTaskActive || webApiVerificationActive || webApiReportActive || webApiRetestActive
+  // 当前执行视图所属任务：任务会话取 Task；验证/复测/报告会话从各自详情回父任务。
+  const executionTaskId = webApiTaskActive && activeWebApiTask
+    ? activeWebApiTask.id
+    : webApiVerificationActive && activeWebApiVerification
+      ? activeWebApiVerification.task_id
+      : webApiReportActive && activeWebApiReport
+        ? activeWebApiReport.task_id
+        : webApiRetestActive && activeWebApiRetest
+          ? activeWebApiRetest.task_id
+          : null
+  const executionTaskIdRef = useRef<string | null>(executionTaskId)
+  executionTaskIdRef.current = executionTaskId
+  // 审批记录：pending 列表判定 live pending 的任务归属；全部记录补全已决行终态。
+  // 只读轮询（10s，页面隐藏暂停），任务切换时同步清空，避免旧任务的行闪入。
+  const refreshExecutionApprovals = useCallback(async () => {
+    const taskId = executionTaskIdRef.current
+    if (!taskId) return
+    try {
+      const [pending, all] = await Promise.all([
+        listWebApiTaskApprovals(taskId, { status: 'pending', limit: 200 }),
+        listWebApiTaskApprovals(taskId, { limit: 200 }),
+      ])
+      if (executionTaskIdRef.current !== taskId) return
+      setExecutionApprovalData({ taskId, pendingCount: pending.pending_count, pending: pending.items, records: all.items })
+    } catch {
+      // 轮询失败保留上一次数据；下一次再试。
+    }
+  }, [])
+  useEffect(() => {
+    setExecutionApprovalData(EMPTY_APPROVAL_DATA)
+    void refreshExecutionApprovals()
+  }, [executionTaskId, refreshExecutionApprovals])
+  usePolling(() => { void refreshExecutionApprovals() }, 10000, webapiEnabled && executionTaskId !== null)
+  const executionApprovals = executionApprovalData.taskId && executionApprovalData.taskId === executionTaskId
+    ? executionApprovalData
+    : EMPTY_APPROVAL_DATA
+  // 归属判定：审批记录的 operation_id、session_id/review_session_id 命中本任务即保留；
+  // 刚落库前的新挂起以当前执行视图会话兜底（记录接口允许短暂滞后，见 POLICY 已知限制）。
+  const executionPendingReviews = useMemo(() => {
+    const operationIDs = new Set(executionApprovals.pending.map((item) => item.operation_id))
+    const sessionIDs = new Set<string>()
+    for (const item of executionApprovals.pending) {
+      if (item.session_id) sessionIDs.add(item.session_id)
+      if (item.review_session_id) sessionIDs.add(item.review_session_id)
+      if (item.parent_session_id) sessionIDs.add(item.parent_session_id)
+    }
+    const activeID = chat.activeSessionID || ''
+    return Object.entries(guardrails.bySession).flatMap(([sessionId, reviews]) => reviews.map((review) => (
+      review.sessionId === sessionId ? review : { ...review, sessionId }
+    ))).filter((review) => {
+      if (review.operation?.operationId && operationIDs.has(review.operation.operationId)) return true
+      if (review.sessionId && sessionIDs.has(review.sessionId)) return true
+      return !!activeID && review.sessionId === activeID
+    })
+  }, [executionApprovals, guardrails.bySession, chat.activeSessionID])
   const executionData = useMemo(
     () => (executionSessionActive
       ? buildExecutionTimeline(
         chat.aopEvents,
-        Object.entries(guardrails.bySession).flatMap(([sessionId, reviews]) => reviews.map((review) => (
-          review.sessionId === sessionId ? review : { ...review, sessionId }
-        ))),
+        executionPendingReviews,
         guardrails.unavailable[chat.activeSessionID || ''] !== true,
+        executionApprovals.records,
       )
       : null),
-    [executionSessionActive, chat.aopEvents, guardrails.bySession, guardrails.unavailable, chat.activeSessionID],
+    [executionSessionActive, chat.aopEvents, executionPendingReviews, guardrails.unavailable, chat.activeSessionID, executionApprovals.records],
   )
   // 执行视图置顶待审批卡的批准/拒绝：从 live reviews 找回原 Review 走 guardrails.resolve。
+  // 子 Agent 的审批挂在父会话的 Pending 列表里（review_session_id），先按该会话找，
+  // 再退到全部会话按 operationId 查找。
   const resolveExecutionApproval = useCallback(async (approval: ExecutionApproval, approve: boolean) => {
-    const reviews = guardrails.bySession[approval.sessionId] || []
-    const review = reviews.find((item) => item.operation?.operationId === approval.id)
+    const operationId = approval.id
+    const primaryId = approval.reviewSessionId || approval.sessionId
+    let sessionId = primaryId
+    let review = (guardrails.bySession[primaryId] || []).find((item) => item.operation?.operationId === operationId)
+    if (!review) {
+      for (const [candidateId, reviews] of Object.entries(guardrails.bySession)) {
+        const found = reviews.find((item) => item.operation?.operationId === operationId)
+        if (found) { sessionId = candidateId; review = found; break }
+      }
+    }
     if (!review) throw new Error('审批已不在待处理列表，请刷新后查看最新状态。')
-    await guardrails.resolve(approval.sessionId, review, approve)
-  }, [guardrails])
+    await guardrails.resolve(sessionId, review, approve)
+    // 终态立即回读审批记录，徽标计数与已决行不用等到下一次轮询。
+    void refreshExecutionApprovals()
+  }, [guardrails, refreshExecutionApprovals])
+  // 顶栏“待审批 N”：切到执行视图（时间线）并发出定位信号，由时间线滚到第一条待审批。
+  const handleLocatePendingApproval = useCallback(() => {
+    setWorkspaceView('execution')
+    setExecutionMode('timeline')
+    setPendingApprovalFocusTick((tick) => tick + 1)
+  }, [])
 
   // 时间线「在流量中查看」：切换流量视图并定位该 evidence（模式同 focusFindingId）。
   const handleViewEvidence = useCallback((taskId: string, evidenceId: string) => {
@@ -763,6 +848,8 @@ export default function App({ services }: { services: HubServices }) {
                 view={workspaceView}
                 onViewChange={setWorkspaceView}
                 countsRevision={webApiCountsRevision}
+                pendingApprovals={executionApprovals.pendingCount}
+                onLocatePending={handleLocatePendingApproval}
               />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
@@ -842,6 +929,7 @@ export default function App({ services }: { services: HubServices }) {
                         onViewEvidence={handleViewEvidence}
                         onViewFinding={handleViewFinding}
                         onResolveApproval={resolveExecutionApproval}
+                        focusPendingTick={pendingApprovalFocusTick}
                       />
                       {/* 时间线视图保留原生 composer：与控制流模式同一组件与发送路径，
                           发送后新事件追加到时间线（executionData 由会话事件驱动）。 */}

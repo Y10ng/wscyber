@@ -53,6 +53,8 @@ interface TimelineProps {
   onViewFinding: (findingId: string) => void
   /** 本任务各会话待审批审批行（App 由 useGuardrailReviews 聚合传入）。 */
   onResolveApproval: (approval: ExecutionApproval, approve: boolean) => Promise<void>
+  /** 顶栏“待审批 N”点击信号：递增后滚到第一条置顶待审批卡。 */
+  focusPendingTick?: number
 }
 
 interface HeaderProps {
@@ -625,7 +627,7 @@ function PendingApprovalCard({ approval, onResolve, busy }: {
     try { await onResolve(approval, approve) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } finally { submitting.current = false }
   }
   return (
-    <div data-approval-id={approval.id} data-approval-state="pending" className="shrink-0 border-b border-warning/30 bg-warning/5 px-3 py-2">
+    <div data-approval-id={approval.id} data-approval-state="pending" tabIndex={-1} className="shrink-0 border-b border-warning/30 bg-warning/5 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-warning/50">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
         <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
         <span className="shrink-0 font-medium text-warning">{t('webapi.execApprovalPendingCard')}</span>
@@ -670,19 +672,22 @@ function ApprovalRow({ approval }: { approval: ExecutionApproval }) {
       <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{time ? clockOf(time) : ''}</span>
       <span className="webapi-exec-dur-col text-right font-mono text-[12px] tabular-nums text-muted-foreground" />
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 truncate text-[13px] text-foreground">
+      <span className="min-w-0 truncate text-[13px] text-foreground" title={approval.summary || undefined}>
         <span className={cn('font-medium', approvalTone(approval.state))}>{t(APPROVAL_STATE_KEYS[approval.state])}</span>
         {approval.toolName && <span className="ml-1.5 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">{approval.toolName}</span>}
         {approval.summary && <span className="ml-1.5 font-mono text-muted-foreground" title={approval.summary}>{approval.summary}</span>}
       </span>
-      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[12px]" />
+      {/* 审批记录的终态说明（如“Hub 重启，调用已中断”“超时未处理，视为拒绝”）。 */}
+      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[12px]">
+        {approval.statusReason && <span className="truncate text-[11px] text-muted-foreground" title={approval.statusReason}>{approval.statusReason}</span>}
+      </span>
     </div>
   )
 }
 
 // ── 主组件：三栏 / 堆叠 ────────────────────────────────────────────────────
 
-export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, onViewFinding, onResolveApproval }: TimelineProps) {
+export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, onViewFinding, onResolveApproval, focusPendingTick = 0 }: TimelineProps) {
   const { t } = useTranslation('chat')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -695,6 +700,19 @@ export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, 
   const pinnedRef = useRef(true)
   const prevCountRef = useRef(data.entries.length)
   const turnRefs = useRef(new Map<string, HTMLDivElement>())
+  const pendingSectionRef = useRef<HTMLDivElement>(null)
+  const handledFocusTickRef = useRef(0)
+
+  // 顶栏徽标点击（focusPendingTick 递增）：定位第一条待审批卡。挂起列表可能晚于
+  // 信号到达（记录轮询），在 pending 数量变化时重试一次。
+  useEffect(() => {
+    if (!focusPendingTick || focusPendingTick === handledFocusTickRef.current) return
+    const el = pendingSectionRef.current?.querySelector<HTMLElement>('[data-approval-state="pending"]')
+    if (!el) return
+    handledFocusTickRef.current = focusPendingTick
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.focus({ preventScroll: true })
+  }, [focusPendingTick, data.pendingApprovals.length])
 
   // 视口 <1024 用 Sheet，≥1024 用右栏/行内详情；跨断点时关闭 Sheet。
   useEffect(() => {
@@ -855,8 +873,11 @@ export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, 
     const entry = item.entry
     const icon = entryIcon(entry)
     const Icon = icon
-    const approvalOutcome = entry.callId ? terminalApprovalByCall.get(entry.callId) : undefined
-    const status = approvalOutcome && entry.biz?.kind === 'http'
+    // 已批准的调用会实际执行，工具条目照常显示结果（→ 200）；只有拒绝/超时/取消
+    // 的调用未发送，才用审批结果覆盖状态。已批准事件另有审批行显示终态。
+    const callOutcome = entry.callId ? terminalApprovalByCall.get(entry.callId) : undefined
+    const approvalOutcome = callOutcome && callOutcome.state !== 'approved' ? callOutcome : undefined
+    const status = approvalOutcome
       ? { ...approvalOutcomePart(approvalOutcome, t), pending: false }
       : entryStatus(entry, t)
     const selectedEntry = selectedId === entry.id
@@ -927,7 +948,7 @@ export default function WebApiExecutionTimeline({ data, taskId, onViewEvidence, 
     <div className="webapi-exec flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* 置顶待审批卡：本任务各会话的 live pending，可直接批准/拒绝。 */}
       {data.pendingApprovals.length > 0 && (
-        <div className="flex shrink-0 flex-col">
+        <div ref={pendingSectionRef} className="flex shrink-0 flex-col">
           {data.pendingApprovals.map((approval) => (
             <PendingApprovalCard
               key={approval.eventId}

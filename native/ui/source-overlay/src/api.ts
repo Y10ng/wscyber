@@ -2831,3 +2831,78 @@ export async function listWebApiAudit(params: {
   const suffix = query.toString()
   return apiJSON<WebApiAuditList>(`/api/webapi/audit${suffix ? `?${suffix}` : ''}`, 'Failed to load audit log')
 }
+
+// --- 审批记录（R2，只读）：GET /tasks/{id}/approvals 与 /approvals，契约 native/POLICY.md ---
+// 审批的权威记录；live 挂起只能经 guardrail Pending/Resolve 处理，这里仅取数与展示。
+export type WebApiApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled'
+
+export interface WebApiApproval {
+  id: string
+  operation_id: string
+  task_id: string
+  session_id: string
+  parent_session_id: string
+  /** Resolve 应使用的会话：子 Agent 为父研究会话，否则同 session_id。 */
+  review_session_id: string
+  turn_id: string
+  call_id: string
+  tool: string
+  summary: string
+  reason: string
+  status: WebApiApprovalStatus
+  decided_by: '' | 'user' | 'system'
+  status_reason: string
+  created_at: string
+  expires_at: string
+  decided_at: string | null
+  /** pending 且仍在本进程挂起（可经 guardrail Resolve 处理）。 */
+  actionable: boolean
+}
+
+export interface WebApiApprovalList {
+  items: WebApiApproval[]
+  /** 同一 task_id/session_id 范围内 status=pending 的总数（不受 status 过滤与分页影响）。 */
+  pending_count: number
+  has_more: boolean
+  next_cursor: string | null
+}
+
+export async function listWebApiTaskApprovals(taskId: string, params: {
+  session_id?: string
+  status?: WebApiApprovalStatus
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiApprovalList> {
+  const query = new URLSearchParams()
+  if (params.session_id) query.set('session_id', params.session_id)
+  if (params.status) query.set('status', params.status)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiApprovalList>(
+    `/api/webapi/tasks/${encodeURIComponent(taskId)}/approvals${suffix ? `?${suffix}` : ''}`,
+    'Failed to load approval records',
+    { cache: 'no-store' },
+  )
+}
+
+export async function listWebApiApprovals(params: {
+  task_id?: string
+  session_id?: string
+  status?: WebApiApprovalStatus
+  limit?: number
+  cursor?: string
+} = {}): Promise<WebApiApprovalList> {
+  const query = new URLSearchParams()
+  if (params.task_id) query.set('task_id', params.task_id)
+  if (params.session_id) query.set('session_id', params.session_id)
+  if (params.status) query.set('status', params.status)
+  if (params.limit) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const suffix = query.toString()
+  return apiJSON<WebApiApprovalList>(
+    `/api/webapi/approvals${suffix ? `?${suffix}` : ''}`,
+    'Failed to load approval records',
+    { cache: 'no-store' },
+  )
+}

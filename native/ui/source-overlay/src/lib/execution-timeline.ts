@@ -93,6 +93,8 @@ export interface ExecutionApproval {
   id: string
   eventId: string
   sessionId: string
+  /** Resolve 应使用的会话（审批记录 review_session_id；子 Agent 为父会话）。 */
+  reviewSessionId?: string
   turnId: string
   state: 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled'
   /** pending=true 时可批准/拒绝（App 转发 guardrails.resolve）。 */
@@ -110,10 +112,31 @@ export interface ExecutionApproval {
   expiresAt?: number
   /** 终态事件时间。 */
   resolvedAt?: number
+  /** 审批记录里的终态说明（如“Hub 重启，调用已中断”）。 */
+  statusReason?: string
   /** 所属轮次键（与时间线条目同口径 `${sessionId}:${turnId || 'session'}`）。 */
   turnKey: string
   /** 并入时间线流排序的时间戳（终态事件时间；live pending 为挂起事件时间或 0）。 */
   timestamp: number
+}
+
+/** 审批记录接口（R2）中本视图用到的字段；与 api.ts 的 WebApiApproval 同形。 */
+export interface ExecutionApprovalRecord {
+  operation_id: string
+  session_id: string
+  parent_session_id: string
+  review_session_id: string
+  turn_id: string
+  call_id: string
+  tool: string
+  summary: string
+  reason: string
+  status: ExecutionApproval['state']
+  status_reason: string
+  created_at: string
+  expires_at: string
+  decided_at: string | null
+  actionable: boolean
 }
 
 export interface ExecutionTimelineData {
@@ -232,10 +255,27 @@ function clipCommand(command: string): string {
   return command.length > 120 ? `${command.slice(0, 120)}…` : command
 }
 
-function buildApprovals(events: readonly AOPEvent[], pendingReviews: readonly Review[], connected: boolean): {
+function recordMs(value: string | null | undefined): number | undefined {
+  if (!value) return undefined
+  const ms = Date.parse(value)
+  return Number.isNaN(ms) ? undefined : ms
+}
+
+// pendingReviews 由 App 先按当前任务的审批记录过滤；records 是同一任务的权威
+// 审批记录，用来给 AOP 事件无法确定终态的挂起行补全（Hub 重启取消等没有终态事件）。
+function buildApprovals(
+  events: readonly AOPEvent[],
+  pendingReviews: readonly Review[],
+  connected: boolean,
+  records: readonly ExecutionApprovalRecord[],
+): {
   approvals: ExecutionApproval[]
   pendingApprovals: ExecutionApproval[]
 } {
+  const recordByOperation = new Map<string, ExecutionApprovalRecord>()
+  for (const record of records) {
+    if (record.operation_id) recordByOperation.set(record.operation_id, record)
+  }
   const byOperation = new Map<string, { event: AOPEvent; review: Review }>()
   for (const event of events) {
     const review = decodeReview(event)
@@ -251,15 +291,19 @@ function buildApprovals(events: readonly AOPEvent[], pendingReviews: readonly Re
   }
   const approvals: ExecutionApproval[] = []
   const liveKeys = new Set<string>()
+  const covered = new Set<string>()
   for (const review of pendingReviews) {
     const id = review.operation?.operationId
     if (!id || review.state !== ReviewState.PENDING) continue
     liveKeys.add(id)
     const existing = byOperation.get(id)
+    const record = recordByOperation.get(id)
+    if (record) covered.add(id)
     approvals.push({
       id,
       eventId: existing ? `guardrail:${id}` : `pending:${id}`,
       sessionId: review.sessionId || existing?.event.sessionId || '',
+      reviewSessionId: record?.review_session_id || review.sessionId || undefined,
       turnId: existing?.event.turnId || '',
       turnKey: existing ? `${existing.event.sessionId}:${existing.event.turnId || 'session'}` : '',
       timestamp: existing ? eventMs(existing.event) : 0,
@@ -271,17 +315,46 @@ function buildApprovals(events: readonly AOPEvent[], pendingReviews: readonly Re
       summary: approvalSummary(review),
       reason: review.decision?.reason || existing?.review.decision?.reason || undefined,
       expiresAt: review.expiresAt ? timestampDate(review.expiresAt).getTime() : undefined,
+      statusReason: undefined,
     })
   }
   for (const [id, { event, review }] of byOperation) {
-    const state = reviewStateOf(review)
+    let state = reviewStateOf(review)
     if (!state) continue
-    if (liveKeys.has(id) && state === 'pending') continue // live 行已覆盖
-    if (state === 'pending' && !liveKeys.has(id)) continue // 挂起已过期/被处理，事件未到
+    if (liveKeys.has(id)) continue // live 行已覆盖
+    const record = recordByOperation.get(id)
+    if (record) covered.add(id)
+    if (state === 'pending') {
+      // 事件历史里只有挂起、没有终态：以审批记录补全终态与说明；记录也仍挂起的
+      // 行交给 live pending（不可操作的历史挂起不显示）。
+      if (!record || record.status === 'pending') continue
+      const decided = recordMs(record.decided_at)
+      approvals.push({
+        id,
+        eventId: `record:${id}`,
+        sessionId: event.sessionId,
+        reviewSessionId: record.review_session_id || event.sessionId,
+        turnId: event.turnId,
+        turnKey: `${event.sessionId}:${event.turnId || 'session'}`,
+        timestamp: decided ?? eventMs(event),
+        state: record.status,
+        actionable: false,
+        unavailable: false,
+        toolName: review.call?.name || record.tool,
+        callId: review.call?.id || review.operation?.callId || record.call_id || undefined,
+        summary: approvalSummary(review) || record.summary,
+        reason: review.decision?.reason || record.reason || undefined,
+        expiresAt: recordMs(record.expires_at),
+        resolvedAt: decided,
+        statusReason: record.status_reason || undefined,
+      })
+      continue
+    }
     approvals.push({
       id,
       eventId: `guardrail:${id}`,
       sessionId: event.sessionId,
+      reviewSessionId: record?.review_session_id || event.sessionId,
       turnId: event.turnId,
       turnKey: `${event.sessionId}:${event.turnId || 'session'}`,
       timestamp: eventMs(event),
@@ -292,7 +365,35 @@ function buildApprovals(events: readonly AOPEvent[], pendingReviews: readonly Re
       callId: review.call?.id || review.operation?.callId || undefined,
       summary: approvalSummary(review),
       reason: review.decision?.reason || undefined,
-      resolvedAt: state === 'pending' ? undefined : eventMs(event),
+      resolvedAt: eventMs(event),
+      statusReason: record?.status_reason || undefined,
+    })
+  }
+  // 记录有终态、但 AOP 事件里完全没有对应行（事件未加载/被截断）：只补当前事件流
+  // 所属会话，避免把同任务其它会话的审批混进本会话时间线。
+  const eventSessions = new Set(events.map((event) => event.sessionId))
+  for (const [id, record] of recordByOperation) {
+    if (covered.has(id) || liveKeys.has(id) || record.status === 'pending') continue
+    if (!eventSessions.has(record.session_id)) continue
+    const decided = recordMs(record.decided_at)
+    approvals.push({
+      id,
+      eventId: `record:${id}`,
+      sessionId: record.session_id,
+      reviewSessionId: record.review_session_id || record.session_id,
+      turnId: record.turn_id,
+      turnKey: `${record.session_id}:${record.turn_id || 'session'}`,
+      timestamp: decided ?? recordMs(record.created_at) ?? 0,
+      state: record.status,
+      actionable: false,
+      unavailable: false,
+      toolName: record.tool,
+      callId: record.call_id || undefined,
+      summary: record.summary,
+      reason: record.reason || undefined,
+      expiresAt: recordMs(record.expires_at),
+      resolvedAt: decided,
+      statusReason: record.status_reason || undefined,
     })
   }
   approvals.sort((left, right) => {
@@ -392,7 +493,12 @@ function usageFromProto(usage: {
 // events → 条目：单趟遍历（时间有序、按 sessionId+id/seq 去重），工具调用与结果按
 // `${sessionId}:${turnId}:tool:${callId}` 配对；消息 delta 与完整 message 按 messageId
 // 合并（完整覆盖 delta）；usage 按 turn 累计挂到该轮最后一条模型消息。
-export function buildExecutionTimeline(source: readonly AOPEvent[], pendingReviews: readonly Review[] = [], connected = true): ExecutionTimelineData {
+export function buildExecutionTimeline(
+  source: readonly AOPEvent[],
+  pendingReviews: readonly Review[] = [],
+  connected = true,
+  approvalRecords: readonly ExecutionApprovalRecord[] = [],
+): ExecutionTimelineData {
   const events = runtimeEvents(source)
   const entries: ExecutionEntry[] = []
   const toolByKey = new Map<string, ExecutionEntry>()
@@ -538,6 +644,6 @@ export function buildExecutionTimeline(source: readonly AOPEvent[], pendingRevie
     turns,
     turnByKey,
     summary: { modelCount, toolCount, httpCount, bizCount },
-    ...buildApprovals(events, pendingReviews, connected),
+    ...buildApprovals(events, pendingReviews, connected, approvalRecords),
   }
 }
