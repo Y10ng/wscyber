@@ -25,6 +25,17 @@ export function usageRoleLabelKey(role: string): string {
 }
 
 // 状态色配文字（同 evidence 面板 tone 写法）：研究蓝 / 验证绿 / 报告琥珀 / 复测紫。
+/** 角色标签：圆点 + 角色色文字（角色列可读性；比纯文字色更易扫读）。 */
+export function UsageRoleBadge({ role }: { role: string }) {
+  const { t } = useTranslation('chat')
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium', usageRoleTone(role))}>
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      {t(usageRoleLabelKey(role))}
+    </span>
+  )
+}
+
 export function usageRoleTone(role: string): string {
   if (role === 'research') return 'text-blue-600 dark:text-blue-400'
   if (role === 'verification') return 'text-emerald-600 dark:text-emerald-400'

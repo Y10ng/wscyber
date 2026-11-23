@@ -26,7 +26,7 @@ import {
 import WebApiEvidenceImageDialog from './WebApiEvidenceImageDialog'
 import HttpPairBlock, { requestTargetText } from './HttpPairBlock'
 import { decodeEvidenceFlow } from './WebApiEvidenceReference'
-import { AuthzHintBadge } from './ui-badges'
+import { AuthzHintBadge, OracleNumber } from './ui-badges'
 
 interface Props {
   task: WebApiTask
@@ -136,7 +136,7 @@ function SubagentSourceTag({ number }: { number: string }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="ws-st-badge shrink-0 bg-slate-100 px-1.5 text-[10.5px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {t('webapi.subagentTrafficTag', { number })}
+          {t('webapi.subagentTrafficTag')} <OracleNumber number={number} />
         </span>
       </TooltipTrigger>
       <TooltipContent>{t('webapi.subagentTrafficTooltip')}</TooltipContent>

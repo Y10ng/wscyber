@@ -43,6 +43,7 @@ import {
 import { usePolling } from '../hooks/usePolling'
 import { FilterPills, type FilterPillItem } from './PageFrame'
 import { formatTime } from './WebApiEvidenceReference'
+import { OracleNumber } from './ui-badges'
 import { formatShortDateTime } from '../lib/time'
 import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 import './WebApiBoardPanel.css'
@@ -627,10 +628,10 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                         <button
                           type="button"
                           onClick={() => revealOracle(oracle.number)}
-                          className="shrink-0 font-mono text-[11px] tabular-nums text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          className="shrink-0 text-[11px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           title={oracle.number}
                         >
-                          {oracle.number}
+                          <OracleNumber number={oracle.number} />
                         </button>
                       ) : (
                         <span className="shrink-0 font-mono text-[11px] text-muted-foreground">—</span>
@@ -703,7 +704,7 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                           )}
                         >
                           <span className="flex w-full min-w-0 items-center gap-2">
-                            <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{oracle.number}</span>
+                            <OracleNumber number={oracle.number} className="shrink-0 text-[12px] text-muted-foreground" />
                             <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', PRIORITY_DOT[oracle.priority])} title={t(PRIORITY_LABEL_KEYS[oracle.priority])} />
                             <span className="board-question-clamp min-w-0 flex-1 text-[13px] leading-[1.4] text-foreground" title={oracle.question}>{oracle.question}</span>
                           </span>
@@ -744,7 +745,7 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                     <ChevronLeft className="h-3.5 w-3.5" />
                     {t('board.backToList')}
                   </Button>
-                  {selectedOracle && <span className="font-mono text-[12px] font-semibold tabular-nums text-foreground">{selectedOracle.number}</span>}
+                  {selectedOracle && <OracleNumber number={selectedOracle.number} className="text-[12px] font-semibold text-foreground" />}
                   {selectedOracle && (
                     <div className="ml-auto flex shrink-0 items-center gap-1.5">
                       <Select
@@ -1012,9 +1013,9 @@ export default function WebApiBoardPanel({ task, onViewFinding, onViewEvidence, 
                                   key={number}
                                   type="button"
                                   onClick={() => revealOracle(number)}
-                                  className="font-mono text-[11px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                  className="text-[11px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                                 >
-                                  {number}
+                                  <OracleNumber number={number} />
                                 </button>
                               ))}
                               {endpoint.oracles.length > 3 && <span className="text-[10px] text-muted-foreground">+{endpoint.oracles.length - 3}</span>}

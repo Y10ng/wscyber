@@ -20,6 +20,7 @@ import WebApiVerificationSection, { type StartVerification } from './WebApiVerif
 import WebApiRetestSection, { type StartRetest } from './WebApiRetest'
 import type { VerificationLaunchView, RetestLaunchView } from '../hooks/useChatSession'
 import { buildFindingDraft } from '../lib/finding-draft'
+import { OracleNumber } from './ui-badges'
 import './WebApiFindingsPanel.css'
 
 interface Props {
@@ -534,7 +535,7 @@ function FindingDetailBody({
               <span className="text-[12px] text-muted-foreground">{t('webapi.findingStatus_candidate')}</span>
               {subagentNumber && (
                 <span className="ws-st-badge shrink-0 bg-slate-100 text-[10.5px] text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={t('webapi.findingSourceSubagentNote')}>
-                  {t('webapi.findingSourceSubagent', { number: subagentNumber })}
+                  {t('webapi.findingSourceSubagent')} <OracleNumber number={subagentNumber} />
                 </span>
               )}
               <span className="ml-auto shrink-0">

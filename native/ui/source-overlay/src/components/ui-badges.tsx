@@ -24,6 +24,22 @@ const STATUS_CLASS: Record<WebApiVulnStatus, { className: string; labelKey: stri
   fixed: { className: 'ws-st-fixed', labelKey: 'webapi.vulnStatusFixed' },
 }
 
+/**
+ * Oracle 编号（O-NNN）：等宽字体里的 O 与数字 0 极易混淆。
+ * 前缀（O-）用正文字体、序号用等宽 tabular 数字，全站 Oracle 编号统一走这里。
+ * 无法解析的编号原样显示，不猜格式。
+ */
+export function OracleNumber({ number, className }: { number: string; className?: string }) {
+  const match = /^([A-Za-z]-)(\d.*)$/.exec(number)
+  if (!match) return <span className={cn('tabular-nums', className)}>{number}</span>
+  return (
+    <span className={cn('whitespace-nowrap tabular-nums', className)}>
+      <span className="font-sans">{match[1]}</span>
+      <span className="font-mono">{match[2]}</span>
+    </span>
+  )
+}
+
 export function StatusBadge({ status, className }: { status: WebApiVulnStatus; className?: string }) {
   const { t } = useTranslation('chat')
   const meta = STATUS_CLASS[status] || STATUS_CLASS.new

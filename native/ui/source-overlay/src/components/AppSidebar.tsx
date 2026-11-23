@@ -59,6 +59,10 @@ interface AppSidebarProps {
   open: boolean
   collapsed: boolean
   page: AppPage
+  /** 导航高亮用的页面；缺省同 page（任务工作区里 App 传 tasks）。 */
+  activePage?: AppPage
+  /** 外部数据变化信号（如任务归档）：变化时立即重取导航计数。 */
+  countsRevision?: number
   webapiEnabled: boolean
   agents: AgentView[]
   services: HubServices
@@ -87,7 +91,7 @@ interface AppSidebarProps {
  * 移动端为抽屉（<768px），由页面页头菜单按钮打开。
  */
 export default function AppSidebar({
-  open, collapsed, page, webapiEnabled, agents, services,
+  open, collapsed, page, activePage, countsRevision = 0, webapiEnabled, agents, services,
   llmProfiles, activeLLMProfile, fallbackModel, switchingLLM, onSwitchLLM,
   serverURL, version, connectionProfiles,
   pendingApprovalItems, approvalsRequested, onApprovalsRequestedConsumed, onResolvePending, onViewSession,
@@ -127,7 +131,7 @@ export default function AppSidebar({
     }
   }, [webapiEnabled])
 
-  useEffect(() => { void loadCounts() }, [loadCounts, page])
+  useEffect(() => { void loadCounts() }, [loadCounts, page, countsRevision])
 
   // 从工作区返回时导航计数可能已变化：在离开工作区后由 page 变化触发；同一页内
   // 的刷新（新建任务等）由侧栏本身低频重取兜底。
@@ -214,9 +218,9 @@ export default function AppSidebar({
 
         <nav aria-label={t('shell.navLabel')} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           <NavGroup title={t('shell.groupOperations')} items={operationsNav} collapsed={rail}
-            activePage={page} countOf={countOf} vulnNew={vulnCounts?.new ?? 0} onNavigate={onNavigate} />
+            activePage={activePage ?? page} countOf={countOf} vulnNew={vulnCounts?.new ?? 0} onNavigate={onNavigate} />
           <NavGroup title={t('shell.groupConfig')} items={configNav} collapsed={rail}
-            activePage={page} countOf={countOf} vulnNew={vulnCounts?.new ?? 0} onNavigate={onNavigate} />
+            activePage={activePage ?? page} countOf={countOf} vulnNew={vulnCounts?.new ?? 0} onNavigate={onNavigate} />
         </nav>
 
         {/* 底部：原生工具图标行（弱化）→ 待审批整行警示卡 → 主题 · 中/EN · 退出 */}

@@ -147,6 +147,28 @@ export default function WebApiReportsPanel({ task, onStartReport, onViewExecutio
   }, [detail, task.id])
   usePolling(refreshDetailQuiet, 8000, !!detail && !detail.has_draft)
 
+  // 列表摘要静默刷新：报告会话写入草稿后，列表里的标题与 has_draft 都会变。
+  // 原实现只在选中详情且尚无草稿时合并；未选中/详情已带草稿时列表会一直停在
+  // “未命名报告”，要重进才恢复。这里只合并摘要字段，不动已加载的分页。
+  const refreshListQuiet = useCallback(async () => {
+    try {
+      const result = await listWebApiReports(task.id, 25)
+      setItems((prev) => {
+        let changed = false
+        const next = prev.map((item) => {
+          const fresh = result.items.find((row) => row.report_id === item.report_id)
+          if (!fresh) return item
+          if (fresh.has_draft === item.has_draft && (fresh.title ?? '') === (item.title ?? '')) return item
+          changed = true
+          return { ...item, has_draft: fresh.has_draft, title: fresh.title }
+        })
+        return changed ? next : prev
+      })
+    } catch { /* 静默失败；下一轮再试 */ }
+  }, [task.id])
+  const hasPendingTitles = items.some((item) => !item.title?.trim())
+  usePolling(refreshListQuiet, 8000, hasPendingTitles)
+
   // 切任务/卸载使 seq 失效并清空，迟到响应不再写状态。
   useEffect(() => {
     listSeq.current++

@@ -1,29 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@cyber/ui'
 import {
   getWebApiFinding,
   getWebApiReport,
+  getWebApiReportBySession,
+  getWebApiRetestBySession,
   getWebApiUsage,
+  getWebApiVerificationBySession,
+  listWebApiSubsessions,
   type WebApiTask,
   type WebApiUsageReport,
 } from '../api'
 import {
   UsageCompactTable,
+  UsageRoleBadge,
   UsageTotalsRow,
   compactRowFrom,
-  usageRoleLabelKey,
-  usageRoleTone,
   formatUsageTokens,
 } from './WebApiUsageShared'
-import { cn } from '@cyber/theme'
 
 interface Props {
   task: WebApiTask
   /** 行点击 → 跳到该会话执行视图（沿用「查看执行」跳转方式）。 */
   onViewExecution: (sessionID: string) => void
 }
+
+// 角色固定顺序：研究 → 子 Agent → 验证 → 报告 → 复测。
+const ROLE_ORDER: Record<string, number> = { research: 0, subagent: 1, verification: 2, report: 3, retest: 4 }
 
 // 任务「用量」视图：合计一行 + 按会话表 +（按模型 / 按日期 并排小表）。
 // 只读，进入视图与手动刷新时加载；不轮询。不显示费用（无价格依据）。
@@ -33,8 +38,11 @@ export default function WebApiUsagePanel({ task, onViewExecution }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [links, setLinks] = useState<Record<string, string>>({})
+  // 按会话表的时间序：接口只给会话/角色/用量，这里只读反查各会话创建时间。
+  const [sessionTimes, setSessionTimes] = useState<Record<string, string>>({})
   const seq = useRef(0)
   const linkSeq = useRef(0)
+  const timeSeq = useRef(0)
 
   const load = useCallback(async () => {
     const current = ++seq.current
@@ -60,8 +68,9 @@ export default function WebApiUsagePanel({ task, onViewExecution }: Props) {
     setReport(null)
     setError('')
     setLinks({})
+    setSessionTimes({})
     void load()
-    return () => { seq.current++; linkSeq.current++ }
+    return () => { seq.current++; linkSeq.current++; timeSeq.current++ }
   }, [load])
 
   // 「关联」列：验证/复测行显示候选编号（WSC-xxxx），报告行显示报告草稿标题；
@@ -95,7 +104,52 @@ export default function WebApiUsagePanel({ task, onViewExecution }: Props) {
     })()
   }, [report, task.id])
 
-  const sessions = report?.by_session ?? []
+  // 同角色按时间排序所需：研究会话用任务创建时间，子 Agent 用 /subsessions.created_at，
+  // 验证/复测/报告按会话反查。失败或缺字段时不写入，排序回退到接口顺序。
+  useEffect(() => {
+    if (!report?.by_session) { setSessionTimes({}); return }
+    const current = ++timeSeq.current
+    const times: Record<string, string> = {}
+    const list = report.by_session
+    for (const session of list) {
+      if (session.role === 'research' && session.session_id === task.initial_session_id) times[session.session_id] = task.created_at
+    }
+    void (async () => {
+      const direct = await Promise.all(list.map(async (session) => {
+        try {
+          if (session.role === 'verification') return [session.session_id, (await getWebApiVerificationBySession(session.session_id)).created_at] as const
+          if (session.role === 'retest') return [session.session_id, (await getWebApiRetestBySession(session.session_id)).created_at] as const
+          if (session.role === 'report') return [session.session_id, (await getWebApiReportBySession(session.session_id)).created_at] as const
+        } catch { /* 反查失败不阻塞排序 */ }
+        return null
+      }))
+      for (const entry of direct) if (entry) times[entry[0]] = entry[1]
+      if (list.some((session) => session.role === 'subagent')) {
+        try {
+          const subs = await listWebApiSubsessions(task.id)
+          for (const sub of subs.items) times[sub.session_id] = sub.created_at
+        } catch { /* 同上 */ }
+      }
+      if (current !== timeSeq.current) return
+      setSessionTimes(times)
+    })()
+  }, [report, task.id, task.initial_session_id, task.created_at])
+
+  // 角色固定顺序：研究 → 子 Agent → 验证 → 报告 → 复测；同角色按创建时间升序。
+  const sessions = useMemo(() => {
+    const list = report?.by_session ?? []
+    return [...list].sort((a, b) => {
+      const orderA = ROLE_ORDER[a.role] ?? 99
+      const orderB = ROLE_ORDER[b.role] ?? 99
+      if (orderA !== orderB) return orderA - orderB
+      const timeA = sessionTimes[a.session_id]
+      const timeB = sessionTimes[b.session_id]
+      if (timeA && timeB && timeA !== timeB) return timeA < timeB ? -1 : 1
+      if (timeA && !timeB) return -1
+      if (!timeA && timeB) return 1
+      return 0
+    })
+  }, [report, sessionTimes])
   const models = report?.by_model ?? []
   const days = report?.by_day ?? []
   const empty = !!report && report.totals.calls === 0 && sessions.length === 0 && models.length === 0 && days.length === 0
@@ -150,8 +204,8 @@ export default function WebApiUsagePanel({ task, onViewExecution }: Props) {
                         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onViewExecution(session.session_id) } }}
                         className="h-[30px] cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
                       >
-                        <td className={cn('border-b border-border/40 px-2 text-[12px]', usageRoleTone(session.role))}>
-                          {t(usageRoleLabelKey(session.role))}
+                        <td className="border-b border-border/40 px-2">
+                          <UsageRoleBadge role={session.role} />
                         </td>
                         <td className="max-w-0 truncate border-b border-border/40 px-2 font-mono text-[12px] text-foreground" title={related || undefined}>
                           {related || '—'}

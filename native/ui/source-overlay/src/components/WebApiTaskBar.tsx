@@ -119,7 +119,8 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
   }
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-background px-3">
+    <div className="flex shrink-0 flex-col overflow-hidden border-b border-border bg-background sm:h-12 sm:flex-row sm:items-center sm:gap-2 sm:px-3">
+      <div className="flex min-w-0 items-center gap-2 px-3 pt-2 sm:flex-1 sm:px-0 sm:pt-0">
       <Button
         type="button"
         variant="ghost"
@@ -139,14 +140,14 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
             size="xs"
             onClick={() => onOpenAsset(task.asset!.id)}
             title={task.asset.name}
-            className="h-6 shrink-0 gap-1 px-1.5 text-[12px]"
+            className="hidden h-6 shrink-0 gap-1 px-1.5 text-[12px] sm:inline-flex"
           >
             <Boxes className="h-3 w-3" />
             <span className="max-w-[8rem] truncate">{task.asset.name.length > 12 ? `${task.asset.name.slice(0, 12)}…` : task.asset.name}</span>
           </Button>
         )}
         <Globe className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <span className="min-w-0 truncate text-[13px] font-medium text-foreground" title={summary}>{task.objective}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground" title={summary}>{task.objective}</span>
         <span className="hidden shrink-0 items-center gap-1 text-muted-foreground sm:flex">
           <ShieldCheck className="h-3 w-3 shrink-0" />
           {task.origins.map((origin) => (
@@ -162,7 +163,7 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
               className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <Compass className="h-3 w-3 shrink-0" aria-hidden="true" />
-              <span>{scenarioName}</span>
+              <span className="hidden sm:inline">{scenarioName}</span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-[min(22.5rem,calc(100vw-2rem))] rounded-lg border border-border p-0 shadow-md">
@@ -193,7 +194,7 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
               )}
             >
               <PolicyIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
-              <span>{summaryView.text}</span>
+              <span className="hidden sm:inline">{summaryView.text}</span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-[min(22.5rem,calc(100vw-2rem))] rounded-lg border border-border p-0 shadow-md">
@@ -235,8 +236,10 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
           </PopoverContent>
         </Popover>
       </div>
-      {/* 视图页签：执行 / 流量 / 候选 / 报告 / 用量（原左侧任务导航列）。 */}
-      <div role="group" aria-label={t('webapi.taskNav')} className="flex shrink-0 items-center gap-0.5 overflow-x-auto rounded-md border border-border/60 p-0.5">
+      </div>
+      {/* 视图页签：执行 / 流量 / 候选 / 报告 / 用量（原左侧任务导航列）。
+          窄屏单独一行、横向滚动；sm 起回到右侧单行。 */}
+      <div role="group" aria-label={t('webapi.taskNav')} className="mt-1.5 flex w-full shrink-0 items-center gap-0.5 overflow-x-auto px-3 pb-2 sm:mt-0 sm:w-auto sm:rounded-md sm:border sm:border-border/60 sm:p-0.5">
         {VIEW_TABS.map((item) => {
           const active = view === item.view
           const count = item.countKey ? counts[item.countKey] : null

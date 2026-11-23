@@ -102,6 +102,9 @@ export default function VulnsPage({
   const [severity, setSeverity] = useState<SeverityFilter>('')
   const [disposition, setDisposition] = useState<DispositionFilter>('')
   const [overdueOnly, setOverdueOnly] = useState(false)
+  // 总览“待定级”专用模式：后端 status 只收单值，用 severity=none + disposition=open,fixing
+  // 请求，再在前端只保留 new/present（即“未修复且未定级”）。
+  const [unratedOnly, setUnratedOnly] = useState(false)
   const [assetId, setAssetId] = useState('')
   const [assets, setAssets] = useState<WebApiAsset[]>([])
   const [assetError, setAssetError] = useState('')
@@ -133,13 +136,14 @@ export default function VulnsPage({
     onOverdueRequestedConsumed?.()
   }, [overdueRequested, onOverdueRequestedConsumed])
 
-  // 总览“待定级”跳转：清空其他筛选，只保留严重度=未定级。
+  // 总览“待定级”跳转：清空其他筛选，只保留“未修复且未定级”。
   useEffect(() => {
     if (!unratedRequested) return
     setFilter('all')
     setDisposition('')
     setOverdueOnly(false)
     setSeverity('none')
+    setUnratedOnly(true)
     onUnratedRequestedConsumed?.()
   }, [unratedRequested, onUnratedRequestedConsumed])
 
@@ -167,9 +171,9 @@ export default function VulnsPage({
     }
     try {
       const data = await listWebApiGlobalVulns({
-        status: filter === 'all' ? undefined : filter,
-        severity: severity || undefined,
-        disposition: disposition || undefined,
+        status: unratedOnly ? undefined : (filter === 'all' ? undefined : filter),
+        severity: unratedOnly ? 'none' : (severity || undefined),
+        disposition: unratedOnly ? 'open,fixing' : (disposition || undefined),
         overdue: overdueOnly || undefined,
         asset_id: assetId || undefined,
         q: query || undefined,
@@ -177,10 +181,14 @@ export default function VulnsPage({
         cursor: nextCursor,
       })
       if (current !== seq.current) return
+      // 待定级：后端 status 不支持多值，按 new/present 在客户端收窄（口径同总览）。
+      const pageItems = unratedOnly
+        ? data.items.filter((item) => item.status === 'new' || item.status === 'present')
+        : data.items
       cursorRef.current = data.next_cursor
       setHasMore(data.has_more)
       setCounts(data.counts)
-      setItems((prev) => (opts.reset ? data.items : [...prev, ...data.items]))
+      setItems((prev) => (opts.reset ? pageItems : [...prev, ...pageItems]))
       setError('')
     } catch (err) {
       if (current !== seq.current) return
@@ -191,7 +199,7 @@ export default function VulnsPage({
         setLoadingMore(false)
       }
     }
-  }, [webapiEnabled, filter, severity, disposition, overdueOnly, assetId, query])
+  }, [webapiEnabled, filter, severity, disposition, overdueOnly, unratedOnly, assetId, query])
 
   // 条件变化时回到第一页。
   useEffect(() => {
@@ -218,7 +226,7 @@ export default function VulnsPage({
       count: counts[status],
     })),
   ]
-  const filtered = filter !== 'all' || query !== '' || assetId !== '' || severity !== '' || disposition !== '' || overdueOnly
+  const filtered = filter !== 'all' || query !== '' || assetId !== '' || severity !== '' || disposition !== '' || overdueOnly || unratedOnly
 
   const openVuln = (item: WebApiGlobalVuln) => {
     onOpenVuln(item.id)
@@ -234,7 +242,7 @@ export default function VulnsPage({
   useEffect(() => {
     setSelected(new Set())
     setExportError('')
-  }, [filter, severity, disposition, overdueOnly, assetId, query])
+  }, [filter, severity, disposition, overdueOnly, unratedOnly, assetId, query])
 
   const selectedItems = items.filter((item) => selected.has(item.id))
   const allSelected = items.length > 0 && items.every((item) => selected.has(item.id))
@@ -309,11 +317,11 @@ export default function VulnsPage({
         {/* 筛选胶囊 + 右侧 [资产/等级/处置 + 搜索]（设计稿：搜索框最右） */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
-            <FilterPills items={filterItems} value={filter} onChange={setFilter} />
+            <FilterPills items={filterItems} value={filter} onChange={(value) => { setUnratedOnly(false); setFilter(value) }} />
             <button
               type="button"
               aria-pressed={overdueOnly}
-              onClick={() => setOverdueOnly((value) => !value)}
+              onClick={() => { setUnratedOnly(false); setOverdueOnly((value) => !value) }}
               className={cn(
                 'flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                 overdueOnly
@@ -323,6 +331,31 @@ export default function VulnsPage({
             >
               <span>{t('shell.triageOverdue')}</span>
               <span className={cn('tabular', overdueOnly ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{counts.overdue}</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={unratedOnly}
+              title={t('overview.todoUnratedHint')}
+              onClick={() => {
+                if (unratedOnly) {
+                  setUnratedOnly(false)
+                  setSeverity('')
+                  return
+                }
+                setUnratedOnly(true)
+                setFilter('all')
+                setSeverity('none')
+                setDisposition('')
+                setOverdueOnly(false)
+              }}
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                unratedOnly
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <span>{t('overview.todoUnrated')}</span>
             </button>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -339,7 +372,7 @@ export default function VulnsPage({
             </Select>
             <Select
               value={severity || ALL_OPTION}
-              onValueChange={(value) => setSeverity(value === ALL_OPTION ? '' : value as SeverityFilter)}
+              onValueChange={(value) => { setUnratedOnly(false); setSeverity(value === ALL_OPTION ? '' : value as SeverityFilter) }}
             >
               <SelectTrigger aria-label={t('shell.triageSeverityFilter')} className="h-9 w-[132px] shrink-0 bg-card">
                 <SelectValue placeholder={t('shell.triageSeverityAll')} />
@@ -354,7 +387,7 @@ export default function VulnsPage({
             </Select>
             <Select
               value={disposition || ALL_OPTION}
-              onValueChange={(value) => setDisposition(value === ALL_OPTION ? '' : value as DispositionFilter)}
+              onValueChange={(value) => { setUnratedOnly(false); setDisposition(value === ALL_OPTION ? '' : value as DispositionFilter) }}
             >
               <SelectTrigger aria-label={t('shell.triageDispositionFilter')} className="h-9 w-[132px] shrink-0 bg-card">
                 <SelectValue placeholder={t('shell.triageDispositionAll')} />

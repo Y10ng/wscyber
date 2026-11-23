@@ -156,6 +156,8 @@ export default function App({ services }: { services: HubServices }) {
   const [webApiCountsRevision, setWebApiCountsRevision] = useState(0)
   const bumpWebApiCountsRevision = useCallback(() => setWebApiCountsRevision((n) => n + 1), [])
   const [webApiTaskError, setWebApiTaskError] = useState('')
+  // 侧栏导航计数失效信号：任务归档/取消归档成功后 bump，侧栏感知后立即重取。
+  const [sidebarCountsRevision, setSidebarCountsRevision] = useState(0)
   const [activeWebApiVerification, setActiveWebApiVerification] = useState<WebApiVerificationDetail | null>(null)
   const [activeWebApiReport, setActiveWebApiReport] = useState<WebApiReportDetail | null>(null)
   const [activeWebApiRetest, setActiveWebApiRetest] = useState<WebApiRetestDetail | null>(null)
@@ -718,6 +720,8 @@ export default function App({ services }: { services: HubServices }) {
           open={sidebarOpen}
           collapsed={sidebarCollapsed}
           page={page}
+          activePage={workspaceActive ? 'tasks' : page}
+          countsRevision={sidebarCountsRevision}
           webapiEnabled={webapiEnabled}
           agents={chat.agents}
           services={services}
@@ -999,7 +1003,10 @@ export default function App({ services }: { services: HubServices }) {
                   onCreateTask={() => setTaskDialogOpen(true)}
                   onOpenAsset={(assetId) => { setFocusAssetId(assetId); navigate('assets') }}
                   onOpenMenu={() => setSidebarOpen(true)}
-                  onArchive={(id, archived) => chat.updateSession(id, { archived })}
+                  onArchive={async (id, archived) => {
+                    await chat.updateSession(id, { archived })
+                    setSidebarCountsRevision((n) => n + 1)
+                  }}
                 />
               )}
               {page === 'vulns' && (
