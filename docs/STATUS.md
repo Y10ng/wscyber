@@ -100,7 +100,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **平台功能与打磨阶段（进行中，并行）**：**F1 已修（1c40681）**：Profile 的 Load/Close 串行，未加载的 Profile 不计活跃资源，端到端测试 ×20 稳定；**F2 已完成（6ff2ce1）**：工具参数错误逐条指明字段路径（规则不变）、推送并发去重测试固化、审批取消状态统一为 `canceled`；**R2 已完成（d5ae782）**：迁移 0002，审批记录落库（重启遗留 pending→cancelled 并审计）、运营通知登记改表驱动（重启后继续）、按任务/会话过滤的审批记录接口；“执行视图混入其它任务待审批”确认在前端（App.tsx 把全部在线会话的 pending 传给当前任务），待 U2e 后修；**U2e 已完成（f0f4dc1）**：390 顶栏、Oracle 编号字体、用量按角色排序、待定级跳转、审计“全部动作”、报告标题静默刷新、归档计数即时、工作区高亮“任务”；验证时间线复核已撑满无需改。
 
-**P3b 已完成（03181d8），pg-migration 已合回 main（d993f54）**：Hub 两种启动形式都经 `pgschema.Start`，无连接串即失败，单实例锁看门狗；演示环境每次 up 重建 `wscyber_demo`，五个剧本在 PG 上全部通过；主会话演示环境复核（selftest --chain、approval-demo 后总览/漏洞/审计/任务执行视图正常，数据均 tenant=default）。**预览已切到 PG**（`wscyber_preview` 库，全新开始；旧 SQLite 数据随 state 备份在 `var/preview/state.bak-sqlite-*`，旧二进制 `var/wscyber-hub.prev-sqlite`）。
+**P3b 已完成（03181d8），pg-migration 已合回 main（d993f54）**：Hub 两种启动形式都经 `pgschema.Start`，无连接串即失败，单实例锁看门狗；演示环境每次 up 重建 `wscyber_demo`，五个剧本在 PG 上全部通过；主会话演示环境复核（selftest --chain、approval-demo 后总览/漏洞/审计/任务执行视图正常，数据均 tenant=default）。**预览已切到 PG**（11-23 03:10 升级到 fbee7d8，schema 2）（`wscyber_preview` 库，全新开始；旧 SQLite 数据随 state 备份在 `var/preview/state.bak-sqlite-*`，旧二进制 `var/wscyber-hub.prev-sqlite`）。
 
 **D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
 
@@ -111,7 +111,7 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 ## 下一步
 
 1. **（11-22 用户定顺序）先把平台做好，部署更新与登录放后**：P1 ∥ D1（进行中，做完即停部署线）→ P2 → P3（Hub 接 PG，演示全链）→ P4 删 SQLite → **平台功能与打磨**（U2e 走查与小打磨、U2b 遗留缺口、审批状态/运营通知队列持久化到 PG、R1 遗留问题、真实模型验证新能力〔需用户授权〕、E 阶段按需）→ 之后再做 D2–D4 部署更新与 P5–P7 租户/RLS/登录/管理界面。D3 SDL 需接口文档。
-3. 小打磨（U2e 已做大部分）：（F3 已修 ad37396：unrestricted 首条消息按策略写范围）；执行视图混入其它任务待审批（前端，待 U2f 用审批记录接口）。资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
+3. 小打磨（U2e 已做大部分）：（F3 已修 ad37396：unrestricted 首条消息按策略写范围）；（U2f 已修 fbee7d8：执行视图按任务隔离待审批、顶栏“待审批 N”。）资产列表逾期计数、推送记录胶囊计数缺接口数据（UI-C ② 省略）。
 4. D3 SDL（需接口文档）。
 
 已知缺口：B1 审批状态只在节点内存（重启即取消挂起项）；（资产测试账号进入会话首条消息事件的问题已由 M5b 占位符关闭，历史会话不追溯清理）B2 出口为代理强制（可被刻意绕过），浏览器/爬虫已接入（M5c），新增 GPL-3.0、MPL-2.0 与许可不明依赖未做法律评估；终端规则为静态启发式；C2b 后续只在单测与替身中覆盖；无人值守的后续遇高危操作仍走审批，10 分钟超时拒绝（V4 推送待审批缓解）；审计无保留期、无用户名（单 key）。
@@ -122,5 +122,5 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `u2f`（wangsu-ds-flash-latest，待审批按任务隔离与顶栏提示，日志 `var/u2f-approvals/exec.log`）
+- `u2g`（wangsu-ds-flash-latest，普通对话入口与顶栏用量，日志 `var/u2g-chat-sessions/exec.log`）
 
