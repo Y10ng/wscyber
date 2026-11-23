@@ -91,7 +91,9 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **P1 PostgreSQL 基础设施已完成（52ccdf9）**：`native/pgschema`（连接串解析不泄露口令、拒绝超级用户/BYPASSRLS、单实例锁、迁移运行器、启动序列）、`0001_baseline.tx.up.sql`（54 表、tenant_id 默认值/继承触发器、RLS 策略已建未启用、默认租户）、`native/internal/testdb`。（P1 首个会话因额度中断、续跑被安全分类器拦截，按用户选择新会话限定读码范围后重做完成。）记下：`go mod tidy` 因网络未跑完，go.mod 手工整理，网络通时补跑确认；P3 合并 cmd 层 `loadDatabaseURL` 与 `pgschema.ResolveDatabaseURL` 为一份。
 
-**P2 进行中**（`var/p2-native-store/task.md`，o-latest）：上游原生存储三文件 overlay 整文件替换为 PG 版 + 清单哈希保护 + 契约测试。**P2–P3 在分支 `pg-migration` 上做**（P2 后 Hub 暂不可运行），P3 演示全链通过后合回 main；预览与演示期间保持旧二进制。
+**P2 已完成（3d2d7a2，分支 pg-migration）**：overlay 改为清单驱动整文件替换（上游源/派生副本哈希校验）；上游原生存储三文件 PG 版 + `store_pg_identity`（每事务 set_config 身份，无身份＝system+default）；事件/制品游标 advisory lock；排序 `COLLATE "C"` 等价 SQLite 字节序；契约测试 32 个。记下（P5 必须处理）：上游 `events.go` 直接用 `s.store.orm` 查游标、后台一律 `context.Background()`，RLS 启用后与非默认租户会话冲突。
+
+**P3a 进行中**（`var/p3a-webapi-store/task.md`，o-latest）：webapi 存储层迁 PG（读写助手 + 全局写锁复现单写者语义、SQL 改写、排序 COLLATE、删阶段机制、测试改 testdb）。之后 P3b：Hub 接 `pgschema.Start`、cmd 测试、演示环境用 PG，主会话走全链后合回 main。
 
 **D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
 
@@ -113,4 +115,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `p2-store`（wangsu-o-latest，分支 pg-migration，日志 `var/p2-native-store/exec.log`）
+- `p3a-store`（wangsu-o-latest，分支 pg-migration，日志 `var/p3a-webapi-store/exec.log`）
