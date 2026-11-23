@@ -15,6 +15,8 @@ import (
 	types "github.com/chainreactors/cyber/core/types"
 	managementapi "github.com/chainreactors/cyber/pkg/web/api"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/uptrace/bun"
 )
 
 // 与前端 lib/session-agent.ts 相同的节点能力标志：只选明确提供 webapi_http 的节点；
@@ -305,7 +307,9 @@ func (c *Capability) LaunchAssetTask(ctx context.Context, assetID, taskID string
 	// 资产默认研究场景（M1）拷贝到新任务；资产无记录＝任务也用默认（不写记录）。
 	var scenario *taskScenarioModel
 	if existing == nil {
-		assetScenario, err := assetScenarioModelOf(ctx, c.store.orm, assetID)
+		assetScenario, err := readValue(ctx, c.store, func(ctx context.Context, db bun.IDB) (*assetScenarioModel, error) {
+			return assetScenarioModelOf(ctx, db, assetID)
+		})
 		if err != nil {
 			return nil, launchFail(http.StatusInternalServerError, "task", "读取资产研究场景失败", nil)
 		}

@@ -154,8 +154,8 @@ func (s *taskStore) saveFinding(ctx context.Context, inv operation.Invocation, t
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	var revision *findingRevisionModel
 	var findingTimes findingModel
-	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// 同session/turn/call先认领：首条SQL是INSERT，避免SQLite读事务升级竞争。
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// 同session/turn/call先认领：先INSERT（写事务持全局写锁串行），再按结果分支。
 		claim := &findingRevisionModel{
 			ID: newFindingRevisionID(), FindingID: newFindingID(), TaskID: taskID, Number: 0, Revision: 1,
 			SessionID: inv.SessionID, TurnID: inv.TurnID, CallID: inv.CallID, PayloadJSON: string(canonical), Title: args.Content.Title, CreatedAt: now,
@@ -259,7 +259,9 @@ func (s *taskStore) saveFinding(ctx context.Context, inv operation.Invocation, t
 		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
 		var existing findingRevisionModel
-		lookup := s.orm.NewSelect().Model(&existing).Where("task_id = ? AND session_id = ? AND turn_id = ? AND call_id = ?", taskID, inv.SessionID, inv.TurnID, inv.CallID).Limit(1).Scan(lookupCtx)
+		lookup := s.read(lookupCtx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&existing).Where("task_id = ? AND session_id = ? AND turn_id = ? AND call_id = ?", taskID, inv.SessionID, inv.TurnID, inv.CallID).Limit(1).Scan(ctx)
+		})
 		if lookup == nil {
 			var saved storedFindingPayload
 			if json.Unmarshal([]byte(existing.PayloadJSON), &saved) == nil && saved.Canonical == string(canonical) {
@@ -268,7 +270,9 @@ func (s *taskStore) saveFinding(ctx context.Context, inv operation.Invocation, t
 					return nil, detailErr
 				}
 				var current findingModel
-				if getErr := s.orm.NewSelect().Model(&current).Column("created_at", "updated_at").Where("task_id = ? AND id = ?", taskID, existing.FindingID).Limit(1).Scan(lookupCtx); getErr == nil {
+				if getErr := s.read(lookupCtx, func(ctx context.Context, db bun.IDB) error {
+					return db.NewSelect().Model(&current).Column("created_at", "updated_at").Where("task_id = ? AND id = ?", taskID, existing.FindingID).Limit(1).Scan(ctx)
+				}); getErr == nil {
 					detail.CreatedAt, detail.UpdatedAt = current.CreatedAt, current.UpdatedAt
 				}
 				return detail, nil
@@ -287,7 +291,9 @@ func (s *taskStore) saveFinding(ctx context.Context, inv operation.Invocation, t
 
 func (s *taskStore) findingRevision(ctx context.Context, taskID, findingID, revisionID string) (*FindingDetail, error) {
 	var model findingRevisionModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, revisionID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, revisionID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -311,7 +317,9 @@ func detailFromRevision(model findingRevisionModel) (*FindingDetail, error) {
 
 func (s *taskStore) findingCurrent(ctx context.Context, taskID, findingID string) (*FindingDetail, error) {
 	var finding findingModel
-	err := s.orm.NewSelect().Model(&finding).Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&finding).Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -327,7 +335,9 @@ func (s *taskStore) findingCurrent(ctx context.Context, taskID, findingID string
 
 func (s *taskStore) findingExists(ctx context.Context, taskID, findingID string) (bool, error) {
 	var id string
-	err := s.orm.NewSelect().Model((*findingModel)(nil)).Column("id").Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx, &id)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model((*findingModel)(nil)).Column("id").Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx, &id)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -341,14 +351,16 @@ type findingListRow struct {
 
 func (s *taskStore) findingList(ctx context.Context, taskID string, limit int, afterNumber int64) ([]FindingSummary, error) {
 	var rows []findingListRow
-	query := s.orm.NewSelect().Model(&rows).
-		ColumnExpr("webapi_finding.id, webapi_finding.task_id, webapi_finding.number, webapi_finding.status, webapi_finding.current_revision, webapi_finding.current_revision_id, webapi_finding.created_at, webapi_finding.updated_at, revision.title AS title").
-		Join("JOIN webapi_finding_revisions AS revision ON revision.id = webapi_finding.current_revision_id").
-		Where("webapi_finding.task_id = ?", taskID)
-	if afterNumber > 0 {
-		query = query.Where("webapi_finding.number < ?", afterNumber)
-	}
-	if err := query.Order("webapi_finding.number DESC").Limit(int64(limit + 1)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&rows).
+			ColumnExpr("webapi_finding.id, webapi_finding.task_id, webapi_finding.number, webapi_finding.status, webapi_finding.current_revision, webapi_finding.current_revision_id, webapi_finding.created_at, webapi_finding.updated_at, revision.title AS title").
+			Join("JOIN webapi_finding_revisions AS revision ON revision.id = webapi_finding.current_revision_id").
+			Where("webapi_finding.task_id = ?", taskID)
+		if afterNumber > 0 {
+			query = query.Where("webapi_finding.number < ?", afterNumber)
+		}
+		return query.Order("webapi_finding.number DESC").Limit(int64(limit + 1)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	items := make([]FindingSummary, 0, len(rows))
@@ -360,12 +372,14 @@ func (s *taskStore) findingList(ctx context.Context, taskID string, limit int, a
 
 func (s *taskStore) findingHistory(ctx context.Context, taskID, findingID string, limit int, afterRevision int64) ([]FindingRevisionSummary, error) {
 	var rows []findingRevisionModel
-	query := s.orm.NewSelect().Model(&rows).Column("id", "finding_id", "task_id", "number", "revision", "session_id", "turn_id", "call_id", "title", "created_at").
-		Where("task_id = ? AND finding_id = ?", taskID, findingID)
-	if afterRevision > 0 {
-		query = query.Where("revision < ?", afterRevision)
-	}
-	if err := query.Order("revision DESC").Limit(int64(limit + 1)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&rows).Column("id", "finding_id", "task_id", "number", "revision", "session_id", "turn_id", "call_id", "title", "created_at").
+			Where("task_id = ? AND finding_id = ?", taskID, findingID)
+		if afterRevision > 0 {
+			query = query.Where("revision < ?", afterRevision)
+		}
+		return query.Order("revision DESC").Limit(int64(limit + 1)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	items := make([]FindingRevisionSummary, 0, len(rows))

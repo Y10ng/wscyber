@@ -5,7 +5,7 @@
 ```
 浏览器 ── Cyber 原生 UI（固定 cyber-ui + 本项目 source-overlay）
    │  原生 AOP/WebSocket + /api/webapi/* (本项目 Web Capability)
-Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生表 + webapi_* 业务表）
+Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（原生表 + webapi_* 业务表，同库两连接池）
    │  原生节点协议
 模型节点（同进程 --model-node）── 原生 Provider / Runtime / StandardLoop
    └─ 工具：原生工具 + webapi_http / webapi_finding / webapi_verification_result
@@ -13,7 +13,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── SQLite（原生
 
 - **底座**：Cyber Harness 固定提交 `f4b1fb2f…`（Go 模块 `github.com/chainreactors/cyber`，`replace` 指向 cyber-harness），cyber-ui 固定 `147423bd…`。版本与许可见 `native/DEPENDENCIES.md`、`native/ui/LICENSES.md`。
 - **原生负责**：Agent 循环、会话/turn、工具调度、AOP 事件持久化、模型配置与 Provider、原生页面（聊天、Workflow、配置）。
-- **本项目负责**：任务授权与两输入、HTTP 证据、候选与编号、独立验证、以及这些对象的页面。业务数据由 `native/webapi` 通过原生 `SchemaModule` 存同一 SQLite。
+- **本项目负责**：任务授权与两输入、HTTP 证据、候选与编号、独立验证、以及这些对象的页面。业务数据由 `native/webapi` 存同一 PostgreSQL 库（表由 `native/pgschema` 迁移建立，原生 `SchemaModule` 只做列校验；webapi 自有连接池，写事务持全局 advisory lock 串行，见 `native/POSTGRES.md` §5.3）。
 - 原生运行事实只由原生记录；业务对象引用原生 session/turn/call，不双写执行状态。
 
 ## 2. 目录

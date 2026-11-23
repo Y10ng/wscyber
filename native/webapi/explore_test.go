@@ -3,7 +3,6 @@ package webapi
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +17,7 @@ import (
 	corehooks "github.com/chainreactors/cyber/core/hooks"
 	types "github.com/chainreactors/cyber/core/types"
 	"github.com/chainreactors/cyber/pkg/harness"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 // 全部为合成数据：临时库、example.test 演示目标、替身 launcher 与替身 Provider。
@@ -267,8 +266,11 @@ func TestExploreEvaluatorContributionResearchOnly(t *testing.T) {
 	}
 
 	// 本 turn 有 unknown 请求：提示评估器停止。
-	if _, err := f.capability.store.orm.NewInsert().Model(&requestModel{ID: "req-unknown", TaskID: "t1", SessionID: task.InitialSessionID, TurnID: "turn-1", CallID: "call-9",
-		Fingerprint: "fp", Method: "GET", URL: "https://api.example.test/orders/1", Status: requestUnknown, Preview: []byte{}, FlowPB: []byte{}, CreatedAt: "2026-11-20T00:00:00Z"}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&requestModel{ID: "req-unknown", TaskID: "t1", SessionID: task.InitialSessionID, TurnID: "turn-1", CallID: "call-9",
+			Fingerprint: "fp", Method: "GET", URL: "https://api.example.test/orders/1", Status: requestUnknown, Preview: []byte{}, FlowPB: []byte{}, CreatedAt: "2026-11-20T00:00:00Z"}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	emitRunEnd(t, registry, task.InitialSessionID, 10, agenthooks.StopReasonTerminated)
@@ -293,7 +295,10 @@ func TestExploreEvaluatorContributionResearchOnly(t *testing.T) {
 	}
 
 	// 验证会话（同任务）、未知会话：不追加。
-	if _, err := f.capability.store.orm.NewInsert().Model(&verificationModel{ID: "v1", TaskID: "t1", FindingID: "wf_demo", SourceRevisionID: "wr_demo", SessionID: "verify-session", CreatedAt: "2026-11-20T00:00:00Z"}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&verificationModel{ID: "v1", TaskID: "t1", FindingID: "wf_demo", SourceRevisionID: "wr_demo", SessionID: "verify-session", CreatedAt: "2026-11-20T00:00:00Z"}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sessionID := range []string{"verify-session", "unknown-session"} {
@@ -542,43 +547,5 @@ func TestExploreGoalLoopRoundsFeedbackAndTurnEnd(t *testing.T) {
 	llm.mu.Lock()
 	if len(llm.prompts) != 3 || strings.Contains(llm.prompts[2], "## 平台黑板") {
 		t.Fatalf("plain session evaluation = %d\n%s", len(llm.prompts), llm.prompts[len(llm.prompts)-1])
-	}
-}
-
-func TestExploreSchemaUpgradeFromScenarioStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(35, 34))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Save(t.Context(), "scenario-stage-task", "旧任务", "保留研究场景阶段行", []string{"https://api.example.test"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := putTaskScenarioTx(t.Context(), store.orm, "scenario-stage-task", ScenarioAutonomous, "", 0); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare scenario stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	if s := exploreScenario(t, f, "scenario-stage-task"); s["key"] != ScenarioAutonomous || s["max_rounds"] != float64(12) {
-		t.Fatalf("old task after upgrade = %v", s)
-	}
-	if status, _, raw := f.do("PUT", "/api/webapi/tasks/scenario-stage-task/scenario", `{"max_rounds":4}`); status != 200 {
-		t.Fatalf("put rounds after upgrade = %d %s", status, raw)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }

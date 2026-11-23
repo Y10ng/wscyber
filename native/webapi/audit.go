@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -87,7 +88,10 @@ func (s *taskStore) appendAudit(ctx context.Context, entry auditEntry, at time.T
 	}
 	model := auditEventModel{ID: entry.ID, At: notifyTime(at), Actor: entry.Actor, Action: entry.Action, TargetKind: entry.TargetKind, TargetID: entry.TargetID,
 		TaskID: entry.TaskID, AssetID: entry.AssetID, Summary: capRunes(oneLine(entry.Summary), auditSummaryRunes), DetailJSON: string(raw)}
-	_, err = s.orm.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
+		return err
+	})
 	return err
 }
 
@@ -152,20 +156,25 @@ func (s *taskStore) auditEvents(ctx context.Context, filter auditFilter) ([]Audi
 		add("asset_id = ?", filter.assetID)
 	}
 	if filter.needle != "" {
-		add("(instr(lower(summary), ?) > 0 OR instr(lower(target_id), ?) > 0)", filter.needle, filter.needle)
+		add("(strpos(lower(summary), ?) > 0 OR strpos(lower(target_id), ?) > 0)", filter.needle, filter.needle)
 	}
 	if filter.from != "" {
-		add("at >= ?", filter.from)
+		add(`at COLLATE "C" >= ?`, filter.from)
 	}
 	if filter.to != "" {
-		add("at < ?", filter.to)
+		add(`at COLLATE "C" < ?`, filter.to)
 	}
 	if filter.afterAt != "" {
-		add("(at < ? OR at = ? AND id < ?)", filter.afterAt, filter.afterAt, filter.afterID)
+		add(`(at COLLATE "C" < ? OR at = ? AND id COLLATE "C" < ?)`, filter.afterAt, filter.afterAt, filter.afterID)
 	}
 	query := `SELECT id, at, actor, action, target_kind, target_id, task_id, asset_id, summary, detail_json FROM webapi_audit_events WHERE ` +
-		strings.Join(where, " AND ") + ` ORDER BY at DESC, id DESC LIMIT ?`
-	rows, err := s.db.QueryContext(ctx, query, append(args, filter.limit)...)
+		strings.Join(where, " AND ") + ` ORDER BY at COLLATE "C" DESC, id COLLATE "C" DESC LIMIT ?`
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]AuditEvent, error) {
+		return scanAuditEvents(db.QueryContext(ctx, query, append(args, filter.limit)...))
+	})
+}
+
+func scanAuditEvents(rows *sql.Rows, err error) ([]AuditEvent, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +306,9 @@ func (c *Capability) assetName(ctx context.Context, assetID string) string {
 
 func (c *Capability) findingNumberOf(ctx context.Context, findingID string) string {
 	var number int64
-	if err := c.store.db.QueryRowContext(ctx, `SELECT number FROM webapi_findings WHERE id = ?`, findingID).Scan(&number); err != nil {
+	if err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT number FROM webapi_findings WHERE id = ?`, findingID).Scan(&number)
+	}); err != nil {
 		return ""
 	}
 	return findingNumber(number)
@@ -455,7 +466,7 @@ func (c *Capability) auditAssetSave(ctx context.Context, before *assetModel, aft
 }
 
 func (c *Capability) credentialBefore(ctx context.Context, assetID, credentialID string) *assetCredentialModel {
-	model, err := findOptional[assetCredentialModel](ctx, c.store.orm, "id = ? AND asset_id = ?", credentialID, assetID)
+	model, err := readOptional[assetCredentialModel](ctx, c.store, "id = ? AND asset_id = ?", credentialID, assetID)
 	if err != nil {
 		return nil
 	}
@@ -597,7 +608,7 @@ func (c *Capability) auditVulnRename(ctx context.Context, assetID, vulnID, befor
 }
 
 func (c *Capability) vulnMemberBefore(ctx context.Context, findingID string) string {
-	member, err := findOptional[assetVulnMemberModel](ctx, c.store.orm, "finding_id = ?", findingID)
+	member, err := readOptional[assetVulnMemberModel](ctx, c.store, "finding_id = ?", findingID)
 	if err != nil || member == nil {
 		return ""
 	}

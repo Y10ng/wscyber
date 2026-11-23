@@ -38,7 +38,7 @@ type egressFlowModel struct {
 	Sent             sql.NullBool   `bun:"sent"`
 	HTTPStatus       sql.NullInt64  `bun:"http_status"`
 	Error            string         `bun:"error,type:text,notnull"`
-	FlowPB           []byte         `bun:"flow_pb,type:blob,notnull"`
+	FlowPB           []byte         `bun:"flow_pb,type:bytea,notnull"`
 	RequestBytes     int64          `bun:"request_bytes,notnull"`
 	ResponseBytes    int64          `bun:"response_bytes,notnull"`
 	PreviewTruncated bool           `bun:"preview_truncated,notnull"`
@@ -75,7 +75,10 @@ func (s *taskStore) insertEgressFlow(ctx context.Context, model *egressFlowModel
 		flowPB = []byte{}
 	}
 	model.ID, model.FlowPB = newEgressFlowID(), flowPB
-	_, err = s.orm.NewInsert().Model(model).Exec(ctx)
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).Exec(ctx)
+		return err
+	})
 	return err
 }
 
@@ -83,22 +86,24 @@ var egressSummaryColumns = []string{"id", "task_id", "session_id", "turn_id", "c
 
 func (s *taskStore) egressFlowList(ctx context.Context, taskID, sessionID, decision string, limit int, afterCreatedAt, afterID string) ([]egressFlowModel, error) {
 	var models []egressFlowModel
-	query := s.orm.NewSelect().Model(&models).Column(egressSummaryColumns...).Where("task_id = ?", taskID)
-	if sessionID != "" {
-		query = query.Where("session_id = ?", sessionID)
-	}
-	if decision != "" {
-		query = query.Where("decision = ?", decision)
-	}
-	if afterCreatedAt != "" {
-		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", afterCreatedAt, afterCreatedAt, afterID)
-	}
-	err := query.Order("created_at DESC", "id DESC").Limit(int64(limit + 1)).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Column(egressSummaryColumns...).Where("task_id = ?", taskID)
+		if sessionID != "" {
+			query = query.Where("session_id = ?", sessionID)
+		}
+		if decision != "" {
+			query = query.Where("decision = ?", decision)
+		}
+		if afterCreatedAt != "" {
+			query = query.Where(`(created_at COLLATE "C" < ? OR (created_at = ? AND id COLLATE "C" < ?))`, afterCreatedAt, afterCreatedAt, afterID)
+		}
+		return query.OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(int64(limit + 1)).Scan(ctx)
+	})
 	return models, err
 }
 
 func (s *taskStore) egressFlowByID(ctx context.Context, taskID, flowID string) (*egressFlowModel, error) {
-	return findOptional[egressFlowModel](ctx, s.orm, "task_id = ? AND id = ?", taskID, flowID)
+	return readOptional[egressFlowModel](ctx, s, "task_id = ? AND id = ?", taskID, flowID)
 }
 
 // EgressFlowSummary 是列表与详情共用的摘要。

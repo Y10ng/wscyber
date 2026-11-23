@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/chainreactors/cyber/aop/traffic"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -331,7 +333,10 @@ func TestEvidenceImageAPI(t *testing.T) {
 		model := &requestModel{ID: id, TaskID: task.ID, SessionID: inv.SessionID, TurnID: "turn-" + id, CallID: "call-" + id, Fingerprint: "fp-" + id,
 			Method: "POST", URL: "https://api.example.test/v1/orders", Status: requestCompleted, Sent: sql.NullBool{Bool: true, Valid: true},
 			StatusCode: sql.NullInt64{Int64: 200, Valid: true}, Preview: []byte("{}"), FlowPB: flow, CreatedAt: now, CompletedAt: sql.NullString{String: now, Valid: true}}
-		if _, err := capability.store.orm.NewInsert().Model(model).Exec(t.Context()); err != nil {
+		if err := capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+			_, err := tx.NewInsert().Model(model).Exec(ctx)
+			return err
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

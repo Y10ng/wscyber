@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/chainreactors/cyber/aop/traffic"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,7 +40,10 @@ func insertMaskEvidence(t *testing.T, f *assetFixture, taskID, id, reason string
 		Method: "POST", URL: flow.GetRequest().GetUrl(), Reason: reason, Status: requestCompleted,
 		Sent: sql.NullBool{Bool: true, Valid: true}, StatusCode: sql.NullInt64{Int64: 200, Valid: true},
 		FlowPB: pb, Preview: preview, CreatedAt: "2026-11-21T00:00:00Z"}
-	if _, err := f.capability.store.orm.NewInsert().Model(model).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return model

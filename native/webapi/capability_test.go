@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -20,18 +19,18 @@ import (
 
 const testAccessKey = "webapi-test-access-key"
 
-// startTestHub 用真实 httptest + 临时 SQLite 装配原生 Web 扩展与鉴权中间件，
+// startTestHub 用真实 httptest + 独立 PostgreSQL 测试库装配原生 Web 扩展与鉴权中间件，
 // 返回关闭函数与数据库路径（用于关闭后重开验证）。
-func startTestHub(t *testing.T) (srv *httptest.Server, database string, closeFn func()) {
+func startTestHub(t *testing.T) (srv *httptest.Server, database testHub, closeFn func()) {
 	t.Helper()
-	database = filepath.Join(t.TempDir(), "hub.sqlite")
-	capability, err := NewCapability(database)
+	database = newTestHub(t)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatalf("NewCapability: %v", err)
 	}
 	extension := webext.New(webext.Config{
 		Product:      "wscyber-webapi-test",
-		Database:     database,
+		Database:     database.DSN(),
 		AccessKey:    testAccessKey,
 		Capabilities: []webservice.Capability{capability},
 	})
@@ -248,7 +247,7 @@ func TestIdempotentAndConflict(t *testing.T) {
 	if created != 1 || idemOK != workers-1 {
 		t.Fatalf("并发结果 created=%d idempotent=%d, want 1/%d", created, idemOK, workers-1)
 	}
-	store, err := openTaskStore(database)
+	store, err := openTaskStore(database.URL)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
@@ -307,7 +306,7 @@ func TestInvalidRequests(t *testing.T) {
 	}
 
 	// 确认非法请求一条都没写入。
-	store, err := openTaskStore(database)
+	store, err := openTaskStore(database.URL)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
@@ -324,7 +323,7 @@ func TestInvalidRequests(t *testing.T) {
 	}
 }
 
-// TestPersistenceAcrossRestart 覆盖：Hub 关闭后重开，同一 hub.sqlite 任务仍在。
+// TestPersistenceAcrossRestart 覆盖：Hub 关闭后重开，同一数据库任务仍在。
 func TestPersistenceAcrossRestart(t *testing.T) {
 	srv, database, closeFn := startTestHub(t)
 	client := srv.Client()
@@ -335,7 +334,7 @@ func TestPersistenceAcrossRestart(t *testing.T) {
 	closeFn()
 
 	// 重开：模拟新 Capability + 新扩展进程读同一库。
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatalf("reopen capability: %v", err)
 	}
@@ -382,18 +381,14 @@ func TestNormalizeOrigin(t *testing.T) {
 	}
 }
 
-// TestStoreDirectly 覆盖 store 层保存/回读与独立 session id 不重复。
-// 表结构由 SchemaModule 声明，这里直接建在临时库中以聚焦 store 行为。
+// TestStoreDirectly 覆盖 store 层保存/回读与独立 session id 不重复（表由基线迁移建立）。
 func TestStoreDirectly(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	store, err := openTaskStore(database)
+	database := newTestHub(t)
+	store, err := openTaskStore(database.URL)
 	if err != nil {
 		t.Fatalf("openTaskStore: %v", err)
 	}
 	defer store.Close()
-	if _, err := store.orm.NewCreateTable().Model((*taskModel)(nil)).Exec(context.Background()); err != nil {
-		t.Fatalf("create webapi_tasks: %v", err)
-	}
 	outcome, err := store.Save(context.Background(), "s-1", "已知", "目标", []string{"http://127.0.0.1:1"})
 	if err != nil || !outcome.Created || outcome.Task == nil {
 		t.Fatalf("Save: %+v err=%v", outcome, err)

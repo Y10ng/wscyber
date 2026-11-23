@@ -39,7 +39,7 @@ func (c *Capability) followupSummary(ctx context.Context, run scheduleRunModel) 
 	if run.Status != ScheduleRunLaunched || run.TaskID == "" {
 		return nil, nil
 	}
-	marker, err := findOptional[scheduleRunFollowupModel](ctx, c.store.orm, "run_id = ?", run.ID)
+	marker, err := readOptional[scheduleRunFollowupModel](ctx, c.store, "run_id = ?", run.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -323,11 +323,15 @@ func (x *exploreTracker) boardSection(ctx context.Context, sessionID, taskID str
 		return "", err
 	}
 	var facts, conclusions int64
-	if err := x.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_board_facts WHERE task_id = ?`, taskID).Scan(&facts); err != nil {
+	if err := x.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_board_facts WHERE task_id = ?`, taskID).Scan(&facts)
+	}); err != nil {
 		return "", err
 	}
-	if err := x.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_board_oracle_events WHERE task_id = ? AND to_status IN (?, ?, ?)`,
-		taskID, oracleHolds, oracleRefuted, oracleBlocked).Scan(&conclusions); err != nil {
+	if err := x.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_board_oracle_events WHERE task_id = ? AND to_status IN (?, ?, ?)`,
+			taskID, oracleHolds, oracleRefuted, oracleBlocked).Scan(&conclusions)
+	}); err != nil {
 		return "", err
 	}
 	summary := fmt.Sprintf("地图端点 %d，未覆盖 %d；Oracle open %d / in_progress %d / holds %d / refuted %d / blocked %d",

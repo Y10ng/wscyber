@@ -78,11 +78,11 @@ func retestSummary(model retestModel) RetestSummary {
 }
 
 func (s *taskStore) retestForSession(ctx context.Context, sessionID string) (*retestModel, error) {
-	return findOptional[retestModel](ctx, s.orm, "session_id = ?", sessionID)
+	return readOptional[retestModel](ctx, s, "session_id = ?", sessionID)
 }
 
 func (s *taskStore) retestByID(ctx context.Context, taskID, findingID, id string) (*retestModel, error) {
-	return findOptional[retestModel](ctx, s.orm, "task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, id)
+	return readOptional[retestModel](ctx, s, "task_id = ? AND finding_id = ? AND id = ?", taskID, findingID, id)
 }
 
 // saveRetest 与saveVerification同一认领语义（claimPinnedRevision）。
@@ -136,7 +136,7 @@ func (s *taskStore) retestDetail(ctx context.Context, model *retestModel) (*Rete
 }
 
 func (s *taskStore) retestResult(ctx context.Context, id string) (*RetestResultView, error) {
-	model, err := findOptional[retestResultModel](ctx, s.orm, "retest_id = ?", id)
+	model, err := readOptional[retestResultModel](ctx, s, "retest_id = ?", id)
 	if model == nil || err != nil {
 		return nil, err
 	}
@@ -148,7 +148,9 @@ func (s *taskStore) retestResult(ctx context.Context, id string) (*RetestResultV
 }
 
 func (s *taskStore) retestList(ctx context.Context, taskID, findingID string, limit int, afterCreatedAt, afterID string) ([]RetestSummary, error) {
-	models, err := pinnedPage[retestModel](ctx, s.orm, taskID, findingID, limit, afterCreatedAt, afterID)
+	models, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]retestModel, error) {
+		return pinnedPage[retestModel](ctx, db, taskID, findingID, limit, afterCreatedAt, afterID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +179,7 @@ func (s *taskStore) saveRetestResult(ctx context.Context, inv operation.Invocati
 	model := &retestResultModel{RetestID: retest.ID, SessionID: inv.SessionID, TurnID: inv.TurnID, CallID: inv.CallID, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	replayed, err := s.saveImmutableResult(ctx, inv, canonical,
 		func(ctx context.Context) (*resultReceipt, error) {
-			existing, err := findOptional[retestResultModel](ctx, s.orm, "retest_id = ?", retest.ID)
+			existing, err := readOptional[retestResultModel](ctx, s, "retest_id = ?", retest.ID)
 			if existing == nil || err != nil {
 				return nil, err
 			}

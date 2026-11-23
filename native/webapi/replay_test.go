@@ -6,14 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/chainreactors/cyber/aop/traffic"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 )
 
 // K2 一键重放测试：全部为临时库合成数据（httptest 本地目标、虚构订单、合成 Flow 与测试 cookie/token）。
@@ -369,7 +367,7 @@ func TestVulnCardReplayDeniedAndReview(t *testing.T) {
 
 func (f *notifyFixture) requestCount() int {
 	var n int
-	if err := f.capability.store.db.QueryRowContext(f.t.Context(), `SELECT COUNT(*) FROM webapi_requests`).Scan(&n); err != nil {
+	if err := f.capability.store.db().QueryRowContext(f.t.Context(), `SELECT COUNT(*) FROM webapi_requests`).Scan(&n); err != nil {
 		f.t.Fatal(err)
 	}
 	return n
@@ -497,34 +495,5 @@ func TestReplayHTTPRequestRebuild(t *testing.T) {
 	}
 	if got := compareReplay(200, 500, []string{"a"}, []string{"a"}); got.VerdictHint != hintChanged || !got.ResponseMarksStillPresent {
 		t.Fatalf("marks present status changed = %+v", got)
-	}
-}
-
-// 持续探索阶段（三十七表）旧库补 webapi_replays 与索引；补后完整原生校验通过且卡片可读重放。
-func TestReplaySchemaUpgradeFromExploreStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(37, 34))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if _, err := webservice.NewSQLiteStore(database, SchemaModule()); err == nil {
-		t.Fatal("explore stage already complete")
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare explore stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	rows, err := f.capability.store.vulnReplays(t.Context(), "any")
-	if err != nil || len(rows) != 0 {
-		t.Fatalf("replays after upgrade = %v %v", rows, err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare complete again: %v", err)
 	}
 }

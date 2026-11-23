@@ -23,7 +23,7 @@ import (
 
 	"github.com/chainreactors/cyber/aop/traffic"
 	"github.com/chainreactors/cyber/core/operation"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -136,7 +136,10 @@ func (f *notifyFixture) addEvidence(taskID, sessionID string, flow *traffic.Flow
 	model := requestModel{ID: id, TaskID: taskID, SessionID: sessionID, TurnID: "turn-" + id, CallID: "call-" + id, Fingerprint: "fp-" + id,
 		Method: flow.Request.Method, URL: flow.Request.Url, Status: requestCompleted, Sent: sql.NullBool{Bool: true, Valid: true},
 		StatusCode: sql.NullInt64{Int64: 200, Valid: true}, Preview: []byte{}, FlowPB: raw, CreatedAt: nowRFC3339(), CompletedAt: sql.NullString{String: nowRFC3339(), Valid: true}}
-	if _, err := f.capability.store.orm.NewInsert().Model(&model).Exec(f.t.Context()); err != nil {
+	if err := f.capability.store.write(f.t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&model).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 	return model
@@ -248,7 +251,7 @@ func TestNotifySettingsAPI(t *testing.T) {
 	if stored == nil || !strings.HasPrefix(stored.WebhookCipher, secretCipherV1) || strings.Contains(stored.WebhookCipher, "qyapi") {
 		t.Fatalf("stored cipher = %+v", stored)
 	}
-	if info, err := os.Stat(filepath.Join(filepath.Dir(f.database), secretKeyFileName)); err != nil || info.Mode().Perm() != 0600 {
+	if info, err := os.Stat(filepath.Join(f.database.StateDir, secretKeyFileName)); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("key file = %v %v", info, err)
 	}
 	// AAD 绑定 notify:wecom：同密钥不能当作资产测试账号密文解开。
@@ -333,7 +336,7 @@ func TestNotifyRegistrationAndDedupe(t *testing.T) {
 	// 同一 Invocation 回放结果：不重复。
 	inv := operation.Invocation{SessionID: v1.SessionID, TurnID: "verify-turn", CallID: "verify-call-" + v1.VerificationID}
 	var evidenceID string
-	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT id FROM webapi_requests WHERE session_id = ?`, v1.SessionID).Scan(&evidenceID)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT id FROM webapi_requests WHERE session_id = ?`, v1.SessionID).Scan(&evidenceID)
 	if result, message := executeVerification(t, &verificationTool{store: f.capability.store}, inv, verificationArguments("supported", evidenceID, "supporting")); result == nil {
 		t.Fatalf("replay rejected: %s", message)
 	}
@@ -484,11 +487,11 @@ func TestNotifyDeliveryMarkdownAndImage(t *testing.T) {
 	flow := notifyFlow("POST", "https://api.example.test/orders/1002?expand=1", `{"user":"demo-user","password":"Fixture-Pass-9"}`, `{"order":"1002","owner":"user-42"}`)
 	v := f.verify("t1", fid, frev, "supported", flow)
 	// 本用例覆盖旧结果（K1 前无最小复现）的文案；带最小复现的推送见 vuln_card_test.go。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_verification_results SET payload_json = json_remove(payload_json, '$.payload.impact', '$.payload.key_steps') WHERE verification_id = ?`, v.VerificationID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_verification_results SET payload_json = (payload_json::jsonb #- '{payload,impact}' #- '{payload,key_steps}')::text WHERE verification_id = ?`, v.VerificationID); err != nil {
 		t.Fatal(err)
 	}
 	var resultAt string
-	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT created_at FROM webapi_verification_results WHERE verification_id = ?`, v.VerificationID).Scan(&resultAt)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT created_at FROM webapi_verification_results WHERE verification_id = ?`, v.VerificationID).Scan(&resultAt)
 	local := parseAt(resultAt).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04")
 
 	f.deliver()
@@ -753,7 +756,7 @@ func TestNotifyGoroutineDeliversAndStopsOnClose(t *testing.T) {
 	f.verify("t1", a, arev, "supported", notifyFlow("GET", "https://api.example.test/orders/1002", "", "{}"))
 	// 上次 Hub 中断在 sending 的通知：启动时回到 queued 并投递。
 	id := f.notifications()[0].ID
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_notifications SET status = ? WHERE id = ?`, NotifySending, id); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_notifications SET status = ? WHERE id = ?`, NotifySending, id); err != nil {
 		t.Fatal(err)
 	}
 	f.capability.startNotifier()
@@ -787,48 +790,6 @@ func TestNotifyGoroutineDeliversAndStopsOnClose(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if after := len(f.wecom.received()); after != before {
 		t.Fatalf("sent after Close: %d → %d", before, after)
-	}
-}
-
-// U2a/D1 阶段（二十三表）旧库补推送两表；补表后完整原生校验通过且可写入。
-func TestNotifySchemaUpgradeFromD1Stage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(23, 22))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare D1 stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	capability, err := NewCapability(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer capability.Close(context.Background())
-	if err := capability.store.putNotifySettings(t.Context(), &notifySettingsModel{Enabled: true, UpdatedAt: nowRFC3339()}); err != nil {
-		t.Fatalf("settings after upgrade: %v", err)
-	}
-	model := &notificationModel{ID: newNotificationID(), DedupeKey: "finding:x", Kind: NotifyKindNew, TaskID: "t", FindingID: "x", VerificationID: "v", Status: NotifyQueued, CreatedAt: notifyTime(time.Now())}
-	if inserted, err := capability.store.insertNotification(t.Context(), model); err != nil || !inserted {
-		t.Fatalf("insert after upgrade: %v %v", inserted, err)
-	}
-	model.ID = newNotificationID()
-	model.Kind = NotifyKindRegression
-	if inserted, err := capability.store.insertNotification(t.Context(), model); err != nil || !inserted {
-		t.Fatalf("regression insert: %v %v", inserted, err)
-	}
-	model.ID = newNotificationID()
-	if inserted, _ := capability.store.insertNotification(t.Context(), model); inserted {
-		t.Fatal("unique (dedupe_key, kind, verification_id) not enforced")
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare complete schema again: %v", err)
 	}
 }
 
@@ -1105,7 +1066,10 @@ func TestVulnCardNotifySectionLatestFive(t *testing.T) {
 		kind := []string{NotifyKindNew, NotifyKindManual, NotifyKindRegression}[index%3]
 		model := notificationModel{ID: fmt.Sprintf("wn_fixture_%d", index), DedupeKey: vid, Kind: kind, TaskID: "t1", FindingID: fid, VerificationID: fmt.Sprintf("%s-%d", v.VerificationID, index),
 			VulnID: vid, Status: status, CreatedAt: notifyTime(f.now.Add(time.Duration(index) * time.Minute))}
-		if _, err := f.capability.store.orm.NewInsert().Model(&model).Exec(t.Context()); err != nil {
+		if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+			_, err := tx.NewInsert().Model(&model).Exec(ctx)
+			return err
+		}); err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, model.ID)

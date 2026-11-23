@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/uptrace/bun"
 )
 
 // OV2 总览新增字段测试：全部为临时库合成数据（example.test 演示资产、虚构候选/负责人/错误文案）。
@@ -30,7 +32,10 @@ func (f *globalFixture) overview(days string) (Overview, map[string]json.RawMess
 
 func (f *globalFixture) insertModel(model any) {
 	f.t.Helper()
-	if _, err := f.cap.store.orm.NewInsert().Model(model).Exec(context.Background()); err != nil {
+	if err := f.cap.store.write(context.Background(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 }

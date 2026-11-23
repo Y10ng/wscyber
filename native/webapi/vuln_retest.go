@@ -78,10 +78,12 @@ func (s *taskStore) unresolvedRetests(ctx context.Context, findingIDs []string) 
 		return nil, nil
 	}
 	var rows []retestModel
-	err := s.orm.NewSelect().Model(&rows).
-		Where("finding_id IN (?)", bun.In(findingIDs)).
-		Where("NOT EXISTS (SELECT 1 FROM webapi_retest_results r WHERE r.retest_id = webapi_retest.id)").
-		OrderExpr("created_at DESC, id DESC").Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&rows).
+			Where("finding_id IN (?)", bun.In(findingIDs)).
+			Where("NOT EXISTS (SELECT 1 FROM webapi_retest_results r WHERE r.retest_id = webapi_retest.id)").
+			OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Scan(ctx)
+	})
 	return rows, err
 }
 
@@ -163,7 +165,7 @@ func (c *Capability) handleVulnCardRetest(w http.ResponseWriter, r *http.Request
 		noMember()
 		return
 	}
-	finding, err := findOptional[findingModel](ctx, c.store.orm, "id = ?", findingID)
+	finding, err := readOptional[findingModel](ctx, c.store, "id = ?", findingID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取候选失败")
 		return
@@ -251,7 +253,7 @@ func (c *Capability) cardRetestRequest(ctx context.Context, changes []AuditEvent
 		}
 		latest = &VulnCardRetestRequest{RetestID: detail.RetestID, SessionID: detail.SessionID, TaskID: detail.TaskID, FindingID: detail.FindingID,
 			StartedAt: change.At, Status: retestRequestDone}
-		result, err := findOptional[retestResultModel](ctx, c.store.orm, "retest_id = ?", detail.RetestID)
+		result, err := readOptional[retestResultModel](ctx, c.store, "retest_id = ?", detail.RetestID)
 		if err != nil {
 			return nil, nil, err
 		}

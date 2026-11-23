@@ -21,6 +21,7 @@ import (
 	webext "github.com/chainreactors/cyber/exts/web"
 	"github.com/chainreactors/cyber/pkg/web/host"
 
+	"wscyber/native/pgschema"
 	"wscyber/native/webapi"
 )
 
@@ -230,10 +231,9 @@ func serveLocalHub(ctx context.Context, opts options, ready func(string)) error 
 		Ready: ready,
 	}
 	// 原生Web业务扩展：保存“两输入+明确授权”任务记录、HTTP Flow证据、候选验证及报告。
-	if err := webapi.PrepareWebAPISchema(filepath.Join(stateDir, "hub.sqlite")); err != nil {
-		return fmt.Errorf("准备 webapi 验证与报告表: %w", err)
-	}
-	webapiCapability, err := webapi.NewCapability(filepath.Join(stateDir, "hub.sqlite"))
+	// P3a 占位：webapi 已只接 PostgreSQL（NewCapability 要连接串），Hub 的连接串与迁移接线在 P3b；
+	// 在此之前传空连接串，启动在这里明确失败（“连接串不能为空”）。
+	webapiCapability, err := webapi.NewCapability(pgschema.DatabaseURL{}, stateDir)
 	if err != nil {
 		return fmt.Errorf("初始化 webapi 能力: %w", err)
 	}

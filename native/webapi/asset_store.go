@@ -127,7 +127,9 @@ func (m *assetModel) toAsset(credentials []assetCredentialModel) (*Asset, error)
 
 func (s *taskStore) assetModel(ctx context.Context, id string) (*assetModel, error) {
 	var model assetModel
-	err := s.orm.NewSelect().Model(&model).Where("id = ?", id).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("id = ?", id).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -143,7 +145,9 @@ func (s *taskStore) assetCredentials(ctx context.Context, assetIDs ...string) (m
 		return out, nil
 	}
 	var models []assetCredentialModel
-	if err := s.orm.NewSelect().Model(&models).Where("asset_id IN (?)", bun.In(assetIDs)).OrderExpr("created_at ASC, id ASC").Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("asset_id IN (?)", bun.In(assetIDs)).OrderExpr(`created_at COLLATE "C" ASC, id COLLATE "C" ASC`).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	for _, model := range models {
@@ -177,7 +181,9 @@ func (s *taskStore) asset(ctx context.Context, id string) (*Asset, error) {
 // listAssets 按 archived 过滤，最近更新在前。
 func (s *taskStore) listAssets(ctx context.Context, archived bool) ([]*Asset, error) {
 	var models []assetModel
-	if err := s.orm.NewSelect().Model(&models).Where("archived = ?", archived).OrderExpr("updated_at DESC, id ASC").Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("archived = ?", archived).OrderExpr(`updated_at COLLATE "C" DESC, id COLLATE "C" ASC`).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	ids := make([]string, len(models))
@@ -205,11 +211,11 @@ func (s *taskStore) listAssets(ctx context.Context, archived bool) ([]*Asset, er
 }
 
 // putAsset 保存即生效：新 id 插入，已有 id 覆盖全部可编辑字段（保留 created_at）。
-// 首条 SQL 即写（INSERT … DO NOTHING），避免读事务升级 BUSY。
+// 首条 SQL 即写（INSERT … DO NOTHING），再按需覆盖；写事务持全局写锁。
 func (s *taskStore) putAsset(ctx context.Context, model assetModel) (created bool, err error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	model.CreatedAt, model.UpdatedAt = now, now
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err
@@ -232,7 +238,9 @@ func (s *taskStore) putAsset(ctx context.Context, model assetModel) (created boo
 
 // hasStoredSecrets 判断库里是否已有密文（决定密钥缺失时能否生成新密钥）。
 func (s *taskStore) hasStoredSecrets(ctx context.Context) (bool, error) {
-	return s.orm.NewSelect().Model((*assetCredentialModel)(nil)).Where("secret_cipher <> ''").Exists(ctx)
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) (bool, error) {
+		return db.NewSelect().Model((*assetCredentialModel)(nil)).Where("secret_cipher <> ''").Exists(ctx)
+	})
 }
 
 // putCredential upsert 凭据；secretCipher=nil 表示保留原值（新建则为未设置）。
@@ -242,7 +250,7 @@ func (s *taskStore) putCredential(ctx context.Context, assetID, credentialID, la
 	if secretCipher != nil {
 		model.SecretCipher = *secretCipher
 	}
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err
@@ -269,19 +277,25 @@ func (s *taskStore) putCredential(ctx context.Context, assetID, credentialID, la
 
 // deleteCredential 删除一条凭据；不存在返回 false。
 func (s *taskStore) deleteCredential(ctx context.Context, assetID, credentialID string) (bool, error) {
-	res, err := s.orm.NewDelete().Model((*assetCredentialModel)(nil)).Where("id = ? AND asset_id = ?", credentialID, assetID).Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-	affected, err := res.RowsAffected()
+	var affected int64
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewDelete().Model((*assetCredentialModel)(nil)).Where("id = ? AND asset_id = ?", credentialID, assetID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err = res.RowsAffected()
+		return err
+	})
 	return affected > 0, err
 }
 
 // assetForTask 返回任务关联资产引用；非资产任务返回 nil。
 func (s *taskStore) assetForTask(ctx context.Context, taskID string) (*TaskAssetRef, error) {
 	var ref TaskAssetRef
-	err := s.orm.NewSelect().TableExpr("webapi_asset_tasks AS t").Join("JOIN webapi_assets AS a ON a.id = t.asset_id").
-		ColumnExpr("a.id AS id, a.name AS name").Where("t.task_id = ?", taskID).Limit(1).Scan(ctx, &ref.ID, &ref.Name)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().TableExpr("webapi_asset_tasks AS t").Join("JOIN webapi_assets AS a ON a.id = t.asset_id").
+			ColumnExpr("a.id AS id, a.name AS name").Where("t.task_id = ?", taskID).Limit(1).Scan(ctx, &ref.ID, &ref.Name)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -293,23 +307,25 @@ func (s *taskStore) assetForTask(ctx context.Context, taskID string) (*TaskAsset
 
 // listAssetTasks 列出资产关联任务（最近在前），带候选数。
 func (s *taskStore) listAssetTasks(ctx context.Context, assetID string) ([]AssetTaskSummary, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id, t.objective, t.initial_session_id, l.created_at,
-		(SELECT COUNT(*) FROM webapi_findings f WHERE f.task_id = t.id)
-		FROM webapi_asset_tasks l JOIN webapi_tasks t ON t.id = l.task_id
-		WHERE l.asset_id = ? ORDER BY l.created_at DESC, t.id DESC`, assetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []AssetTaskSummary{}
-	for rows.Next() {
-		var item AssetTaskSummary
-		if err := rows.Scan(&item.TaskID, &item.Objective, &item.InitialSessionID, &item.CreatedAt, &item.FindingCount); err != nil {
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]AssetTaskSummary, error) {
+		rows, err := db.QueryContext(ctx, `SELECT t.id, t.objective, t.initial_session_id, l.created_at,
+			(SELECT COUNT(*) FROM webapi_findings f WHERE f.task_id = t.id)
+			FROM webapi_asset_tasks l JOIN webapi_tasks t ON t.id = l.task_id
+			WHERE l.asset_id = ? ORDER BY l.created_at COLLATE "C" DESC, t.id COLLATE "C" DESC`, assetID)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+		defer rows.Close()
+		out := []AssetTaskSummary{}
+		for rows.Next() {
+			var item AssetTaskSummary
+			if err := rows.Scan(&item.TaskID, &item.Objective, &item.InitialSessionID, &item.CreatedAt, &item.FindingCount); err != nil {
+				return nil, err
+			}
+			out = append(out, item)
+		}
+		return out, rows.Err()
+	})
 }
 
 // createAssetTask 在一个事务内建任务、写策略（含变更记录）、研究场景与资产关联。按 task_id 幂等：
@@ -324,7 +340,7 @@ func (s *taskStore) createAssetTask(ctx context.Context, assetID, taskID, knownI
 	task := taskModel{ID: taskID, KnownInfo: knownInfo, Objective: objective, OriginsJSON: originsJSON, InitialSessionID: newSessionID(), CreatedAt: now}
 	created := false
 	var saved *Task
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewInsert().Model(&task).On("CONFLICT (id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err

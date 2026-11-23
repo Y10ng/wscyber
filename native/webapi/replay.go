@@ -199,7 +199,9 @@ type VulnCardReplay struct {
 // vulnReplays：该键全部已完成重放，新到旧。
 func (s *taskStore) vulnReplays(ctx context.Context, key string) ([]replayModel, error) {
 	var rows []replayModel
-	err := s.orm.NewSelect().Model(&rows).Where("vuln_key = ?", key).OrderExpr("created_at DESC, id DESC").Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&rows).Where("vuln_key = ?", key).OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Scan(ctx)
+	})
 	return rows, err
 }
 
@@ -385,7 +387,7 @@ func (c *Capability) handleVulnCardReplay(w http.ResponseWriter, r *http.Request
 	c.auditReplay(ctx, target, task.ID, req, detail, fmt.Sprintf("%d（%s）", replayedStatus, replayHintLabels[comparison.VerdictHint]))
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if _, err := c.store.orm.NewInsert().Model(&row).Exec(saveCtx); err != nil {
+	if err := c.store.write(saveCtx, nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.NewInsert().Model(&row).Exec(ctx); return err }); err != nil {
 		writeReplayError(w, http.StatusInternalServerError, "重放已完成并存证，但重放记录保存失败", map[string]any{"evidence_id": res.model.ID})
 		return
 	}

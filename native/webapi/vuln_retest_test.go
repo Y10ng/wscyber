@@ -1,10 +1,13 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // V3 漏洞卡“申请复测”后端测试：临时库合成数据（example.test 演示资产、虚构候选），launcher 替身，不调用模型。
@@ -26,11 +29,14 @@ func (f *notifyFixture) addRevision(taskID, findingID, title string) string {
 	content.Title = title
 	payload, _ := json.Marshal(storedFindingPayload{Canonical: "{}", Content: content, Evidence: evidenceAt("GET", "https://api.example.test/orders/1")})
 	revisionID := newFindingRevisionID()
-	if _, err := f.capability.store.orm.NewInsert().Model(&findingRevisionModel{ID: revisionID, FindingID: findingID, TaskID: taskID, Number: finding.Number, Revision: finding.CurrentRevision + 1,
-		SessionID: "s-research", TurnID: "turn", CallID: "call-rev2-" + findingID, PayloadJSON: string(payload), Title: title, CreatedAt: nowRFC3339()}).Exec(ctx); err != nil {
+	if err := f.capability.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&findingRevisionModel{ID: revisionID, FindingID: findingID, TaskID: taskID, Number: finding.Number, Revision: finding.CurrentRevision + 1,
+			SessionID: "s-research", TurnID: "turn", CallID: "call-rev2-" + findingID, PayloadJSON: string(payload), Title: title, CreatedAt: nowRFC3339()}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
-	if _, err := f.capability.store.db.ExecContext(ctx, `UPDATE webapi_findings SET current_revision = current_revision + 1, current_revision_id = ? WHERE id = ?`, revisionID, findingID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(ctx, `UPDATE webapi_findings SET current_revision = current_revision + 1, current_revision_id = ? WHERE id = ?`, revisionID, findingID); err != nil {
 		f.t.Fatal(err)
 	}
 	return revisionID

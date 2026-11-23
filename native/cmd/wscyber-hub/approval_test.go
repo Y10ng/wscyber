@@ -22,6 +22,7 @@ import (
 	webservice "github.com/chainreactors/cyber/pkg/web/service"
 	"google.golang.org/protobuf/proto"
 
+	"wscyber/native/pgschema"
 	"wscyber/native/webapi"
 )
 
@@ -34,7 +35,7 @@ func TestModelNodeApprovalThroughNativeBash(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = schema.Close()
-	capability, err := webapi.NewCapability(database)
+	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, filepath.Dir(database)) // P3b 接 testdb
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func newSchemaCapability(t *testing.T) *webapi.Capability {
 		t.Fatal(err)
 	}
 	_ = schema.Close()
-	capability, err := webapi.NewCapability(database)
+	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, filepath.Dir(database)) // P3b 接 testdb
 	if err != nil {
 		t.Fatal(err)
 	}

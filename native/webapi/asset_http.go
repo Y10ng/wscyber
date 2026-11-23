@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -190,7 +193,9 @@ func (c *Capability) handleAssetPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "读取资产失败")
 		return
 	}
-	beforeScenario, err := assetScenarioModelOf(r.Context(), c.store.orm, id)
+	beforeScenario, err := readValue(r.Context(), c.store, func(ctx context.Context, db bun.IDB) (*assetScenarioModel, error) {
+		return assetScenarioModelOf(ctx, db, id)
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取资产研究场景失败")
 		return

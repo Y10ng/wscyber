@@ -21,6 +21,7 @@ import (
 	"github.com/chainreactors/cyber/pkg/profile"
 	"github.com/chainreactors/cyber/pkg/rpc"
 
+	"wscyber/native/pgschema"
 	"wscyber/native/webapi"
 )
 
@@ -143,7 +144,7 @@ func TestProductModelSubagentDenied(t *testing.T) {
 		http.Error(w, "unexpected model request", http.StatusInternalServerError)
 	}))
 	defer endpoint.Close()
-	capability, err := webapi.NewCapability(t.TempDir() + "/hub.sqlite")
+	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, t.TempDir()) // P3b 接 testdb
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestProductModelSubagentDenied(t *testing.T) {
 // 第二个短专项只核对 borrowed Provider 的关闭时机和原生 Runtime 命名空间。
 func TestProductModelProfileOwnershipAndNativeProtocol(t *testing.T) {
 	stateDir := t.TempDir()
-	capability, err := webapi.NewCapability(stateDir + "/hub.sqlite")
+	capability, err := webapi.NewCapability(pgschema.DatabaseURL{}, stateDir) // P3b 接 testdb
 	if err != nil {
 		t.Fatal(err)
 	}

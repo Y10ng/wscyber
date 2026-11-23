@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 	"github.com/chainreactors/cyber/aop/traffic"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -122,7 +123,10 @@ func TestWebAPIRetestSourceSessionAndProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.orm.NewUpdate().Model((*retestModel)(nil)).Set("created_at = ?", retest.CreatedAt).Where("id IN (?, ?)", firstID, second.RetestID).Exec(t.Context()); err != nil {
+	if err := store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*retestModel)(nil)).Set("created_at = ?", retest.CreatedAt).Where("id IN (?, ?)", firstID, second.RetestID).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	findingInv.CallID = "finding-call-update"
@@ -324,7 +328,10 @@ func TestWebAPIRetestResultEvidenceAndImmutability(t *testing.T) {
 	}
 	flow.Complete = false
 	model.FlowPB, _ = proto.Marshal(&flow)
-	if _, err := store.orm.NewUpdate().Model(model).Column("capture_truncated", "flow_pb").WherePK().Exec(t.Context()); err != nil {
+	if err := store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model(model).Column("capture_truncated", "flow_pb").WherePK().Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	threeInv := operation.Invocation{SessionID: three.SessionID, TurnID: "three-result", CallID: "three-call"}
@@ -360,80 +367,5 @@ func TestWebAPIRetestResultEvidenceAndImmutability(t *testing.T) {
 	current, err := store.findingCurrent(t.Context(), task.ID, created.FindingID)
 	if err != nil || current.Status != "candidate" || current.RevisionID != created.RevisionID {
 		t.Fatalf("retest changed candidate: %+v %v", current, err)
-	}
-}
-
-func TestWebAPIRetestLegacyPreparation(t *testing.T) {
-	// 含报告八表的旧库：只补复测两表，原行保全。
-	database := t.TempDir() + "/hub.sqlite"
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(8, 10))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stage.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outcome, err := store.Save(t.Context(), "report-stage-task", "旧任务", "保留报告阶段行", []string{"http://127.0.0.1:8000"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare report stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	if err := complete.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	preserved, err := reopened.Get(t.Context(), outcome.Task.ID)
-	if err != nil || preserved == nil || preserved.KnownInfo != "旧任务" {
-		t.Fatalf("report stage task lost: %+v %v", preserved, err)
-	}
-	for _, model := range []any{(*retestModel)(nil), (*retestResultModel)(nil)} {
-		if count, err := reopened.orm.NewSelect().Model(model).Count(t.Context()); err != nil || count != 0 {
-			t.Fatalf("retest table not empty/created: %d %v", count, err)
-		}
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
-	}
-
-	// 八表＋仅复测表的半成结构拒绝。
-	halfPath := t.TempDir() + "/half.sqlite"
-	half, err := webservice.NewSQLiteStore(halfPath, webapiSchemaStage(8, 10))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := half.Close(); err != nil {
-		t.Fatal(err)
-	}
-	halfStore, err := openTaskStore(halfPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := halfStore.orm.NewCreateTable().Model((*retestModel)(nil)).Exec(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := halfStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(halfPath); err == nil {
-		t.Fatal("partial retest schema accepted")
 	}
 }

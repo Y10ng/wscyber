@@ -22,14 +22,14 @@ const assetTestSecret = "demo-Secret-7f3a"
 type assetFixture struct {
 	t          *testing.T
 	capability *Capability
-	database   string
+	database   testHub
 	mux        *http.ServeMux
 }
 
 func newAssetFixture(t *testing.T) *assetFixture {
 	t.Helper()
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	schema, err := webservice.NewSQLiteStore(database, SchemaModule())
+	database := newTestHub(t)
+	schema, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,9 +37,9 @@ func newAssetFixture(t *testing.T) *assetFixture {
 	return openAssetFixture(t, database)
 }
 
-func openAssetFixture(t *testing.T, database string) *assetFixture {
+func openAssetFixture(t *testing.T, database testHub) *assetFixture {
 	t.Helper()
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestWebAPIAssetCredentialsWriteOnly(t *testing.T) {
 	if credential["has_secret"] != true || credential["username"] != "admin@example.test" || credential["id"] != "c1" {
 		t.Fatalf("credential view = %v", credential)
 	}
-	info, err := os.Stat(filepath.Join(filepath.Dir(f.database), secretKeyFileName))
+	info, err := os.Stat(filepath.Join(f.database.StateDir, secretKeyFileName))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("key file = %v %v", info, err)
 	}
@@ -147,12 +147,9 @@ func TestWebAPIAssetCredentialsWriteOnly(t *testing.T) {
 	if !strings.HasPrefix(first, secretCipherV1) || strings.Contains(first, assetTestSecret) {
 		t.Fatalf("secret not encrypted: %q", first)
 	}
-	// 整库文本中也找不到明文。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		t.Fatal(err)
-	}
-	if raw, err := os.ReadFile(f.database); err != nil || strings.Contains(string(raw), assetTestSecret) {
-		t.Fatalf("plaintext in database file (err=%v)", err)
+	// 整库（全部表的全部行，含 bytea 列的十六进制形式）中也找不到明文。
+	if found, err := databaseContains(t.Context(), f.capability.store, assetTestSecret); err != nil || found {
+		t.Fatalf("plaintext in database (found=%v err=%v)", found, err)
 	}
 	// GET 不含 secret。
 	if _, _, raw := f.do("GET", "/api/webapi/assets/a1", ""); strings.Contains(raw, assetTestSecret) {
@@ -211,7 +208,7 @@ func TestWebAPIAssetSecretKeyMissingAndInvalid(t *testing.T) {
 	if status, _, raw := f.do("PUT", "/api/webapi/assets/a1/credentials/c1", `{"label":"管理员","secret":"`+assetTestSecret+`"}`); status != 200 {
 		t.Fatalf("put = %d %s", status, raw)
 	}
-	keyPath := filepath.Join(filepath.Dir(f.database), secretKeyFileName)
+	keyPath := filepath.Join(f.database.StateDir, secretKeyFileName)
 	if err := os.Remove(keyPath); err != nil {
 		t.Fatal(err)
 	}
@@ -245,44 +242,6 @@ func TestWebAPIAssetSecretKeyMissingAndInvalid(t *testing.T) {
 	}
 	if _, err := newSecretBox(keyPath).load(true); err == nil || !strings.Contains(err.Error(), "0600") {
 		t.Fatalf("0644 key accepted: %v", err)
-	}
-}
-
-func TestWebAPIAssetSchemaUpgradeFromPolicyStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(12, 13))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outcome, err := store.Save(t.Context(), "policy-stage-task", "旧任务", "保留策略阶段行", []string{"http://example.test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.setPolicy(t.Context(), outcome.Task.ID, ScopeOrigins, ApprovalOff); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare policy stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	f.createAsset("a1")
-	_, value, _ := f.do("GET", "/api/webapi/tasks/policy-stage-task", "")
-	if value["asset"] != nil || value["policy"].(map[string]any)["approval"] != "off" {
-		t.Fatalf("old task after upgrade = %v", value)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }
 
@@ -535,7 +494,7 @@ func TestWebAPIAssetLaunchPartialFailureAndResume(t *testing.T) {
 		t.Fatalf("opens=%d runs=%+v", len(launcher.opens), launcher.runs)
 	}
 	var links int
-	if err := f.capability.store.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_tasks").Scan(&links); err != nil || links != 1 {
+	if err := f.capability.store.db().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_tasks").Scan(&links); err != nil || links != 1 {
 		t.Fatalf("links = %d %v", links, err)
 	}
 	// 本机受控模型节点未配置模型：409。
@@ -586,7 +545,7 @@ func TestWebAPIAssetLaunchRealAPINodeOffline(t *testing.T) {
 func TestWebAPIAssetLaunchRealSessionsResume(t *testing.T) {
 	f := newAssetFixture(t)
 	f.createAsset("a1")
-	store, err := webservice.NewSQLiteStore(f.database, SchemaModule())
+	store, err := webservice.NewSQLiteStore(f.database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}

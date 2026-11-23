@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 	corehooks "github.com/chainreactors/cyber/core/hooks"
 	coretool "github.com/chainreactors/cyber/core/tool"
 	promptext "github.com/chainreactors/cyber/exts/prompt"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 // 全部为合成数据：临时库、example.test 演示目标。
@@ -390,7 +389,10 @@ func TestScenarioBeforeRunInjectsResearchSessionOnly(t *testing.T) {
 	}
 
 	// 验证会话（映射到同任务）、未知会话、空会话：原样。
-	if _, err := f.capability.store.orm.NewInsert().Model(&verificationModel{ID: "v1", TaskID: "t1", FindingID: "wf_demo", SourceRevisionID: "wr_demo", SessionID: "verify-session", CreatedAt: "2026-11-20T00:00:00Z"}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&verificationModel{ID: "v1", TaskID: "t1", FindingID: "wf_demo", SourceRevisionID: "wr_demo", SessionID: "verify-session", CreatedAt: "2026-11-20T00:00:00Z"}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if mapped, err := f.capability.store.taskForSession(t.Context(), "verify-session"); err != nil || mapped == nil || mapped.ID != "t1" {
@@ -400,41 +402,5 @@ func TestScenarioBeforeRunInjectsResearchSessionOnly(t *testing.T) {
 		if got := emitRunStart(t, registry, sessionID, base); got != base {
 			t.Fatalf("session %q modified:\n%s", sessionID, got)
 		}
-	}
-}
-
-func TestScenarioSchemaUpgradeFromBoardStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(33, 34))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Save(t.Context(), "board-stage-task", "旧任务", "保留黑板阶段行", []string{"https://api.example.test"}); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare board stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	_, value, raw := f.do("GET", "/api/webapi/tasks/board-stage-task", "")
-	if s := scenarioOf(t, value); s["key"] != ScenarioWebAPIPentest || s["is_default"] != true {
-		t.Fatalf("old task after upgrade = %s", raw)
-	}
-	if status, _, raw := f.do("PUT", "/api/webapi/tasks/board-stage-task/scenario", `{"scenario":"autonomous"}`); status != 200 {
-		t.Fatalf("put scenario after upgrade = %d %s", status, raw)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }

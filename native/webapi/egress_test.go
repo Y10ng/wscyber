@@ -24,8 +24,8 @@ import (
 	corehooks "github.com/chainreactors/cyber/core/hooks"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 	terminaltool "github.com/chainreactors/cyber/tools/terminal"
+	"github.com/uptrace/bun"
 )
 
 // egressTarget 是计数目标：requests 统计收到的请求，conns 统计建立的 TCP 连接
@@ -71,7 +71,7 @@ type egressFixture struct {
 	endpoint   egress.Endpoint
 	set        *extension.Set
 	mux        *http.ServeMux
-	database   string
+	database   testHub
 
 	inside, outside, tlsInside, tlsOutside, large *egressTestTarget
 }
@@ -271,10 +271,16 @@ func TestEgressScopeOriginsEnforcesBeforeDialAndRecords(t *testing.T) {
 func TestEgressSessionAttributionAndNoToken(t *testing.T) {
 	f := newEgressFixture(t)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := f.capability.store.orm.NewInsert().Model(&verificationModel{ID: "verify-1", TaskID: f.task.ID, FindingID: "f-1", SourceRevisionID: "r-1", SessionID: "verify-session", CreatedAt: now}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&verificationModel{ID: "verify-1", TaskID: f.task.ID, FindingID: "f-1", SourceRevisionID: "r-1", SessionID: "verify-session", CreatedAt: now}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.capability.store.orm.NewInsert().Model(&reportModel{ID: "report-1", TaskID: f.task.ID, SessionID: "report-session", ItemsJSON: "[]", CreatedAt: now}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&reportModel{ID: "report-1", TaskID: f.task.ID, SessionID: "report-session", ItemsJSON: "[]", CreatedAt: now}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, session := range []string{"verify-session", "report-session"} {
@@ -354,7 +360,7 @@ func TestEgressPolicySaveTakesEffectAndReadFailureDenies(t *testing.T) {
 		t.Fatalf("restored origins = %d", status)
 	}
 	// 已保存策略读不出（非法值）→ 按拒绝，授权内也不放行。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "UPDATE webapi_task_policies SET scope = 'bogus' WHERE task_id = ?", f.task.ID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), "UPDATE webapi_task_policies SET scope = 'bogus' WHERE task_id = ?", f.task.ID); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := call.get(t, f.inside.url("/broken")); status != http.StatusProxyAuthRequired {
@@ -437,7 +443,10 @@ func TestEgressAPIListFilterCursorAndErrors(t *testing.T) {
 	}
 	call.done()
 	verify := f.call(t, operation.Invocation{SessionID: "verify-session", TurnID: "t", CallID: "c"})
-	if _, err := f.capability.store.orm.NewInsert().Model(&verificationModel{ID: "verify-1", TaskID: f.task.ID, FindingID: "f-1", SourceRevisionID: "r-1", SessionID: "verify-session", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&verificationModel{ID: "verify-1", TaskID: f.task.ID, FindingID: "f-1", SourceRevisionID: "r-1", SessionID: "verify-session", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	verify.get(t, f.outside.url("/verify"))
@@ -506,7 +515,7 @@ func TestEgressAPIListFilterCursorAndErrors(t *testing.T) {
 
 func TestEgressCADirAndClose(t *testing.T) {
 	f := newEgressFixture(t)
-	caDir := filepath.Join(filepath.Dir(f.database), "egress-ca")
+	caDir := filepath.Join(f.database.StateDir, "egress-ca")
 	if !strings.HasPrefix(f.endpoint.CAPath(), caDir+string(os.PathSeparator)) {
 		t.Fatalf("CA path %q not under %q", f.endpoint.CAPath(), caDir)
 	}
@@ -554,36 +563,6 @@ func TestEgressTargetMatching(t *testing.T) {
 		if got := egressTargetAllowed(req, target, origins); got != tc.want || target.display != tc.display {
 			t.Errorf("%s %s = %v %q, want %v %q", tc.method, tc.target, got, target.display, tc.want, tc.display)
 		}
-	}
-}
-
-// C3 阶段（二十二表）旧库补出口表；补表后完整原生校验通过且可写入。
-func TestEgressSchemaUpgradeFromVulnStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(22, 20))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare C3 stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	capability, err := NewCapability(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer capability.Close(context.Background())
-	model := &egressFlowModel{TaskID: "t", SessionID: "s", Decision: egressDenied, Error: "x", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := capability.store.insertEgressFlow(t.Context(), model, nil); err != nil {
-		t.Fatalf("insert after upgrade: %v", err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare complete schema again: %v", err)
 	}
 }
 

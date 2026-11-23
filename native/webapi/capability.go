@@ -25,6 +25,8 @@ import (
 	"github.com/chainreactors/cyber/pkg/web"
 	managementapi "github.com/chainreactors/cyber/pkg/web/api"
 	webservice "github.com/chainreactors/cyber/pkg/web/service"
+
+	"wscyber/native/pgschema"
 )
 
 // Task 是已保存任务的可核对记录。InitialSessionID 是服务端首次生成的
@@ -298,7 +300,7 @@ func (c *Capability) handleGetTaskBySession(w http.ResponseWriter, r *http.Reque
 type Capability struct {
 	store     *taskStore
 	approvals *approvalRuntime
-	// secrets 加密资产测试账号；密钥文件与 hub.sqlite 同在 state-dir。
+	// secrets 加密资产测试账号；密钥文件在 state-dir。
 	secrets *secretBox
 	// launcher 由 Routes 从原生管理 API 注入（从资产发起任务用）；测试可替换。
 	launcher    sessionLauncher
@@ -323,14 +325,18 @@ type Capability struct {
 	subsessionModelCalls sync.Map
 }
 
-// NewCapability 创建能力；database 为同一 hub.sqlite 路径。
-func NewCapability(database string) (*Capability, error) {
+// NewCapability 创建能力。database 是已迁移的 PostgreSQL 库（与原生存储同库、分池）；
+// stateDir 存放凭据/Webhook 加密密钥与出口 CA（原先取 hub.sqlite 所在目录）。
+func NewCapability(database pgschema.DatabaseURL, stateDir string) (*Capability, error) {
+	if stateDir == "" {
+		return nil, fmt.Errorf("webapi state-dir 不能为空")
+	}
 	store, err := openTaskStore(database)
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	capability := &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(filepath.Dir(database), secretKeyFileName)),
-		egressCADir: filepath.Join(filepath.Dir(database), egressCADirName)}
+	capability := &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(stateDir, secretKeyFileName)),
+		egressCADir: filepath.Join(stateDir, egressCADirName)}
 	notifyCapabilities.Store(store, capability)
 	return capability, nil
 }

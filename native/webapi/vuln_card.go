@@ -3,6 +3,7 @@ package webapi
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -290,10 +291,10 @@ func (c *Capability) cardTargetIn(ctx context.Context, index *cardIndex, key str
 	if strings.HasPrefix(key, "finding:") {
 		return nil, nil, errTriageNotFound
 	}
-	vuln, err := findOptional[assetVulnModel](ctx, c.store.orm, "id = ?", key)
+	vuln, err := readOptional[assetVulnModel](ctx, c.store, "id = ?", key)
 	if err == nil && vuln == nil {
 		if err = c.syncAllAssetVulns(ctx); err == nil {
-			vuln, err = findOptional[assetVulnModel](ctx, c.store.orm, "id = ?", key)
+			vuln, err = readOptional[assetVulnModel](ctx, c.store, "id = ?", key)
 		}
 	}
 	if err != nil {
@@ -346,7 +347,9 @@ func (s *taskStore) cardVerifications(ctx context.Context, findingIDs []string) 
 		return []cardVerification{}, nil
 	}
 	var models []verificationModel
-	if err := s.orm.NewSelect().Model(&models).Where("finding_id IN (?)", bun.In(findingIDs)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("finding_id IN (?)", bun.In(findingIDs)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	results := map[string]verificationResultModel{}
@@ -356,7 +359,9 @@ func (s *taskStore) cardVerifications(ctx context.Context, findingIDs []string) 
 			ids = append(ids, model.ID)
 		}
 		var rows []verificationResultModel
-		if err := s.orm.NewSelect().Model(&rows).Where("verification_id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&rows).Where("verification_id IN (?)", bun.In(ids)).Scan(ctx)
+		}); err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
@@ -394,12 +399,14 @@ func (s *taskStore) cardRetests(ctx context.Context, findingIDs []string) ([]car
 		return []cardRetest{}, nil
 	}
 	var models []retestModel
-	if err := s.orm.NewSelect().Model(&models).Where("finding_id IN (?)", bun.In(findingIDs)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("finding_id IN (?)", bun.In(findingIDs)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	out := []cardRetest{}
 	for _, model := range models {
-		row, err := findOptional[retestResultModel](ctx, s.orm, "retest_id = ?", model.ID)
+		row, err := readOptional[retestResultModel](ctx, s, "retest_id = ?", model.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -602,23 +609,27 @@ const auditColumns = `id, at, actor, action, target_kind, target_id, task_id, as
 
 // vulnChanges：该条目的全部 vuln.* 审计（新到旧）。
 func (s *taskStore) vulnChanges(ctx context.Context, key string) ([]AuditEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+auditColumns+` FROM webapi_audit_events
-		WHERE target_kind = 'vuln' AND target_id = ? AND substr(action, 1, 5) = 'vuln.' ORDER BY at DESC, id DESC`, key)
-	if err != nil {
-		return nil, err
-	}
-	items, err := scanAuditRows(rows)
-	if closeErr := closeRows(rows); err == nil {
-		err = closeErr
-	}
-	return items, err
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]AuditEvent, error) {
+		rows, err := db.QueryContext(ctx, `SELECT `+auditColumns+` FROM webapi_audit_events
+			WHERE target_kind = 'vuln' AND target_id = ? AND substr(action, 1, 5) = 'vuln.' ORDER BY at COLLATE "C" DESC, id COLLATE "C" DESC`, key)
+		if err != nil {
+			return nil, err
+		}
+		items, err := scanAuditRows(rows)
+		if closeErr := closeRows(rows); err == nil {
+			err = closeErr
+		}
+		return items, err
+	})
 }
 
 // vulnNotifyEvents：该条目（去重键）的推送终态：sent 用 sent_at，failed 用审计时间（无则登记时间）；
 // 人工推送（manual）见 manualNotifyEvents。
 func (s *taskStore) vulnNotifyEvents(ctx context.Context, key string) ([]VulnCardEvent, error) {
 	var items []notificationModel
-	if err := s.orm.NewSelect().Model(&items).Where("dedupe_key = ? AND (status IN (?) OR kind = ?)", key, bun.In([]string{NotifySent, NotifyFailed}), NotifyKindManual).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&items).Where("dedupe_key = ? AND (status IN (?) OR kind = ?)", key, bun.In([]string{NotifySent, NotifyFailed}), NotifyKindManual).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	out := []VulnCardEvent{}
@@ -638,7 +649,9 @@ func (s *taskStore) vulnNotifyEvents(ctx context.Context, key string) ([]VulnCar
 		} else {
 			event.At, event.Title, event.Detail = item.CreatedAt, "企业微信推送失败", capRunes(oneLine(item.LastError), vulnCardDetailRunes)
 			var at string
-			if err := s.db.QueryRowContext(ctx, `SELECT at FROM webapi_audit_events WHERE action = 'notification.failed' AND target_id = ? ORDER BY at DESC LIMIT 1`, item.ID).Scan(&at); err == nil {
+			if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+				return db.QueryRowContext(ctx, `SELECT at FROM webapi_audit_events WHERE action = 'notification.failed' AND target_id = ? ORDER BY at COLLATE "C" DESC LIMIT 1`, item.ID).Scan(&at)
+			}); err == nil {
 				event.At = at
 			}
 		}
@@ -653,15 +666,18 @@ func (s *taskStore) vulnNotifyEvents(ctx context.Context, key string) ([]VulnCar
 // manualNotifyEvents：人工推送行在终态后可重新入队（复用同一行），故每次终态取投递审计
 // notification.sent / notification.failed；没有审计时退回该行当前终态。
 func (s *taskStore) manualNotifyEvents(ctx context.Context, item notificationModel) ([]VulnCardEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+auditColumns+` FROM webapi_audit_events
-		WHERE target_kind = 'notification' AND target_id = ? AND action IN ('notification.sent', 'notification.failed') ORDER BY at ASC, id ASC`, item.ID)
-	if err != nil {
-		return nil, err
-	}
-	audits, err := scanAuditRows(rows)
-	if closeErr := closeRows(rows); err == nil {
-		err = closeErr
-	}
+	audits, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]AuditEvent, error) {
+		rows, err := db.QueryContext(ctx, `SELECT `+auditColumns+` FROM webapi_audit_events
+			WHERE target_kind = 'notification' AND target_id = ? AND action IN ('notification.sent', 'notification.failed') ORDER BY at COLLATE "C" ASC, id COLLATE "C" ASC`, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		audits, err := scanAuditRows(rows)
+		if closeErr := closeRows(rows); err == nil {
+			err = closeErr
+		}
+		return audits, err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -709,16 +725,10 @@ func (set *cardEvidenceSet) add(taskID, source string, snapshot FindingEvidenceS
 func (c *Capability) cardEvidence(ctx context.Context, findingIDs []string, verifications []cardVerification, retests []cardRetest, repro *VulnCardRepro) (*cardEvidenceSet, error) {
 	set := &cardEvidenceSet{items: []VulnCardEvidence{}, seen: map[string]bool{}}
 	if len(findingIDs) > 0 {
-		rows, err := c.store.db.QueryContext(ctx, `SELECT f.task_id, r.payload_json FROM webapi_findings f
-			JOIN webapi_finding_revisions r ON r.id = f.current_revision_id WHERE f.id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(findingIDs)), ",")+`) ORDER BY f.number ASC`, stringArgs(findingIDs)...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
+		if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 			var taskID, payload string
 			if err := rows.Scan(&taskID, &payload); err != nil {
-				rows.Close()
-				return nil, err
+				return err
 			}
 			var stored storedFindingPayload
 			if json.Unmarshal([]byte(payload), &stored) == nil {
@@ -726,8 +736,9 @@ func (c *Capability) cardEvidence(ctx context.Context, findingIDs []string, veri
 					set.add(taskID, "candidate", snapshot)
 				}
 			}
-		}
-		if err := closeRows(rows); err != nil {
+			return nil
+		}, `SELECT f.task_id, r.payload_json FROM webapi_findings f
+			JOIN webapi_finding_revisions r ON r.id = f.current_revision_id WHERE f.id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(findingIDs)), ",")+`) ORDER BY f.number ASC`, stringArgs(findingIDs)...); err != nil {
 			return nil, err
 		}
 	}

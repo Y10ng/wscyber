@@ -1,14 +1,14 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 // 计划后续（C2b）测试：全部为合成数据（example.test 演示资产、虚构候选），注入时钟与 launcher 替身。
@@ -24,10 +24,16 @@ func (f *scheduleFixture) addFinding(taskID, title string, content findingConten
 	content.Title = title
 	payload, _ := json.Marshal(storedFindingPayload{Canonical: "{}", Content: content, Evidence: evidence})
 	ctx := f.t.Context()
-	if _, err := f.capability.store.orm.NewInsert().Model(&findingModel{ID: findingID, TaskID: taskID, Number: followupNumber, Status: "candidate", CurrentRevision: 1, CurrentRevisionID: revisionID, CreatedAt: now, UpdatedAt: now}).Exec(ctx); err != nil {
+	if err := f.capability.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&findingModel{ID: findingID, TaskID: taskID, Number: followupNumber, Status: "candidate", CurrentRevision: 1, CurrentRevisionID: revisionID, CreatedAt: now, UpdatedAt: now}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
-	if _, err := f.capability.store.orm.NewInsert().Model(&findingRevisionModel{ID: revisionID, FindingID: findingID, TaskID: taskID, Number: followupNumber, Revision: 1, SessionID: "s-research", TurnID: "turn", CallID: "call-" + findingID, PayloadJSON: string(payload), Title: title, CreatedAt: now}).Exec(ctx); err != nil {
+	if err := f.capability.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&findingRevisionModel{ID: revisionID, FindingID: findingID, TaskID: taskID, Number: followupNumber, Revision: 1, SessionID: "s-research", TurnID: "turn", CallID: "call-" + findingID, PayloadJSON: string(payload), Title: title, CreatedAt: now}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 	return findingID, revisionID
@@ -53,7 +59,10 @@ func (f *scheduleFixture) addVerification(taskID, findingID, revisionID, verdict
 func (f *scheduleFixture) addVerificationResult(id, verdict string) {
 	f.t.Helper()
 	payload, _ := json.Marshal(storedVerificationResult{Canonical: verdict, Payload: verificationToolPayload{Verdict: verdict, Method: "演示", Summary: "演示"}})
-	if _, err := f.capability.store.orm.NewInsert().Model(&verificationResultModel{VerificationID: id, SessionID: "s", TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(f.t.Context()); err != nil {
+	if err := f.capability.store.write(f.t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&verificationResultModel{VerificationID: id, SessionID: "s", TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -61,7 +70,10 @@ func (f *scheduleFixture) addVerificationResult(id, verdict string) {
 func (f *scheduleFixture) addRetestResult(id, conclusion string) {
 	f.t.Helper()
 	payload, _ := json.Marshal(storedRetestResult{Canonical: conclusion, Payload: retestToolPayload{Conclusion: conclusion, Method: "演示", Summary: "演示"}})
-	if _, err := f.capability.store.orm.NewInsert().Model(&retestResultModel{RetestID: id, SessionID: "s", TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(f.t.Context()); err != nil {
+	if err := f.capability.store.write(f.t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&retestResultModel{RetestID: id, SessionID: "s", TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -194,7 +206,10 @@ func TestSubagentScheduleFollowupWaitsForChildren(t *testing.T) {
 	f.addFinding(run.TaskID, "合成候选", simpleContent(), nil)
 	child := &taskSubsessionModel{SessionID: "schedule-child", TaskID: run.TaskID, ParentSessionID: f.sessionOf(run.TaskID),
 		ParentCallID: "call", OracleID: "synthetic-oracle", AgentName: OracleExplorerName, Status: subsessionRunning, CreatedAt: nowRFC3339()}
-	if _, err := f.capability.store.orm.NewInsert().Model(child).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(child).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if running, err := f.capability.scheduledTaskRunning(t.Context(), run.TaskID); err != nil || !running {
@@ -204,7 +219,10 @@ func TestSubagentScheduleFollowupWaitsForChildren(t *testing.T) {
 	if f.marker(run.ID) != nil || len(f.launcher.runs) != 1 {
 		t.Fatal("followups planned/launched before child ended")
 	}
-	if _, err := f.capability.store.orm.NewUpdate().Model(child).Set("status = ?", subsessionEnded).WherePK().Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model(child).Set("status = ?", subsessionEnded).WherePK().Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if running, err := f.capability.scheduledTaskRunning(t.Context(), run.TaskID); err != nil || running {
@@ -333,7 +351,7 @@ func TestWebAPIScheduleFollowupVerifyAndRetest(t *testing.T) {
 	totalRuns, totalOpens := len(f.launcher.runs), len(f.launcher.opens)
 
 	// 重启回放：状态回到 pending、完成标记清空（模拟发起后写状态前中断），新 Capability 同库续跑，不重复建与 Run。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "UPDATE webapi_schedule_followups SET status = 'pending' WHERE run_id = ?", run2.ID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), "UPDATE webapi_schedule_followups SET status = 'pending' WHERE run_id = ?", run2.ID); err != nil {
 		t.Fatal(err)
 	}
 	restarted := openAssetFixture(t, f.database)
@@ -354,7 +372,7 @@ func TestWebAPIScheduleFollowupVerifyAndRetest(t *testing.T) {
 		}
 	}
 	var count int
-	if err := f.capability.store.db.QueryRowContext(t.Context(), "SELECT (SELECT COUNT(*) FROM webapi_verifications) + (SELECT COUNT(*) FROM webapi_retests)").Scan(&count); err != nil || count != 12 {
+	if err := f.capability.store.db().QueryRowContext(t.Context(), "SELECT (SELECT COUNT(*) FROM webapi_verifications) + (SELECT COUNT(*) FROM webapi_retests)").Scan(&count); err != nil || count != 12 {
 		t.Fatalf("verification+retest rows = %d %v", count, err)
 	}
 	if f.marker(run2.ID).CompletedAt == "" {
@@ -568,28 +586,5 @@ func TestWebAPIScheduleFollowupSwitchesArchivedFailures(t *testing.T) {
 	f.tick()
 	if items := f.followups(run5.ID); len(items) != 1 || items[0].Status != FollowupSkipped || items[0].Error != "计划已删除" {
 		t.Fatalf("deleted schedule followups = %+v", items)
-	}
-}
-
-// C2a 阶段（十七表）旧库补三张后续表；补表后计划与开关可用。
-func TestWebAPIScheduleFollowupSchemaUpgradeFromScheduleStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(17, 16))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare schedule stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	f.createAsset("a1")
-	if status, value, raw := f.do("PUT", "/api/webapi/assets/a1/schedule", `{"cron":"0 3 * * *","auto_retest":false}`); status != 201 || value["auto_retest"] != false || value["auto_verify"] != true {
-		t.Fatalf("schedule after upgrade = %d %s", status, raw)
 	}
 }
