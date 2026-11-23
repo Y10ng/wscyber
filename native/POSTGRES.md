@@ -98,7 +98,7 @@ webapi 表之间**没有外键**（`rel:belongs-to`/`REFERENCES` 0 处）。
 
 - **一个 PG 数据库、`public` schema**，原生表（`chat_sessions`、`chat_aop_events`、`aop_request_ledger`、`raw_artifacts`）、webapi 44 表、新增 `tenants`/`users`/`user_sessions`/`webapi_counters`/迁移表同库。Hub 不启用 Scans（`main.go:162` 注释），`scans`/`session_scans` 不进基线。
 - **两个连接池、不共享事务**：上游 store 在扩展 `Load` 内自建（无法注入池，§0.1），webapi 自建。现有跨表访问只是 webapi 读原生表（§0.3 末行），无跨池事务需求。两池都用 `pgx/v5/stdlib` + `bun/dialect/pgdialect`。
-- **连接配置**：`--database-url-file PATH`（文件权限须 0600，沿用 `--access-key-file` 形态；避免口令出现在 `ps` 参数）；未给时读环境变量 `WSCYBER_DATABASE_URL`；都没有则启动失败。不提供明文 `--database-url` 旗标。日志只打印 `pgx.ParseConfig` 得到的 host/port/database/user，口令不进日志；上游 `Management.Database` 字段承载 DSN，但上游只校验非空、不打印（`extension.go:89-91`；`host.go:64` 只打印 AccessKey，已用 NopLogger）。
+- **连接配置**：`--database-url-file PATH`（P1 修订：与 D1 私密文件规则统一——属主可读、group/other 无任何权限即 0600 或 0400，拒绝符号链接与特殊文件，打开后复查同一文件；内容为单行；避免口令出现在 `ps` 参数）；未给时读环境变量 `WSCYBER_DATABASE_URL`；都没有则启动失败。不提供明文 `--database-url` 旗标。日志只打印 `pgx.ParseConfig` 得到的 host/port/database/user，口令不进日志（实现：`pgschema.DatabaseURL` 的 `String/GoString` 只含这四项，原文只经 `DSN()` 取得；解析失败的错误不回显原文）；上游 `Management.Database` 字段承载 DSN，但上游只校验非空、不打印（`extension.go:89-91`；`host.go:64` 只打印 AccessKey，已用 NopLogger）。
 - **连接参数**：每池 `MaxOpenConns=8`、`MaxIdleConns=4`、`ConnMaxLifetime=30m`、`ConnMaxIdleTime=5m`；DSN 追加 `application_name=wscyber-hub-native|webapi`、`timezone=UTC`（本机集群 `timezone='America/New_York'`）。总连接 ≤16，远低于默认 `max_connections=100`。
 - **单实例**：审批、调度、锁仍在进程内（`approval.go:65`、`capability.go:306-308`、`notify.go:75,84`），state-dir 仍存密钥与 CA。Hub 启动时取会话级 `pg_try_advisory_lock(<wscyber 常量>)`，失败即退出“同库已有 Hub 在运行”。多实例不在本期范围。
 - state-dir 保留（密钥、出口 CA、模型配置、节点工作目录），只是不再有 `hub.sqlite`；`--state-dir` 的“SQLite URI 分隔符”校验删除。
@@ -132,9 +132,9 @@ webapi 表之间**没有外键**（`rel:belongs-to`/`REFERENCES` 0 处）。
 
 ## 3. schema 管理
 
-- **工具**：`bun/migrate`（已在 `bun v1.3.0` 根模块，不加新模块）。迁移 SQL 以 `embed.FS` 放 `native/pgschema/migrations/`，`Migrations.Discover(fsys)`；迁移表 `wscyber_migrations`/`wscyber_migration_locks`（`WithTableName`/`WithLocksTableName`）。
-- **基线**：`0001_baseline.up.sql` 手写全部表、索引、`tenant_id` 列、触发器、RLS（P5 前先不 `ENABLE`）。手写 DDL 而不是 bun `CreateTable`，因为需要 identity、bytea、默认值、触发器与策略。**首次生产部署前基线可原地修改**（开发库重建即可，延续上游“首发前无迁移”的做法）；首发后只增不改（`0002_…`）。
-- **启动策略**：Hub 启动 → 用迁移 DSN 连接 → `migrator.Lock` → 若库里已应用的迁移含本二进制不认识的版本（库比二进制新）→ 失败；否则应用未应用的迁移（PG DDL 事务化，每个迁移一个事务）→ `Unlock` → 再打开两个运行池。上游 overlay store 与 webapi 只校验版本/列，不建表。另提供 `wscyber-hub db status` 子命令只读查看版本。
+- **工具**：`bun/migrate`（已在 `bun v1.3.0` 根模块，不加新模块）。迁移 SQL 以 `embed.FS` 放 `native/pgschema/migrations/`，`Migrations.Discover(fsys)`；迁移表 `wscyber_migrations`/`wscyber_migration_locks`（`WithTableName`/`WithLocksTableName`）。P1 修订：`wscyber_migration_locks` 只是 `Migrator.Init` 顺带建出、不使用——`Migrator.Lock` 是往锁表插行，崩溃会残留；互斥改用会话级 `pg_advisory_lock`（专用连接，进程崩溃即释放）。bun 默认在迁移事务之外登记版本（崩溃会出现“已登记未执行”），运行器改为逐个调用迁移、在 `AfterMigration` 钩子里于**同一事务**内登记。
+- **基线**：`0001_baseline.tx.up.sql`（P1 修订：bun 只对 `.tx.up.sql` 整体开事务，`.up.sql` 逐句独立执行；运行器拒绝非 `.tx.up.sql` 与 `.down.sql` 文件）手写全部表、索引、`tenant_id` 列、触发器、RLS（P5 前先不 `ENABLE`）。手写 DDL 而不是 bun `CreateTable`，因为需要 identity、bytea、默认值、触发器与策略。**首次生产部署前基线可原地修改**（开发库重建即可，延续上游“首发前无迁移”的做法）；首发后只增不改（`0002_…`）。
+- **启动策略**：Hub 启动 → 用迁移 DSN 连接 → 角色检查 → 单实例锁 → `pg_advisory_lock`（迁移锁）→ 若库里已应用的迁移含本二进制不认识的版本（库比二进制新）→ 失败；否则应用未应用的迁移（PG DDL 事务化，每个迁移一个事务）→ 释放迁移锁 → 再打开两个运行池（P1 实现：`pgschema.Start` 按此顺序执行，运行池打开后用 `pgschema.RequireCurrent` 校验）。上游 overlay store 与 webapi 只校验版本/列，不建表。另提供 `wscyber-hub db status` 子命令只读查看版本。
 - **回滚**：不写 down 迁移（生产不执行）；回滚＝升级前 `pg_dump` 备份后恢复，并回退二进制。RUNNING.md 写明“升级前备份”。开发期回滚＝删库重建。
 - **删除**：`webapiTableOrder`、`webapiSchemaStages`、`webapiSchemaStage`、`legacyWebAPISchema`、`PrepareWebAPISchema`、`addWebAPISchemaStage`（`verification_store.go:319-395`）及 `main.go:168-170` 调用；上游 `createSchema/validateSchema/schemaTables/schemaColumns` 在 overlay 中被替换。`SchemaModule()`（`store.go:57`）保留，作为列存在性校验的声明来源（Capability 接口要求 `SchemaModules()`）。
 - **一致性测试**：`pgschema` 测试断言 `information_schema` 列集合 ⊇ 上游 `coreSchema.Tables` ∪ `webapi.SchemaModule().Tables`，且每表都有 `tenant_id`（白名单外），防止模型与基线漂移。
@@ -169,6 +169,8 @@ CREATE TABLE webapi_counters (tenant_id text NOT NULL REFERENCES tenants(id), na
 1. **根表**：默认值 `current_setting('app.tenant_id')`（未设置即报错，失败可见）。
 2. **子表**：通用触发器 `wscyber_inherit_tenant(parent_table, parent_column)` 在 BEFORE INSERT 从父行取 `tenant_id`；若会话也设了 `app.tenant_id` 且与父行不一致 → `RAISE`；父行不存在（键为空）→ 回退到规则 1。
 3. 不允许 UPDATE `tenant_id`（触发器拒绝）。
+
+P1 实现说明（`0001_baseline.tx.up.sql`）：规则 2 细化为——外键列**为空**才回退 GUC；外键列**非空但父行不存在**一律拒绝（不回退，避免挂到错误租户）；显式给出的 `tenant_id` 与父行不一致也拒绝。`app.tenant_id` 一律用 `current_setting(…, true)` 读并把空串当未设置（同一连接上 `set_config(…, true)` 用过一次后，后续事务读到的是空串而非“未定义”）。错误码：`WT001` 未设租户、`WT002` 租户不一致、`WT003` 无父行、`WT004` 改 `tenant_id`（P3 起 webapi 可按 `pgconn.PgError.Code` 判断）。触发器按参数 `(父表, 父键列, 子表外键列)` 通用实现，父行查询走父表主键索引。
 
 | 归属 | 表 |
 |---|---|
@@ -279,6 +281,8 @@ P5 结束时：身份链路、RLS、默认租户全部就位，认证仍是单�
 ## 6. 表清单（基线 v1）
 
 上游 core 4 表 + webapi 44 表（`store.go:57-148` 的 `SchemaModule()`）+ 新增 4 表（tenants、users、user_sessions、webapi_counters）+ 迁移 2 表。列与现 `Tables` 声明一致，每业务表加 `tenant_id`；索引照搬 39 条 webapi 索引与 6 条 core 索引，所有含 `tenant_id` 访问路径的索引前置 `tenant_id`（如 `(tenant_id, updated_at DESC)`），漏洞编号唯一改 `(tenant_id, number)`。不新增 webapi 外键（保持现语义；如需另议）。
+
+P1 实际基线：48 张业务表（core 4 + webapi 44）+ `tenants`/`users`/`user_sessions`/`webapi_counters` + 迁移 2 表；索引名沿用模型声明。前置 `tenant_id` 的只有按租户列全表的路径：`idx_sessions_updated (tenant_id, updated_at DESC)`、`webapi_notifications_created (tenant_id, created_at DESC, id DESC)`、`webapi_audit_events_at (tenant_id, at, id)`、`webapi_findings_number` 唯一 `(tenant_id, number)`，另新增 `webapi_tasks_tenant_created`、`webapi_assets_tenant_updated`；以 `task_id`/`asset_id`/`session_id` 开头的索引不加（这些键已唯一归属一个租户）。原生 `chat_aop_events → chat_sessions` 外键 `ON DELETE CASCADE` 与 `(session_id, cursor)` 唯一约束、`raw_artifacts.cursor` identity 照上游模型保留。RLS 策略 `tenant_rw`（以及 `tenants`/`users`/`user_sessions` 的专用策略）已建但未 `ENABLE`。**P1 未做、留给后续片**：单行设置表（`webapi_notify_settings`、`webapi_notify_ops_settings`、`webapi_vuln_sla`）主键改每租户（P5，首发前可原地改基线）；审计 `actor_user_id` 列（P5/P6）。
 
 ---
 

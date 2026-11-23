@@ -1,0 +1,84 @@
+{
+  "scope": "2026-11-22 Linux/amd64 P1 PostgreSQL 基础设施：native/pgschema 与 native/internal/testdb 实际 go list -deps 增量；Hub 入口（cmd/wscyber-hub）P1 未导入 pgschema，其可达模块集不变（P3 接入后以 Hub 闭包重新核对）；不代表全模块图/扫描发行版/UI",
+  "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
+  "reachable_module_count": 15,
+  "new_module_count": 2,
+  "baseline": {
+    "files": [
+      {
+        "file": "dependency-licenses.json",
+        "sha256": "650f1217cbb16def18397753d04dc5df32685fc53a49797bd760fe369465668a"
+      },
+      {
+        "file": "hub-dependency-licenses.json",
+        "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+      },
+      {
+        "file": "node-dependency-licenses.json",
+        "sha256": "a01642fcc776ecab4f62847f3143a8776575daad7e3c209a9c1a368a215ca674"
+      },
+      {
+        "file": "egress-dependency-licenses.json",
+        "sha256": "e87ef3dc3b3149fd5a5eb246af6800fac5706f95a600ed2c295fea246ec4ea0d"
+      },
+      {
+        "file": "evidence-image-dependency-licenses.json",
+        "sha256": "72efb2d752d79bb103704b418117d62f5b82ba37df609cdd2a108240fb269565"
+      },
+      {
+        "file": "browser-dependency-licenses.json",
+        "sha256": "4ccd8754c401eeed6796d5d2a81805c6de9a3c5635d44448ee06ba4c9e80710d"
+      }
+    ],
+    "same_version_modules": [
+      "github.com/jackc/pgpassfile",
+      "github.com/jackc/pgservicefile",
+      "github.com/jackc/pgx/v5",
+      "github.com/jinzhu/inflection",
+      "github.com/puzpuzpuz/xsync/v3",
+      "github.com/tmthrgd/go-hex",
+      "github.com/uptrace/bun",
+      "github.com/vmihailenco/msgpack/v5",
+      "github.com/vmihailenco/tagparser/v2",
+      "golang.org/x/crypto",
+      "golang.org/x/sync",
+      "golang.org/x/sys",
+      "golang.org/x/text"
+    ]
+  },
+  "modules": [
+    {
+      "module": "github.com/jackc/puddle/v2",
+      "version": "v2.2.2",
+      "source": "https://pkg.go.dev/github.com/jackc/puddle/v2@v2.2.2",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "MIT",
+          "sha256": "2d50e98a4900b4d6457a38d39c1432fdc156fc2f7b365f2e33ec9344acbb0057"
+        }
+      ],
+      "purpose": "pgx/v5/stdlib 导入 pgxpool 而可达的资源池；版本为 pgx v5.7.2 go.mod 的最小版本选择结果",
+      "review": "模块根文本核对，非完整嵌套/资产/组合许可审查"
+    },
+    {
+      "module": "github.com/uptrace/bun/dialect/pgdialect",
+      "version": "v1.3.0",
+      "source": "https://pkg.go.dev/github.com/uptrace/bun/dialect/pgdialect@v1.3.0",
+      "root_license_files": [
+        {
+          "file": "LICENSE",
+          "license_text": "BSD-2-Clause",
+          "sha256": "81b7ed24af21a71f26047a28bf15ff9a4aa5d672c7601c7c76e09dd5785e09d6"
+        }
+      ],
+      "purpose": "bun 的 PostgreSQL 方言（与 bun v1.3.0 同版本），pgschema 连接池与迁移运行器使用",
+      "review": "模块根文本核对，非完整嵌套/资产/组合许可审查"
+    }
+  ],
+  "limitations": [
+    "模块获取：proxy.golang.org 本次直连被拒、指定代理 192.168.1.2:9567 不可达，改用 goproxy.cn 镜像（go get），GOSUMDB 仍为 sum.golang.org 校验；新增 go.sum 4 行（pgdialect、puddle/v2 各 h1 与 /go.mod），上游 f4b1fb2 go.sum 不含这两个模块（上游未用 pgxpool/pgdialect）。go mod tidy 需要全模块图、在直连不可达时无法完成，go.mod 按 tidy 规则手工整理（pgx/v5、pgdialect 移入直接依赖，puddle/v2 为 indirect）。",
+    "github.com/jackc/pgx/v5 v5.7.2、pgpassfile、pgservicefile 已因上游 titus 校验器在 Hub 闭包内，版本不变，许可记录见既有清单。",
+    "既有 Cyber/AOP AGPL、GPL 模块与 UNKNOWN 许可缺口不因本增量改变；本增量不作法律结论或可部署声明。"
+  ]
+}

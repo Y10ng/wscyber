@@ -189,3 +189,16 @@ CJK 回退字体只在运行时从系统读取（`WSCYBER_EVIDENCE_FONT` → `/u
 **二进制体积：** Hub 由 69,811,760 字节增至 123,977,849 字节（+54,166,089，约 +78%）。
 
 **新增待核实事项：** neutron 根无许可文本，保持 UNKNOWN；三个 MPL-2.0 模块（`hashicorp/golang-lru/v2`、`hashicorp/go-version`、`projectdiscovery/retryablehttp-go`）为文件级 copyleft；katana fork 与 neutron 内嵌的 JS/模板资产未审查。与既有 AGPL/GPL 组合及源代码/通知义务未处理；本增量不作法律结论或可部署声明。
+
+## P1：PostgreSQL 基础设施（pgdialect / pgx）的可达依赖增量
+
+核验日期：2026-11-22。同一固定 Cyber/AOP 版本；新增本项目包 `native/pgschema`（连接配置、角色检查、单实例锁、`bun/migrate` 迁移运行器与基线）与 `native/internal/testdb`（测试库助手），设计见 [POSTGRES.md](POSTGRES.md)。这两个包的 `go list -deps` 共 **15 个外部模块：13 个已在既有清单且版本不变，新增 2 个**；版本、公开来源与根许可 SHA-256 见 [pg-dependency-licenses.json](pg-dependency-licenses.json)。P1 中 Hub 入口尚未导入 `pgschema`，Hub 可达模块集不变（P3 接入后按 Hub 闭包重核；P4 删除 SQLite 时同步删 modernc/sqlitedialect 记录）。
+
+模块获取：`proxy.golang.org` 直连被拒、指定代理 `192.168.1.2:9567` 不可达，改用 `goproxy.cn` 镜像，`GOSUMDB` 仍为 `sum.golang.org`。新增 `go.sum` 4 行；上游 f4b1fb2 的 `go.sum` 不含这两个模块。`go mod tidy` 需全模块图，镜像/直连不全时无法完成，`go.mod` 按 tidy 规则手工整理（`pgx/v5`、`pgdialect` 为直接依赖，`puddle/v2` 为 indirect）。
+
+| 新增可达模块 | 固定版本 | 用途 / 模块根实际文本 |
+|---|---|---|
+| `github.com/uptrace/bun/dialect/pgdialect` | `v1.3.0` | bun 的 PostgreSQL 方言，与 bun v1.3.0 同版本；BSD-2-Clause |
+| `github.com/jackc/puddle/v2` | `v2.2.2` | `pgx/v5/stdlib` 经 `pgxpool` 可达的资源池（pgx v5.7.2 要求的最小版本）；MIT |
+
+`github.com/jackc/pgx/v5 v5.7.2`（及 pgpassfile、pgservicefile）此前已因上游 titus 校验器在 Hub 闭包内，版本不变，本片起由本项目直接导入。既有许可缺口不因本增量改变；不作法律结论或可部署声明。

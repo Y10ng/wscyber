@@ -5,6 +5,8 @@ go 1.26.0
 require (
 	github.com/chainreactors/cyber v0.0.0-20261109041610-f4b1fb2f3315
 	github.com/chainreactors/cyber/aop v0.0.0-20261109041610-f4b1fb2f3315
+	github.com/jackc/pgx/v5 v5.7.2
+	github.com/uptrace/bun/dialect/pgdialect v1.3.0
 	golang.org/x/image v0.47.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -74,7 +76,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.7.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
