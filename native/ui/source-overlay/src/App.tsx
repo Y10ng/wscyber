@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, HelpCircle } from 'lucide-react'
 import AppSidebar from './components/AppSidebar'
 import OverviewPage from './components/OverviewPage'
 import TasksPage from './components/TasksPage'
+import ChatsPage from './components/ChatsPage'
 import VulnsPage from './components/VulnsPage'
 import VulnCardPage from './components/VulnCardPage'
 import ReportsPage from './components/ReportsPage'
@@ -50,10 +51,10 @@ import { useObservable, WorkbenchSlots } from './runtime/react'
 import type { HubServices } from './runtime/services'
 import type { CapabilityManifest } from './runtime/capabilities'
 
-export type AppPage = 'overview' | 'tasks' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations' | 'audit'
+export type AppPage = 'overview' | 'tasks' | 'chats' | 'assets' | 'vulns' | 'reports' | 'models' | 'nodes' | 'integrations' | 'audit'
 
-// 已实现页面：总览/任务/资产/漏洞/报告/集成/审计/模型/节点；URL 里出现未实现的占位入口时归一为总览。
-const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'assets', 'vulns', 'reports', 'models', 'nodes', 'integrations', 'audit']
+// 已实现页面：总览/任务/对话/资产/漏洞/报告/集成/审计/模型/节点；URL 里出现未实现的占位入口时归一为总览。
+const IMPLEMENTED_PAGES: AppPage[] = ['overview', 'tasks', 'chats', 'assets', 'vulns', 'reports', 'models', 'nodes', 'integrations', 'audit']
 const sidebarCollapsedStorageKey = 'wscyber.sidebar.collapsed'
 
 const EMPTY_SEED = { text: '', nonce: 0 }
@@ -147,6 +148,10 @@ export default function App({ services }: { services: HubServices }) {
   const [page, setPage] = useState<AppPage>(getInitialPage)
   // K1 漏洞卡：?page=vulns&vuln=<key>；null 时显示漏洞列表。
   const [vulnCardKey, setVulnCardKey] = useState<string | null>(getInitialVulnKey)
+  // 普通对话工作区：由「对话」页打开/新建时置 true，侧栏高亮「对话」、返回回到对话列表。
+  // 其它入口（任务、验证/复测/报告、用量/审计跳转）一律置 false（回到任务）。深链
+  // /sessions/<id> 没有来源页，按任务工作区处理，不改写会话本身。
+  const [chatWorkspace, setChatWorkspace] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [usageDialogOpen, setUsageDialogOpen] = useState(false)
   const [focusAssetId, setFocusAssetId] = useState<string | null>(null)
@@ -380,6 +385,7 @@ export default function App({ services }: { services: HubServices }) {
   // leaveSession 不改 URL，统一由这里 pushState；工作区沿用 /sessions/<id>。
   const navigate = useCallback((next: AppPage) => {
     chat.leaveSession()
+    setChatWorkspace(false)
     window.history.pushState({}, '', '/?page=' + next)
     setPage(next)
     setVulnCardKey(null)
@@ -527,12 +533,30 @@ export default function App({ services }: { services: HubServices }) {
 
   function handleSelectSession(id: string) {
     if (activeToolPanel === 'agents') services.panels.close()
+    setChatWorkspace(false)
     chat.selectSession(id)
+    closeSidebarOnMobile()
+  }
+
+  // 对话页：打开普通对话 / 新建普通对话。沿用原生会话流程，只额外记住来源页。
+  function handleOpenChat(id: string) {
+    if (activeToolPanel === 'agents') services.panels.close()
+    setChatWorkspace(true)
+    chat.selectSession(id)
+    closeSidebarOnMobile()
+  }
+
+  function handleNewChat(nodeID: string) {
+    if (!nodeID) return
+    if (activeToolPanel === 'agents') services.panels.close()
+    setChatWorkspace(true)
+    chat.createSession(nodeID)
     closeSidebarOnMobile()
   }
 
   function handleCreateSession(nodeID: string) {
     if (activeToolPanel === 'agents') services.panels.close()
+    setChatWorkspace(false)
     chat.createSession(nodeID)
     closeSidebarOnMobile()
   }
@@ -805,7 +829,7 @@ export default function App({ services }: { services: HubServices }) {
           open={sidebarOpen}
           collapsed={sidebarCollapsed}
           page={page}
-          activePage={workspaceActive ? 'tasks' : page}
+          activePage={workspaceActive ? (chatWorkspace ? 'chats' : 'tasks') : page}
           countsRevision={sidebarCountsRevision}
           webapiEnabled={webapiEnabled}
           agents={chat.agents}
@@ -850,6 +874,7 @@ export default function App({ services }: { services: HubServices }) {
                 countsRevision={webApiCountsRevision}
                 pendingApprovals={executionApprovals.pendingCount}
                 onLocatePending={handleLocatePendingApproval}
+                running={chat.busy}
               />
             )}
             {webApiVerificationActive && activeWebApiVerification && (
@@ -863,7 +888,7 @@ export default function App({ services }: { services: HubServices }) {
             )}
             {!executionSessionActive && (
               <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-                <Button type="button" variant="ghost" size="icon-sm" onClick={() => navigate('tasks')} aria-label={tc('shell.backToTasks')} title={tc('shell.backToTasks')} className="shrink-0 text-muted-foreground">
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => navigate(chatWorkspace ? 'chats' : 'tasks')} aria-label={tc(chatWorkspace ? 'shell.backToChats' : 'shell.backToTasks')} title={tc(chatWorkspace ? 'shell.backToChats' : 'shell.backToTasks')} className="shrink-0 text-muted-foreground">
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{activeSession?.session?.title || tc('shell.sessionFallback')}</span>
@@ -1095,6 +1120,14 @@ export default function App({ services }: { services: HubServices }) {
                     await chat.updateSession(id, { archived })
                     setSidebarCountsRevision((n) => n + 1)
                   }}
+                />
+              )}
+              {page === 'chats' && (
+                <ChatsPage
+                  agents={chat.agents}
+                  onOpenChat={handleOpenChat}
+                  onNewChat={handleNewChat}
+                  onOpenMenu={() => setSidebarOpen(true)}
                 />
               )}
               {page === 'vulns' && (

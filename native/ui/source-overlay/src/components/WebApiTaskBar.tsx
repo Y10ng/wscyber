@@ -8,6 +8,7 @@ import { formatDateTime } from '../lib/time'
 import { useWebApiTaskViewCounts } from '../hooks/useWebApiTaskViewCounts'
 import { normalizeWebApiPolicy, useWebApiPolicySummary, WebApiPolicyFields, WebApiPolicySaver } from './WebApiPolicyShared'
 import WebApiScenarioPicker, { normalizeWebApiScenario, scenarioDraftOf, type WebApiScenarioDraft } from './WebApiScenarioPicker'
+import WebApiTaskUsageTotal from './WebApiTaskUsageTotal'
 
 export type WebApiView = 'execution' | 'traffic' | 'board' | 'findings' | 'reports' | 'usage'
 
@@ -29,6 +30,8 @@ interface Props {
   pendingApprovals?: number
   /** 点击“待审批 N”：切执行视图并定位第一条待审批。 */
   onLocatePending?: () => void
+  /** 任务运行中（当前会话有进行中的轮次）：顶栏用量合计按 10s 只读刷新。 */
+  running?: boolean
 }
 
 const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'board' | 'findings' | 'reports' | null }[] = [
@@ -42,7 +45,7 @@ const VIEW_TABS: { view: WebApiView; labelKey: string; countKey: 'traffic' | 'bo
 
 // 任务工作区顶栏（高 48px）：返回 · 资产标签 · 任务标题 · origin · 策略指示
 // …… 右侧视图页签（替代原左侧任务导航列；计数取数逻辑抽到 useWebApiTaskViewCounts）。
-export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0, pendingApprovals = 0, onLocatePending }: Props) {
+export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, onOpenAsset, onBack, view, onViewChange, countsRevision = 0, pendingApprovals = 0, onLocatePending, running = false }: Props) {
   const { t } = useTranslation('chat')
   const counts = useWebApiTaskViewCounts(task.id, countsRevision)
   const summary = `${task.known_info}\n\n${task.objective}`.trim()
@@ -256,6 +259,8 @@ export default function WebApiTaskBar({ task, onPolicySaved, onScenarioSaved, on
             <span className="whitespace-nowrap">{t('webapi.pendingApprovalsLabel', { count: pendingApprovals })}</span>
           </button>
         )}
+        {/* 本任务 token 合计：在视图页签前；点击切「用量」页签。窄屏只留图标。 */}
+        <WebApiTaskUsageTotal taskID={task.id} running={running} onOpenUsage={() => onViewChange('usage')} />
       </div>
       </div>
       {/* 视图页签：执行 / 流量 / 候选 / 报告 / 用量（原左侧任务导航列）。

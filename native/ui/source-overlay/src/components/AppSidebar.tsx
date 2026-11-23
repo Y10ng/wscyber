@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Boxes, Cpu, FileText, Gauge, LayoutDashboard, ListChecks, LogOut,
+  Boxes, Cpu, FileText, Gauge, LayoutDashboard, ListChecks, LogOut, MessagesSquare,
   PanelLeftClose, PanelLeftOpen, ScrollText, Server, ShieldAlert, ShieldCheck, Webhook,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -40,12 +40,14 @@ interface NavDef {
 }
 
 // 漏洞 / 报告依赖 webapi capability；未启用时在渲染前过滤（下方 operationsNav）。
+// 对话页用 session-kinds 区分任务会话，同样依赖 webapi。
 const OPERATIONS_NAV: NavDef[] = [
   { key: 'overview', icon: LayoutDashboard, labelKey: 'shell.navOverview', enabled: true },
   { key: 'tasks', icon: ListChecks, labelKey: 'shell.navTasks', enabled: true, count: 'tasks' },
   { key: 'assets', icon: Boxes, labelKey: 'shell.navAssets', enabled: true, count: 'assets' },
   { key: 'vulns', icon: ShieldAlert, labelKey: 'shell.navVulns', enabled: true, count: 'vulns' },
   { key: 'reports', icon: FileText, labelKey: 'shell.navReports', enabled: true },
+  { key: 'chats', icon: MessagesSquare, labelKey: 'shell.navChats', enabled: true },
 ]
 
 const CONFIG_NAV: NavDef[] = [
@@ -150,10 +152,10 @@ export default function AppSidebar({
   // 漏洞计数在有新发现时用红色圆形徽章（NavGroup 内渲染）。
   // 集成（企业微信推送）与审计依赖 webapi capability；未启用时不显示入口。
   const configNav = webapiEnabled ? CONFIG_NAV : CONFIG_NAV.filter(item => item.key !== 'integrations' && item.key !== 'audit')
-  // 漏洞 / 报告依赖 webapi capability；未启用时不显示入口。
+  // 漏洞 / 报告 / 对话依赖 webapi capability；未启用时不显示入口。
   const operationsNav = webapiEnabled
     ? OPERATIONS_NAV
-    : OPERATIONS_NAV.filter(item => item.key !== 'vulns' && item.key !== 'reports')
+    : OPERATIONS_NAV.filter(item => item.key !== 'vulns' && item.key !== 'reports' && item.key !== 'chats')
 
   return (
     <>
