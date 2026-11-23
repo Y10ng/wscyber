@@ -435,6 +435,8 @@ CREATE DATABASE wscyber OWNER wscyber ENCODING 'UTF8' TEMPLATE template0;
 
 ## 13. 待用户决定（各附推荐）
 
+**决定（11-22）**：1 用户选 **GHCR 公开**（镜像 + GitHub Releases 二进制，`self-update` 免凭据）；**首次公开发布前必须完成 §1.4 许可核对**，此前 CI 只构建、不公开推送。2 **反向代理终止 TLS**（按推荐）。3 默认端口 8080、4 不做自动更新：主会话按推荐定。另：用户允许在仓库根目录加 `.github/workflows/`（AGENTS §2 的例外）；推送标签/首次发布为对外操作，执行前向用户确认。
+
 1. **发布渠道与可见性**（镜像 + 二进制放哪、公开还是私有）。
    推荐：**先用 GHCR 私有**——镜像 `ghcr.io/<owner>/wscyber-hub`，二进制 tar 包作为同仓库的 OCI 制品（或放 CI 私有制品），服务器用只读 token 拉取；`self-update`/脚本只认“渠道 URL + 可选 token 文件”，日后改公开（GitHub Releases + 公开 GHCR）或公司仓库只改配置。理由：源码仓库公开 ≠ 已完成二进制分发的许可核对（§1.4 有 GPL/AGPL 义务与 7 个 UNKNOWN 模块，DEPENDENCIES 要求分发前核对）。若用户/法务确认可公开，则**公开 GHCR + GitHub Releases** 最省事（`self-update` 免凭据）。
 2. **HTTPS 终止**。推荐：**反向代理**（nginx/Caddy/公司 LB）终止 TLS，Hub 只听 loopback/容器内网；文档给 nginx 片段（WebSocket Upgrade、保留 `Host`、`X-Forwarded-Proto https`）。内置 TLS 需要给上游 `host.Serve` 打补丁（它自己 `net.Listen`，§1.2），收益不抵补丁成本。
