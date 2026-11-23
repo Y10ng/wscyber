@@ -135,7 +135,7 @@ func TestUIAssetsBoundary(t *testing.T) {
 			assets, err := openUIAssets(dir, opts.keyFile, opts.stateDir)
 			if name != "valid" {
 				if assets != nil {
-					assets.root.Close()
+					assets.Close()
 				}
 				if err == nil {
 					t.Fatal("unsafe UI directory accepted")
@@ -148,7 +148,7 @@ func TestUIAssetsBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer assets.root.Close()
+			defer assets.Close()
 			// 启动后增加的文件也不成为公开资产；清单本身不可读。
 			mustWrite(t, filepath.Join(dir, "late.key"), []byte("not public"))
 			for _, path := range []string{uiManifest, "late.key", "../access.key", "assets"} {
@@ -211,6 +211,7 @@ func TestUIStaticNativeRoutes(t *testing.T) {
 		{"GET", "/cyber.rpc.unknown.Service", "", "text/plain", 404},
 		{"GET", "/ioa/data", key, "text/plain", 404},
 		{"GET", "/ioa", "", "text/plain", 404},
+		{"GET", "/readyz", "", "text/plain", 404},
 		{"GET", "/assets/missing.js", "", "text/plain", 404},
 		{"GET", "/assets/missing.css", "", "text/plain", 404},
 		{"GET", "/" + uiManifest, "", "text/plain", 404},

@@ -39,6 +39,40 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 \
 - 停止：对 Hub PID 发 SIGTERM，等待 `stopped` 输出。不要两个进程共用一个 state 目录。
 - 新 Hub 打开已知旧结构库会事务性新增验证两表（见 `VERIFICATION.md`）。
 
+## 3.1 单二进制运行（`serve`，前端已嵌入）
+
+构建（把前端产物放进被 git 忽略的 embed 目录，再注入版本；`CGO_ENABLED=0` 可得静态二进制）：
+
+```bash
+find native/internal/uiembed/public -mindepth 1 ! -name .placeholder -delete
+cp -a var/ui-work/release/public/. native/internal/uiembed/public/
+env CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off python3 -I scripts/cyber-go-overlay.py -- build -p 1 \
+  -ldflags "-s -w -X wscyber/native/internal/buildinfo.Version=v0.0.0-dev -X wscyber/native/internal/buildinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o "$PWD/var/wscyber-hub" ./cmd/wscyber-hub
+```
+
+未放入前端时照常可编译，`serve` 只提供 API 并在 stderr 提示。嵌入内容按 `.wscyber-ui.json` 做与 `--ui-dir` 相同的固定来源/逐文件哈希校验，不符即启动失败。
+
+最短运行：`./wscyber-hub serve`，看到 `"event":"ready"` 后打开 `http://127.0.0.1:8080/`，登录 key 为 `access.key` 文件内容（路径见 ready 事件 `access_key_file`）。
+
+| 项 | 旗标 | 环境变量 | 默认 |
+|---|---|---|---|
+| 监听 | `--listen` | `WSCYBER_LISTEN` | `127.0.0.1:8080`；须为 IP:port，可 `0.0.0.0:8080`（对内网开放时经反向代理终止 TLS，保留 `Host`、传 `X-Forwarded-Proto`） |
+| 状态目录 | `--state-dir` | `WSCYBER_STATE_DIR` | `${XDG_DATA_HOME:-$HOME/.local/share}/wscyber`（0700，可重开） |
+| 访问密钥 | `--access-key-file` | `WSCYBER_ACCESS_KEY_FILE` | `<state>/access.key`，不存在时生成 32 字节随机 key（0600），之后复用 |
+| 数据库连接串 | `--database-url-file` | `WSCYBER_DATABASE_URL_FILE`，或 `WSCYBER_DATABASE_URL`（读后即从进程环境删除） | 无。**当前只读取并校验，尚未接入 PostgreSQL（P3）**，数据仍在 `<state>/hub.sqlite` |
+| 前端目录 | `--ui-dir` | — | 无；给出时优先于嵌入前端（前端迭代用） |
+| Chromium | — | `CYBER_BROWSER_PATH` | 系统查找；找不到时 stderr 提示，浏览器/爬虫命令不可用，其余正常 |
+
+优先级：旗标 > 环境变量 > 默认值。密钥/连接串文件须为非符号链接的普通文件，权限 0600 或 0400（旧旗标形式仍只接受 0600）。监听通配地址时进程内节点改连 `127.0.0.1:<port>`。
+
+其它子命令：
+
+- `wscyber-hub version [--json]`：版本、提交、构建时间、上游提交、UI 提交与嵌入清单哈希、schema（PG 迁移接入前为 0）、Go 版本。登录后 `GET /api/wscyber/version` 返回同 JSON（两种启动形式都有）。
+- `wscyber-hub healthcheck [--url http://127.0.0.1:8080]`：GET `/readyz`（404 时退回 `/health`），2 s 超时，健康退出 0，否则 1；默认地址取 `WSCYBER_LISTEN` 或 `127.0.0.1:8080`。
+
+无子命令（首参以 `-` 开头）时仍是上面 §3 的旧旗标形式，行为不变（不使用嵌入前端、只许 loopback）；演示栈与测试照旧。
+
 ## 4. 演示环境（全部测试数据）
 
 `python3 scripts/demo-stack.py up`：启动三个本地进程——模拟目标“演示库存 API” `http://127.0.0.1:18080`、按脚本回复的模拟模型 `http://127.0.0.1:18081/v1`，以及独立临时 Hub `http://127.0.0.1:42460/`（走 `--model-endpoint` 受控分支；每次 `up` 新建 `var/demo/state-<时间戳>`，并经 Hub API 自动保存模型配置）。登录 key 在 `var/demo/access.key`（0600）。在页面新建任务时 origin 填 `http://127.0.0.1:18080`。

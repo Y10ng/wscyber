@@ -372,11 +372,11 @@ func TestModelNodeExternal(t *testing.T) {
 	if !fixtureAddressAllowed(addr) || !modelEndpointAllowed(endpoint) || evidence == "" {
 		t.Fatal("literal local endpoints/evidence required")
 	}
-	key, err := readPrivateKey(os.Getenv("WSCYBER_H4C_KEY_FILE"))
+	key, err := readPrivateKey(os.Getenv("WSCYBER_H4C_KEY_FILE"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	modelKey, err := readPrivateKey(os.Getenv("WSCYBER_H4C_MODEL_KEY_FILE"))
+	modelKey, err := readPrivateKey(os.Getenv("WSCYBER_H4C_MODEL_KEY_FILE"), false)
 	if err != nil {
 		t.Fatal(err)
 	}

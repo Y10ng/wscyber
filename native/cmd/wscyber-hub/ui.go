@@ -18,6 +18,8 @@ import (
 	"github.com/chainreactors/cyber/core/extension"
 	webpkg "github.com/chainreactors/cyber/pkg/web"
 	"github.com/chainreactors/cyber/pkg/web/host"
+
+	"wscyber/native/internal/uiembed"
 )
 
 const (
@@ -42,18 +44,21 @@ type uiBuildManifest struct {
 }
 
 // 只公开构建清单中的普通资源；不公开清单、目录、临时文件或后来添加的key。
-// os.Root 同时限制后续路径解析不能通过符号链接逃出静态根。
+// --ui-dir 时 os.Root 同时限制后续路径解析不能通过符号链接逃出静态根；
+// 嵌入资源来自只读 embed.FS（天然无链接）。
 // 运行时不得原地修改构建目录；此清单是完整性校验，不是签名/恶意本地管理员隔离。
 type uiAssets struct {
-	root  *os.Root
-	files map[string]string
+	fsys           fs.FS
+	root           *os.Root // 仅 --ui-dir；嵌入资源为 nil。
+	files          map[string]string
+	manifestSHA256 string
 }
 
 func (u *uiAssets) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) || u.files[name] == "" {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
-	f, err := u.root.Open(name)
+	f, err := u.fsys.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +68,13 @@ func (u *uiAssets) Open(name string) (fs.File, error) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
 	}
 	return f, nil
+}
+
+func (u *uiAssets) Close() error {
+	if u == nil || u.root == nil {
+		return nil
+	}
+	return u.root.Close()
 }
 
 func pathWithin(parent, child string) bool {
@@ -112,7 +124,51 @@ func openUIAssets(dir, keyFile, stateDir string) (_ *uiAssets, resultErr error) 
 	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Size() > 1<<20 {
 		return nil, fmt.Errorf("缺少普通构建清单或清单过大")
 	}
-	manifestFile, err := root.Open(uiManifest)
+	keyInfo, err := os.Stat(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	assets, err := loadUIAssets(root.FS(), "", func(info fs.FileInfo) error {
+		if os.SameFile(keyInfo, info) {
+			return fmt.Errorf("UI目录含特殊/私有文件")
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Nlink != 1 {
+			return fmt.Errorf("UI目录不接受硬链接")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	assets.root = root
+	return assets, nil
+}
+
+// openEmbeddedUI 校验编译进二进制的前端。只有占位文件时返回 nil（未嵌入前端）；
+// 有内容但清单/哈希不符时报错——发布物损坏不静默降级。
+func openEmbeddedUI(fsys fs.FS) (*uiAssets, error) {
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return nil, fmt.Errorf("读取嵌入前端: %w", err)
+	}
+	if len(entries) == 0 || (len(entries) == 1 && entries[0].Name() == uiembed.Placeholder) {
+		return nil, nil
+	}
+	assets, err := loadUIAssets(fsys, uiembed.Placeholder, nil)
+	if err != nil {
+		return nil, fmt.Errorf("嵌入前端校验失败: %w", err)
+	}
+	return assets, nil
+}
+
+// loadUIAssets 对任意 fs.FS 做固定来源清单、逐文件 SHA256、无链接/多余文件与 index 引用校验。
+// skip 为根目录下允许存在且忽略的单个文件名；checkFile 为来源特有的附加检查（可为 nil）。
+func loadUIAssets(fsys fs.FS, skip string, checkFile func(fs.FileInfo) error) (*uiAssets, error) {
+	manifestInfo, err := fs.Stat(fsys, uiManifest)
+	if err != nil || !manifestInfo.Mode().IsRegular() || manifestInfo.Size() > 1<<20 {
+		return nil, fmt.Errorf("缺少普通构建清单或清单过大")
+	}
+	manifestFile, err := fsys.Open(uiManifest)
 	if err != nil {
 		return nil, fmt.Errorf("缺少原生UI构建清单；须先运行固定来源构建脚本")
 	}
@@ -133,14 +189,10 @@ func openUIAssets(dir, keyFile, stateDir string) (_ *uiAssets, resultErr error) 
 	if len(manifest.Files) < 2 || len(manifest.Files) > 4096 || manifest.Files["index.html"] == "" {
 		return nil, fmt.Errorf("UI清单缺少index/资源或条目过多")
 	}
-	keyInfo, err := os.Stat(keyPath)
-	if err != nil {
-		return nil, err
-	}
 	// 整棵目录拒绝符号链接、硬链接和未列出的文件，避免把私有工作区误当public。
 	var total int64
 	seen := 0
-	err = fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(fsys, ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -153,15 +205,20 @@ func openUIAssets(dir, keyFile, stateDir string) (_ *uiAssets, resultErr error) 
 			}
 			return nil
 		}
+		if skip != "" && name == skip {
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || os.SameFile(keyInfo, info) {
+		if !info.Mode().IsRegular() {
 			return fmt.Errorf("UI目录含特殊/私有文件")
 		}
-		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Nlink != 1 {
-			return fmt.Errorf("UI目录不接受硬链接")
+		if checkFile != nil {
+			if err := checkFile(info); err != nil {
+				return err
+			}
 		}
 		if name == uiManifest {
 			return nil
@@ -174,7 +231,7 @@ func openUIAssets(dir, keyFile, stateDir string) (_ *uiAssets, resultErr error) 
 		if info.Size() <= 0 || total > uiMaxBytes {
 			return fmt.Errorf("UI资源为空或超过128MiB边界")
 		}
-		f, err := root.Open(name)
+		f, err := fsys.Open(name)
 		if err != nil {
 			return err
 		}
@@ -193,7 +250,8 @@ func openUIAssets(dir, keyFile, stateDir string) (_ *uiAssets, resultErr error) 
 	if seen != len(manifest.Files) {
 		return nil, fmt.Errorf("UI清单引用了缺失资源")
 	}
-	assets := &uiAssets{root: root, files: manifest.Files}
+	sum := sha256.Sum256(raw)
+	assets := &uiAssets{fsys: fsys, files: manifest.Files, manifestSHA256: hex.EncodeToString(sum[:])}
 	index, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
 		return nil, err
@@ -241,7 +299,8 @@ func uiFallbackExtension(assets *uiAssets) extension.Extension {
 	spa := host.SPAFileServer(assets)
 	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-		if strings.HasPrefix(name, "cyber.rpc.") || name == "ioa" || strings.HasPrefix(name, "ioa/") || name == "api" ||
+		// readyz 预留给就绪端点（D3）；不得被 SPA 回 index 冒充 200。
+		if strings.HasPrefix(name, "cyber.rpc.") || name == "readyz" || name == "ioa" || strings.HasPrefix(name, "ioa/") || name == "api" ||
 			strings.HasPrefix(name, ".") || strings.Contains(name, "/.") ||
 			((strings.HasPrefix(name, "assets/") || path.Ext(name) != "") && assets.files[name] == "") ||
 			(r.Method != http.MethodGet && r.Method != http.MethodHead) {

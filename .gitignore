@@ -10,3 +10,6 @@ web/dist/
 __pycache__/
 .artex-source*/
 web/dist-*/
+# 前端 embed 目录：发布构建复制进来，只提交占位文件
+native/internal/uiembed/public/*
+!native/internal/uiembed/public/.placeholder

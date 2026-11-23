@@ -154,7 +154,7 @@ func TestFixtureNodeExternal(t *testing.T) {
 	if !fixtureAddressAllowed(addr) {
 		t.Fatal("external acceptance requires literal loopback")
 	}
-	key, err := readPrivateKey(keyPath)
+	key, err := readPrivateKey(keyPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}

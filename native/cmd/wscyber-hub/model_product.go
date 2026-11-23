@@ -235,7 +235,8 @@ func serveProductModelNode(ctx context.Context, config host.Config, stateDir, ke
 	var nodeErr error
 	config.StartNode = func(nodeCtx context.Context, address string) error {
 		defer func() { report.NodeReturned = true }()
-		server := (&url.URL{Scheme: "http", Host: address, User: url.User(key)}).String()
+		// 监听通配地址时改用 127.0.0.1 回连（见 nodeDialAddress）。
+		server := (&url.URL{Scheme: "http", Host: nodeDialAddress(address), User: url.User(key)}).String()
 		option := &cfg.Option{
 			Explicit:     map[string]bool{},
 			Context:      &cfg.Context{Directory: directory, Home: directory, Executable: filepath.Join(directory, "model-node"), LookupEnv: func(string) (string, bool) { return "", false }},
