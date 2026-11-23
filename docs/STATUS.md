@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-22 01:10 Hub 从 bfb861a 构建，含 M5 全部与证据口令遮盖；UI 为 01:00 构建〔与 HEAD 前端一致〕；升级前备份 `var/preview/state.bak-20261122a`，旧二进制 `var/wscyber-hub.prev`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-23 05:08 从 31ee6fc 构建，schema 2，含 U2g 与 F4；升级前备份 `var/preview/state.bak-20261123-0507`、库备份 `var/preview/pg-wscyber_preview-20261123-0507.dump`、旧二进制 `var/wscyber-hub.prev-20261123-0507`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
