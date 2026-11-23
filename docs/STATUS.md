@@ -98,7 +98,7 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **P4 已完成（5cc49f0）**：SQLite 残留清理（Hub 闭包已无 sqlite/libc，`go mod tidy` 补跑；许可清单删 8 个不可达模块，新增 `scripts/cyber-dependency-check.py` 核对 214 模块完全相等），文档改为 PG 现状。**迁 PG（P1–P4）完成。**
 
-**平台功能与打磨阶段（进行中，并行）**：**F1 已修（1c40681）**：Profile 的 Load/Close 串行，未加载的 Profile 不计活跃资源，端到端测试 ×20 稳定；F2 工具参数错误指明字段 + 推送并发去重核实（`var/f2-tool-errors`，gpt-6-astra；首轮因与 R2 同包并行无法编译，R2 提交后续跑，并顺带把审批状态拼写统一为 canceled）；**R2 已完成（d5ae782）**：迁移 0002，审批记录落库（重启遗留 pending→cancelled 并审计）、运营通知登记改表驱动（重启后继续）、按任务/会话过滤的审批记录接口；“执行视图混入其它任务待审批”确认在前端（App.tsx 把全部在线会话的 pending 传给当前任务），待 U2e 后修；**U2e 已完成（f0f4dc1）**：390 顶栏、Oracle 编号字体、用量按角色排序、待定级跳转、审计“全部动作”、报告标题静默刷新、归档计数即时、工作区高亮“任务”；验证时间线复核已撑满无需改。
+**平台功能与打磨阶段（进行中，并行）**：**F1 已修（1c40681）**：Profile 的 Load/Close 串行，未加载的 Profile 不计活跃资源，端到端测试 ×20 稳定；**F2 已完成（6ff2ce1）**：工具参数错误逐条指明字段路径（规则不变）、推送并发去重测试固化、审批取消状态统一为 `canceled`；**R2 已完成（d5ae782）**：迁移 0002，审批记录落库（重启遗留 pending→cancelled 并审计）、运营通知登记改表驱动（重启后继续）、按任务/会话过滤的审批记录接口；“执行视图混入其它任务待审批”确认在前端（App.tsx 把全部在线会话的 pending 传给当前任务），待 U2e 后修；**U2e 已完成（f0f4dc1）**：390 顶栏、Oracle 编号字体、用量按角色排序、待定级跳转、审计“全部动作”、报告标题静默刷新、归档计数即时、工作区高亮“任务”；验证时间线复核已撑满无需改。
 
 **P3b 已完成（03181d8），pg-migration 已合回 main（d993f54）**：Hub 两种启动形式都经 `pgschema.Start`，无连接串即失败，单实例锁看门狗；演示环境每次 up 重建 `wscyber_demo`，五个剧本在 PG 上全部通过；主会话演示环境复核（selftest --chain、approval-demo 后总览/漏洞/审计/任务执行视图正常，数据均 tenant=default）。**预览已切到 PG**（`wscyber_preview` 库，全新开始；旧 SQLite 数据随 state 备份在 `var/preview/state.bak-sqlite-*`，旧二进制 `var/wscyber-hub.prev-sqlite`）。
 
@@ -122,5 +122,6 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `f2-errors`（gpt-6-astra，日志 `var/f2-tool-errors/exec.log`）
+- `f3-scope`（gpt-6-astra，首条消息按策略写范围，日志 `var/f3-scope-wording/exec.log`）
+- `u2f`（wangsu-ds-flash-latest，待审批按任务隔离与顶栏提示，日志 `var/u2f-approvals/exec.log`）
 
