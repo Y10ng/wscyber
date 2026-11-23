@@ -3,6 +3,8 @@ package webapi
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -15,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -407,7 +410,7 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 
 	resp, sendErr := directClient.Do(req.WithContext(ctx))
 	if sendErr != nil {
-		return r.finishUnknown(ctx, claimed, flow, "发送或接收失败，目标结果未知；不自动重试", nil)
+		return r.finishUnknown(ctx, claimed, flow, httpFailureReason(sendErr, false), nil)
 	}
 	defer resp.Body.Close()
 	captured, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBytes+1))
@@ -421,7 +424,7 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 	statusCode := resp.StatusCode
 	if readErr != nil {
 		flow.Complete = false
-		return r.finishUnknown(ctx, claimed, flow, "响应体读取失败，目标结果未知；不自动重试", &statusCode)
+		return r.finishUnknown(ctx, claimed, flow, httpFailureReason(readErr, true), &statusCode)
 	}
 	preview, previewTruncated := responsePreview(captured, resp.Header.Get("Content-Type"))
 	model, err := r.store.finish(ctx, claimed.ID, requestCompleted, "已收到并保存有界响应", preview, previewTruncated, captureTruncated, &statusCode, flow)
@@ -429,6 +432,40 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 		return r.saveFailure(ctx, claimed, flow, &statusCode, preview, previewTruncated, captureTruncated)
 	}
 	return sendResult{state: requestCompleted, model: model}
+}
+
+// httpFailureReason only emits fixed classifications, never err.Error(): wrapped
+// URL/net/TLS errors may contain credentials, target addresses or response text.
+// A Do error does not establish whether the target received the request.
+func httpFailureReason(err error, readingBody bool) string {
+	stage := "发送或接收响应头失败"
+	if readingBody {
+		stage = "响应体读取失败"
+	}
+	var networkError net.Error
+	var dnsError *net.DNSError
+	var verificationError *tls.CertificateVerificationError
+	var authorityError x509.UnknownAuthorityError
+	var hostnameError x509.HostnameError
+	var certificateError x509.CertificateInvalidError
+	classification := "transport_other：其它传输错误"
+	switch {
+	case errors.Is(err, context.Canceled):
+		classification = "context_canceled：上下文取消"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &networkError) && networkError.Timeout():
+		// Timeout takes precedence over DNS so DNS timeouts remain recognizable.
+		classification = "timeout：超时"
+	case errors.As(err, &dnsError):
+		classification = "dns：DNS解析失败"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		classification = "connection_refused：连接被拒绝"
+	case errors.As(err, &verificationError), errors.As(err, &authorityError), errors.As(err, &hostnameError), errors.As(err, &certificateError):
+		classification = "tls_certificate：TLS证书校验失败"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, net.ErrClosed),
+		errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.ECONNABORTED), errors.Is(err, syscall.EPIPE):
+		classification = "connection_interrupted：连接中断或EOF"
+	}
+	return stage + "（" + classification + "），目标结果未知；不自动重试"
 }
 
 func (r requestRecorder) finishUnknown(ctx context.Context, claimed *requestModel, flow *traffic.Flow, reason string, statusCode *int) sendResult {
