@@ -259,7 +259,9 @@ func originAllowed(rawURL string, origins []string) bool {
 
 var directTransport = &http.Transport{
 	Proxy: nil, DisableKeepAlives: true, ForceAttemptHTTP2: false, DisableCompression: true,
-	DialContext: (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+	DialContext: directDialer.DialContext,
+	// HTTPS 握手与证书校验见 tls_chain.go（系统根库严格校验 + 缺中间证书时按 AIA 补链）。
+	DialTLSContext: directTLS.dialTLS,
 }
 
 var directClient = &http.Client{
