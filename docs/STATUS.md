@@ -89,7 +89,11 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **11-22 用户定方向**：全部存储迁 PostgreSQL 并删除 SQLite（全新开始、不导旧数据），共享库 + tenant_id + RLS，两级角色（管理员/普通用户），外部连接串（开发用本机 PG18）。P0 设计已完成（4cc8684，`native/POSTGRES.md`：原生存储用 overlay 整文件替换为 PG 版、bun/migrate 基线、tenant_id+RLS、P1–P7 拆片）；用户确认：编号/推送/SLA 按租户、模型全局；用户单租户、管理员可切换；口令登录、密钥只给节点。本机 PG18 已启用并建 `wscyber_dev` 角色与演示/预览库。**部署与更新**设计已完成（a8240b2，`native/DEPLOY.md`）：单静态二进制（前端 embed，`serve --database-url-file` 即可运行）与 Docker 镜像同源，一条命令升级；决定：GHCR 公开（首发前须完成许可核对）、反向代理终止 TLS、默认 8080、不做自动更新、允许 `.github/workflows/`。
 
-**断点（11-22 14:35）**：P1 执行会话因 o-latest 当日额度用尽中断（session `49a65f0a-b5ba-49dc-a821-13a84bb0c04e`，未写 result；工作区有 `native/go.mod/sum` 改动与临时 `native/zzgen/`），20:50 用户切换网关后续跑，续跑首轮被安全分类器拦截 4 次，执行会话按规则停止（仅完成 pgdialect 依赖）；用户选 o-latest 新会话干净重做（`var/p1b-pg-infra/task.md`，只带已核实的建表/迁移事实、限定只读数据库相关文件）；**D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
+**P1 PostgreSQL 基础设施已完成（52ccdf9）**：`native/pgschema`（连接串解析不泄露口令、拒绝超级用户/BYPASSRLS、单实例锁、迁移运行器、启动序列）、`0001_baseline.tx.up.sql`（54 表、tenant_id 默认值/继承触发器、RLS 策略已建未启用、默认租户）、`native/internal/testdb`。（P1 首个会话因额度中断、续跑被安全分类器拦截，按用户选择新会话限定读码范围后重做完成。）记下：`go mod tidy` 因网络未跑完，go.mod 手工整理，网络通时补跑确认；P3 合并 cmd 层 `loadDatabaseURL` 与 `pgschema.ResolveDatabaseURL` 为一份。
+
+**P2 进行中**（`var/p2-native-store/task.md`，o-latest）：上游原生存储三文件 overlay 整文件替换为 PG 版 + 清单哈希保护 + 契约测试。**P2–P3 在分支 `pg-migration` 上做**（P2 后 Hub 暂不可运行），P3 演示全链通过后合回 main；预览与演示期间保持旧二进制。
+
+**D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
 
 **B3 审计页前端**已完成（deb1603）：配置组“审计”，操作者/动作类别/资产/日期/关键词筛选、分页、展开 detail 与打开关联任务/资产。预览已升级到 deb1603（state 已备份）。
 
@@ -109,4 +113,4 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- `p1b-pg`（wangsu-o-latest，日志 `var/p1b-pg-infra/exec.log`）
+- `p2-store`（wangsu-o-latest，分支 pg-migration，日志 `var/p2-native-store/exec.log`）
