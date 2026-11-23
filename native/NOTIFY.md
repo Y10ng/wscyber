@@ -21,7 +21,7 @@
 
 ## 投递
 
-- Hub 内单 goroutine：`Routes` 拿到原生管理 API 时启动（先把上次中断在 `sending` 的通知改回 `queued`），`Capability.Close` 停止；每 10s 取到期 `queued`（`next_attempt_at ≤ now`，最早在前，每轮最多 50 条）。未配置 webhook 或未启用时不发送、保持 queued。
+- Hub 内单 goroutine：`Routes` 拿到原生管理 API 时启动（先把上次中断在 `sending` 的通知改回 `queued`，随即处理一轮运营通知待登记与到期通知），`Capability.Close` 停止；每 10s 取到期 `queued`（`next_attempt_at ≤ now`，最早在前，每轮最多 50 条）。未配置 webhook 或未启用时不发送、保持 queued。
 - 每条：认领 `queued → sending`，先发 markdown，再发图片；都成功 → `sent`（写 `sent_at`，清 `last_error`）。
 - 图片：D1 `renderEvidenceImage`，证据取验证结果第一条 `supporting`，没有则取验证固定的候选修订第一条 `supporting`；`mask` 开，另把该资产测试账号的 secret 明文（≥4 字）在 Flow 中替换为 `******`。PNG >2MB 时 `max_lines=30` 重渲，仍超则不发图、markdown 末行“证据图片过大未发送”；证据行读不到/渲染失败 → 末行“证据图片生成失败未发送”。无 supporting 证据时只发 markdown。图片消息 `{"msgtype":"image","image":{"base64","md5"}}`。
 - 失败（网络、HTTP 非 2xx、响应非 JSON、`errcode≠0`）：`attempts+1`，第 1、2 次失败后分别 1 分钟、5 分钟后重试，第 3 次 → `failed`。`last_error` 形如 `markdown：errcode 93000 …` / `图片：网络错误：…`，不含 webhook 地址。
@@ -59,6 +59,7 @@
   - 可重复推送：该键所有通知都已到终态（sent/failed/dismissed）即可再推。同一 `(去重键, manual, 验证)` 只有一行：再推时**复用该行**重新入队（`status=queued`、`attempts=0`、`last_error=""`、`sent_at=null`、`created_at`/`next_attempt_at` 为本次时间）；选用验证变化时插入新行。未改表；`(dedupe_key, kind, verification_id)` 唯一语义不变，manual 行不影响 new 的“同键已有任何通知不再登记”（new 只在同键无任何通知时登记，manual 行算“已有通知”）与 regression 判定。
   - 409 `{error, code}`：`not_configured`（无 webhook 或未启用）、`false_positive`（处置为误报）、`no_supported`（成员无 supported 验证）、`in_flight`（该键有 pending_confirm/queued/sending 的任一通知，任何 kind；另带 `notification_id` 为其中最新一条）。检查顺序同上。键非法 400，条目不存在 404。
   - 审计 `vuln.notify`（见 `AUDIT.md`）；拒绝不登记。
+  - 人工与自动 `new` 同键并发登记：两入口的检查与入队都在 `store.write` 的 PostgreSQL 全局事务 advisory lock 下串行。manual 先提交则 new 看到已有通知、不再登记；new 先提交且仍为 pending_confirm/queued/sending 则 manual 返回 `409 in_flight`。不再是 K2 时记录的“未加锁可能多推一条”。若前一通知已到终态，人主动再次推送仍按上面的重复推送规则允许，不属于并发去重失败。回归用例：`TestNotificationManualAndNewDedupe`（两种先后顺序及并发，require_confirm 开/关，本地模拟投递）。
 - `GET /api/webapi/vulns/{key}/card/notify/preview` → `{verification_id, markdown, image: {task_id, evidence_id, marks[]} | null, image_note}`：用与投递同一构建函数（`buildNotifyMessage`，按当前 `base_url`）生成人工推送将发送的逐字相同 markdown；`image` 为将渲染的证据与高亮（前端用 `GET /tasks/{task_id}/evidence/{evidence_id}/image.png?mark=…` 显示；不发图时为 null），`image_note` 为附在 markdown 末行的说明（“证据图片过大未发送”等，无则空串）。只读、不登记审计；未配置 webhook 也可预览。错误：`no_supported` 409，键非法 400，不存在 404。
 - 卡片 `GET /vulns/{key}/card` 的 `notify` 段：`{configured（有 webhook 且已启用）, require_confirm, items: View[]}`，该键最近 5 条通知（任何 kind/状态，`created_at` 新到旧）。前端用现有 confirm/dismiss/retry 接口操作。
 - 生命周期 `notify`：manual 行按每次投递终态审计（`notification.sent`/`notification.failed`）各出一条，标题“企业微信人工推送成功/失败”；new/regression 规则不变。
@@ -86,12 +87,15 @@
 
 | kind | 触发 | 去重键 |
 |---|---|---|
-| `approval_pending` | 审批挂起时（`approval.go` review 登记挂起后、发 PENDING 事件前同步登记；每个 operation 一条） | `approval:<operation_id>` |
+| `approval_pending` | 审批挂起时（`approval.go` review 发出 PENDING 事件后，与审批记录 `webapi_approvals` pending 行同一事务插入待登记，见下；每个 operation 一条） | `approval:<operation_id>` |
 | `schedule_failed` | 计划运行记为 `failed` 时（`recordRun`：发起失败 `阶段：文案`、cron 非法、next_run_at 损坏，全部来源） | `schedule_run:<run_id>`（`(asset, scheduled_for)` 冲突未插入时取已有那条的 id） |
 | `weekly_digest` | 推送 goroutine 每轮（10s）检查：Hub 本地时区最近一次“周一 09:00”尚未登记即登记；停机错过多周只补最近一次 | `digest:<ISO 年>-W<周>`，如 `digest:2026-W48` |
 
-- 同一去重键已有任何通知（任何状态）即不再登记。审批/计划失败先进入进程内待登记队列，不等待数据库；推送 goroutine 登记失败（包括 PostgreSQL 锁等待超时）会记日志并保留，单次尝试设置 10s 超时、失败至少间隔 10s，直至成功或当前开关关闭；周报同用此队列，每轮只检查最近一期。审批已决/过期/取消则放弃补登记并记日志，取得写锁后也会再核对；撤销未发出通知失败同样入队重试。队列不持久化，进程退出会记录剩余数，重启不恢复待登记项（周报仍按最近一期规则补发），已落库通知继续沿用 D2 投递重试。
-- 审批已决（批准/拒绝/超时/取消）后，该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；投递前若发现挂起已不在本进程（如 Hub 重启后）同样改 `dismissed` 不发。已发出的保持 `sent`。
+- 同一去重键已有任何通知（任何状态）即不再登记。
+- **待登记持久化（R2，迁移 `0002`）**：审批挂起与计划运行失败不直接写通知，而是在各自的业务写事务里插一行待登记 `webapi_notify_registrations(key pk, kind, approval_id, args_json, attempts, next_attempt_at, last_error, created_at, tenant_id)`（审批：与 `webapi_approvals` pending 行同事务，键 `approval:<operation_id>`；计划失败：与运行记录 `recordScheduleRun` 同事务，键 `schedule_run:<asset_id>/<scheduled_for>`，`args_json` 为 `{asset_id, scheduled_for, cron}`，不含口令）。行存在＝待登记（register_pending）。审批的 PENDING 事件先于落库发出，不等待 webapi 全局写锁。
+- 推送 goroutine 启动即处理一轮、之后每轮（10s，或有新待登记时被唤醒）取 `next_attempt_at ≤ now`（真实时钟）的行，最早在前、每轮最多 50 条：单次尝试 10s 超时；成功、开关已关、或审批已决/过期/取消（放弃并记日志，取得写锁后也再核对）即删除该行；失败（含 PostgreSQL 锁等待超时）记日志、`attempts+1`、`last_error`、至少 10s 后重试，直至成功或开关关闭；Hub 关闭打断时保留、不计次。**重启后从表继续**；同一去重键的数据库检查保证不重复登记。审批类待登记按审批记录（已遮盖的摘要、原因、到期时间）生成内容，登记时再读任务标题与资产测试账号（读不到密钥时失败重试，不外发明文）；挂起时就读不到资产密钥的审批，摘要不落库、也不插待登记（不登记通知）。
+- 每周摘要不经待登记表：每轮按“最近一期尚未登记即登记”从库状态重算（停机错过多周只补最近一次），失败至少间隔 10s 再试，重启后同样按此规则补发。
+- 审批已决（批准/拒绝/超时/取消）后，与审批记录终态**同一事务**删除其待登记、把该键仍在 `pending_confirm/queued` 的通知改为 `dismissed`（不审计）；Hub 启动时遗留的待审批被判为中断（见 `POLICY.md`「审批记录」）时同样处理；投递前若发现挂起已不在本进程同样改 `dismissed` 不发。已发出的保持 `sent`。
 - 表结构：`webapi_notifications` 必填列不改，运营通知 `finding_id`/`verification_id`/`vuln_id` 为空串（唯一约束 `(dedupe_key, kind, verification_id)` 不受影响），`task_id` 为审批所属任务 / 失败运行已建的任务（无则空）/ 摘要为空。登记时冻结的内容存新表 `webapi_notification_ops(notification_id pk, title, asset_id, session_id, payload_json)`；markdown 在投递时按当时 `base_url` 生成。
 
 ### markdown 版式

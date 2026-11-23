@@ -16,7 +16,37 @@
 
 终端超时：模型节点 bash 5s 超时只计进程运行；审批在 `tool.before`（进程启动前）等待，不计入（`TestModelNodeApprovalThroughNativeBash` 等 6s 后批准仍执行）。`command.before` 兜底只对注册命令生效（本固定上游版本外部程序不经过它），未批准的高危注册命令直接拒绝、不等待。
 
-审批状态在节点内存：节点重启时挂起审批随调用取消。子 Agent 会话的挂起审批经其研究会话的 Pending/Resolve 列出与处理（见 `native/SUBAGENT.md`）。演示：`scripts/demo-stack.py approval-demo`（任务目标含“审批演示”）。
+真正挂起/放行调用的仍是节点内存运行时（模型节点随 Hub 进程）：节点或 Hub 重启时挂起的调用随之取消；每次审批另有持久记录（见下文「审批记录」），重启后可查到其去向。子 Agent 会话的挂起审批经其研究会话的 Pending/Resolve 列出与处理（见 `native/SUBAGENT.md`）。演示：`scripts/demo-stack.py approval-demo`（任务目标含“审批演示”）。
+
+## 审批记录（R2）
+
+表 `webapi_approvals`（迁移 `0002_approvals`，PostgreSQL）是审批的权威记录；guardrail `Pending`/`Resolve` 协议仍按会话从内存列出与处理（只有本进程挂起的调用可批准）。
+
+**表结构**：`id`（`ap_…`，主键）、`operation_id`（guardrail operation，同一调用的 PENDING/终态事件用它关联）、`task_id`（无任务为 `""`）、`session_id`（发起调用的会话；子 Agent 为子会话）、`parent_session_id`（子 Agent 审批的父研究会话，否则 `""`）、`turn_id`、`call_id`、`tool`（`webapi_http`/`bash`/`write`）、`summary`、`reason`、`status`、`decided_by`（`""`/`user`/`system`）、`status_reason`、`hub_instance`（写入进程的随机实例 ID）、`created_at`、`expires_at`、`decided_at`（pending 为 NULL；时间均为定宽 UTC 毫秒 `2006-01-02T15:04:05.000Z`），`tenant_id` 随任务继承（无任务回退会话租户，同基线规则）。CHECK：`status ∈ {pending, approved, rejected, expired, cancelled}`、`decided_by ∈ {"", user, system}`、`(status = pending) ⇔ decided_at IS NULL`。索引 `(task_id, created_at DESC, id DESC)`、`(session_id)`、`(parent_session_id)`、`(operation_id)`、`(tenant_id, status, created_at DESC, id DESC)`。
+
+- `summary`：`webapi_http` 为 `方法 + URL`（去 userinfo）；`bash` 为命令单行前 200 字；`write` 为路径。`summary` 与 `reason` 先经任务资产测试账号回替（口令明文 → `{{cred:<id>.secret}}`），再经 guardrail `RedactText`（Bearer/Basic、`password=`/`token=` 等赋值、URL userinfo、`-u user:pass`）。请求头/正文不入库。读不到资产密钥时 `summary` 记为“（读取资产测试账号失败，摘要未保存）”，且不登记待审批运营通知。
+
+**状态机**：
+
+| 迁移 | 时机 | decided_by | status_reason | 审计 |
+|---|---|---|---|---|
+| → `pending` | PENDING 事件发出后落库（同事务插入 approval_pending 通知待登记，见 `NOTIFY.md`）；等 webapi 全局写锁不阻塞 PENDING 事件，失败每秒重试直到决定 | `""` | `""` | — |
+| `pending → approved` / `rejected` | 经 Hub 控制通道批准/拒绝，工具边界拿到终态 | `user` | `""` | `approval.approve` / `approval.deny`（同事务） |
+| `pending → expired` | 10 分钟未处理 | `system` | 超时未处理，视为拒绝 | `approval.expire`（同事务） |
+| `pending → cancelled` | 调用被取消（会话/轮次结束、节点关闭） | `system` | 调用已取消（会话或轮次结束、节点关闭） | 不登记（不是决定） |
+| `pending → cancelled` | Hub 启动时清理其它实例遗留的 pending | `system` | Hub 重启，调用已中断 | `approval.cancel`（system，同事务） |
+
+- 终态写入与审计、删除该审批的待登记、把未发出的 approval_pending 通知改 `dismissed` 在**同一事务**内完成（全局写锁）。行已是终态时不再改写、不重复审计；挂起时落库一直失败的，终态写入时整行插入。
+- 终态写库失败（如数据库不可用超过 10s）转入进程内补写，投递 goroutine 每轮重试。
+- **重启语义**：Hub 启动（`Routes` 拿到原生管理 API，与遗留子会话清理同处）时，把 `hub_instance` 不是本进程的 pending 行改为 `cancelled`（system，“Hub 重启，调用已中断”，`decided_at` 为清理时间），每行一条 `approval.cancel` 审计，删除其待登记、撤销未发出的待审批通知（不再登记、不再重试）。本进程自己的 pending 不受影响；再次执行不重复改写或审计。
+
+**查询（原生鉴权，错误体 `{error}`）**：
+- `GET /api/webapi/tasks/{id}/approvals?session_id=&status=&limit=&cursor=`（任务不存在 404）与 `GET /api/webapi/approvals?task_id=&session_id=&status=&limit=&cursor=`。
+- `task_id` 精确匹配记录的 `task_id`（不串其它任务）；`session_id` 匹配 `session_id` 或 `parent_session_id`（研究会话可看到经它处理的子 Agent 审批）；`status` 为上述五值之一；`limit` 1..200（默认 50）；按 `created_at`、`id` 倒序，键游标 `base64url(created_at \n id)`。task_id/session_id 非法、status 非法、limit 越界、cursor 非法 400。
+- 响应 `{items:[ApprovalView], pending_count, has_more, next_cursor}`；`pending_count` 是同一 `task_id`/`session_id` 范围内 `status=pending` 的总数（不受 `status` 过滤与分页影响），可直接作“待审批 N”计数。
+- `ApprovalView = {id, operation_id, task_id, session_id, parent_session_id, review_session_id（Resolve 应使用的会话：子 Agent 为父研究会话，否则同 session_id）, turn_id, call_id, tool, summary, reason, status, decided_by, status_reason, created_at, expires_at, decided_at|null, actionable}`；`actionable` = pending 且仍在本进程挂起（可经 guardrail Resolve 处理）。
+
+**已知限制**：PENDING 事件先于落库发出，落库等待全局写锁期间列表暂时查不到该项（Pending 协议可见）；Hub 在落库成功前崩溃则该次挂起无记录。终态补写成功前进程退出时，该行在下次启动会按“Hub 重启”记为 cancelled（实际结果以当时的终态事件与工具记录为准）。
 
 ## 全工具出口（B2）
 

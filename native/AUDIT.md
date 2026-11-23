@@ -30,8 +30,9 @@
 | `task.policy` | `PUT /tasks/{id}/policy` 值有变化 | user | `from`/`to` `{scope, approval}`；summary 如“修改任务测试策略：仅授权 origins/仅高危 → 不限制/仅高危” |
 | `verification.start` / `retest.start` | 新建验证/复测（HTTP PUT 201；计划后续新建为 system） | user / system | `finding_id`、`finding_number`、`session_id` |
 | `report.start` | 新建报告（PUT 201） | user | `finding_numbers`、`session_id` |
-| `approval.approve` / `approval.deny` | 审批经 Hub 控制通道批准/拒绝后，工具边界拿到终态（`approval.go admitTool`） | user | `tool`、`operation`、`session_id`；target_id = operation_id |
+| `approval.approve` / `approval.deny` | 审批经 Hub 控制通道批准/拒绝后，工具边界拿到终态（`approval.go admitTool`；R2 起与审批记录 `webapi_approvals` 终态同一事务写入，见 `POLICY.md`「审批记录」） | user | `tool`、`operation`、`session_id`、`approval_id`；target_id = operation_id |
 | `approval.expire` | 审批超时（视为拒绝） | system | 同上 |
+| `approval.cancel` | Hub 启动时把上次进程遗留的待审批判为中断（R2，`approval_record.go recoverInterruptedApprovals`；运行中会话/轮次取消不登记） | system | 同上 + `reason`（“Hub 重启，调用已中断”）；summary 如“审批中断（Hub 重启，调用已中断）：write /tmp/x” |
 | `asset.create` / `asset.update` / `asset.archive` / `asset.unarchive` | `PUT /assets/{id}` 有变化（归档位翻转优先记 archive/unarchive） | user | `changed`（字段名列表）、`values`（仅非敏感字段新值：name、owner、environment、origins、scope、approval、archived；不含已知信息/目标/禁止行为正文） |
 | `credential.save` / `credential.delete` | 测试账号保存（有变化）/删除成功 | user | `label`、`username`、`changed`、`created`、`secret_replaced`（布尔，本次是否提交了新 secret） |
 | `schedule.save` / `schedule.delete` | 计划保存（有变化）/删除成功 | user | `to`（及非首次的 `from`）`{cron, enabled, auto_verify, auto_retest}`、`created`；删除为删除前值 |
@@ -48,7 +49,7 @@
 | `notification.confirm` / `.dismiss` / `.retry` | 人工处理成功（409/404 不登记） | user | `notification_id`、`title` |
 | `notification.sent` / `.failed` | 投递终态：两段都成功 → sent；第 3 次失败 → failed（中间重试、45009 推迟不登记）；运营通知（V4）同规则，`title` 为任务标题/资产名/“每周摘要 <周>”；审批已决或挂起丢失而改为 dismissed 的不登记 | system | `notification_id`、`title`、`attempts`、`last_error`（D2 已去除 webhook 地址） |
 
-审批操作摘要 `operation`：`webapi_http` 为 `方法 + URL`（去 userinfo，经上游 `guardrail.RedactText` 脱敏 `token=` 等赋值）；`bash` 为命令脱敏后前 200 字；`write` 为路径。请求头/请求体不入审计。
+审批操作摘要 `operation` 即审批记录的 `summary`：`webapi_http` 为 `方法 + URL`（去 userinfo）；`bash` 为命令单行前 200 字；`write` 为路径；先按任务资产测试账号回替口令占位符，再经上游 `guardrail.RedactText` 脱敏 `token=` 等赋值。请求头/请求体不入审计。
 
 ## 查询 `GET /api/webapi/audit?action=&actor=&task_id=&asset_id=&q=&from=&to=&limit=&cursor=`
 
@@ -70,6 +71,6 @@
 
 - 原生操作不经本能力、无法拦截，本片不登记：会话归档/取消归档/重命名/删除、原生 LLM/模型配置保存、原生 GuardrailToggle 等原生页面操作。
 - 研究会话首条消息由前端经原生 Open/Run 发起（非资产任务），本片只登记 `task.create`，不登记原生 Run。
-- 审批取消（会话/轮次被取消）不是人工决定，不登记；审批决定的登记点在工具边界拿到终态之后，若 Hub 在批准后、工具边界返回前退出，该次决定不登记。
+- 审批取消（会话/轮次被取消）不是人工决定，不登记（审批记录里仍有 `cancelled` 终态）；审批决定的登记点在工具边界拿到终态之后，若 Hub 在批准后、工具边界返回前退出，该次决定不登记，下次启动该审批按 `approval.cancel`（Hub 重启中断）登记。
 - `actor` 只能区分 user/system：单访问密钥，无用户名与来源 IP。
 - 无保留期/清理；数据量增大后再考虑归档策略（仍保持不改写已有行）。

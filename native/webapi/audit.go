@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	coretool "github.com/chainreactors/cyber/core/tool"
-	"github.com/chainreactors/cyber/exts/guardrail"
 	"github.com/uptrace/bun"
 )
 
@@ -23,7 +21,6 @@ const (
 	auditActorUser   = "user"   // 经原生鉴权的 HTTP 请求（单访问密钥，无用户名）
 	auditActorSystem = "system" // 调度器、推送 goroutine、审批超时
 
-	auditCommandRunes = 200
 	auditSummaryRunes = 300
 	auditActionMax    = 64
 )
@@ -74,25 +71,37 @@ func newAuditID() string {
 	return "au_" + time.Now().UTC().Format("20060102T150405.000000000") + "_" + newSessionID()[:8]
 }
 
-// appendAudit 只做 INSERT（同 id 已存在则不重复）。
-func (s *taskStore) appendAudit(ctx context.Context, entry auditEntry, at time.Time) error {
+// newAuditModel 把一次登记规范为表行（ID 为空时生成，summary 单行截断）。
+func newAuditModel(entry auditEntry, at time.Time) (*auditEventModel, error) {
 	if entry.Detail == nil {
 		entry.Detail = map[string]any{}
 	}
 	raw, err := json.Marshal(entry.Detail)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if entry.ID == "" {
 		entry.ID = newAuditID()
 	}
-	model := auditEventModel{ID: entry.ID, At: notifyTime(at), Actor: entry.Actor, Action: entry.Action, TargetKind: entry.TargetKind, TargetID: entry.TargetID,
-		TaskID: entry.TaskID, AssetID: entry.AssetID, Summary: capRunes(oneLine(entry.Summary), auditSummaryRunes), DetailJSON: string(raw)}
-	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
-		return err
-	})
+	return &auditEventModel{ID: entry.ID, At: notifyTime(at), Actor: entry.Actor, Action: entry.Action, TargetKind: entry.TargetKind, TargetID: entry.TargetID,
+		TaskID: entry.TaskID, AssetID: entry.AssetID, Summary: capRunes(oneLine(entry.Summary), auditSummaryRunes), DetailJSON: string(raw)}, nil
+}
+
+// insertAuditTx 在调用方的写事务里追加一条（同 id 已存在则不重复）；用于与业务状态同事务登记。
+func insertAuditTx(ctx context.Context, tx bun.Tx, model *auditEventModel) error {
+	_, err := tx.NewInsert().Model(model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
 	return err
+}
+
+// appendAudit 只做 INSERT（同 id 已存在则不重复）。
+func (s *taskStore) appendAudit(ctx context.Context, entry auditEntry, at time.Time) error {
+	model, err := newAuditModel(entry, at)
+	if err != nil {
+		return err
+	}
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		return insertAuditTx(ctx, tx, model)
+	})
 }
 
 // audit 登记失败只记日志，不影响业务响应；请求取消不丢登记。
@@ -370,50 +379,30 @@ func (c *Capability) auditReportStart(ctx context.Context, report *ReportSummary
 
 // ---- 审批 ----
 
-// reviewOperation 是审批对象摘要：HTTP 为方法+URL（去 userinfo、脱敏），终端为命令前 200 字（脱敏），写文件为路径。
-func reviewOperation(name, arguments string) string {
-	switch name {
-	case "webapi_http":
-		if args, err := coretool.ParseArgs[httpToolArguments](arguments); err == nil {
-			return strings.ToUpper(args.Method) + " " + guardrail.RedactText(stripURLUserinfo(args.URL))
-		}
-	case "bash":
-		if args, err := coretool.ParseArgs[struct {
-			Command string `json:"command"`
-		}](arguments); err == nil {
-			return capRunes(guardrail.RedactText(args.Command), auditCommandRunes)
-		}
-	case "write":
-		if args, err := coretool.ParseArgs[struct {
-			Path string `json:"path"`
-		}](arguments); err == nil {
-			return guardrail.RedactText(args.Path)
-		}
-	}
-	return ""
-}
-
-// auditReview 登记审批决定：批准/拒绝（user）、超时（system）；取消不是决定，不登记。
-func (c *Capability) auditReview(ctx context.Context, sessionID, operationID string, task *Task, name, arguments string, state guardrail.ReviewState) {
+// reviewAuditEntry 是审批决定的审计：批准/拒绝（user）、超时（system）；运行中取消不是决定，不登记（nil）。
+// Hub 重启中断的取消另由 approvalCancelAudit 登记。operation 用审批记录的已遮盖摘要。
+func reviewAuditEntry(record *approvalModel, assetID string) *auditEntry {
 	action, actor, label := "", auditActorUser, ""
-	switch state {
-	case guardrail.ReviewState_REVIEW_STATE_APPROVED:
+	switch record.Status {
+	case approvalStatusApproved:
 		action, label = "approval.approve", "批准危险操作："
-	case guardrail.ReviewState_REVIEW_STATE_REJECTED:
+	case approvalStatusRejected:
 		action, label = "approval.deny", "拒绝危险操作："
-	case guardrail.ReviewState_REVIEW_STATE_EXPIRED:
+	case approvalStatusExpired:
 		action, actor, label = "approval.expire", auditActorSystem, "审批超时（视为拒绝）："
 	default:
-		return
+		return nil
 	}
-	taskID, assetID := "", ""
-	if task != nil {
-		taskID = task.ID
-		assetID, _ = c.store.taskAssetID(ctx, taskID)
-	}
-	op := reviewOperation(name, arguments)
-	c.audit(ctx, auditEntry{Actor: actor, Action: action, TargetKind: "operation", TargetID: operationID, TaskID: taskID, AssetID: assetID,
-		Summary: label + name + " " + op, Detail: map[string]any{"tool": name, "operation": op, "session_id": sessionID}})
+	return &auditEntry{Actor: actor, Action: action, TargetKind: "operation", TargetID: record.OperationID, TaskID: record.TaskID, AssetID: assetID,
+		Summary: label + record.Tool + " " + record.Summary,
+		Detail:  map[string]any{"tool": record.Tool, "operation": record.Summary, "session_id": record.SessionID, "approval_id": record.ID}}
+}
+
+// approvalCancelAudit：Hub 重启时遗留挂起被判为中断（system）。
+func approvalCancelAudit(record approvalModel, assetID string) auditEntry {
+	return auditEntry{Actor: auditActorSystem, Action: "approval.cancel", TargetKind: "operation", TargetID: record.OperationID, TaskID: record.TaskID, AssetID: assetID,
+		Summary: "审批中断（" + record.StatusReason + "）：" + record.Tool + " " + record.Summary,
+		Detail:  map[string]any{"tool": record.Tool, "operation": record.Summary, "session_id": record.SessionID, "approval_id": record.ID, "reason": record.StatusReason}}
 }
 
 // ---- 资产与测试账号 ----
@@ -569,11 +558,16 @@ func (c *Capability) auditScheduleDelete(ctx context.Context, assetID string, be
 
 // recordRun 写计划运行记录并登记 schedule.run（system）；同 asset+scheduled_for 只登记一次。
 func (c *Capability) recordRun(ctx context.Context, run scheduleRunModel, expectedNext, newNext, cron string, enabled bool) error {
-	if err := c.store.recordScheduleRun(ctx, run, expectedNext, newNext); err != nil {
+	// 计划失败的运营通知待登记与运行记录同事务落库（R2），由投递 goroutine 登记，重启不丢。
+	var job *notifyRegistrationModel
+	if run.Status == ScheduleRunFailed {
+		job = scheduleFailedRegistration(run.AssetID, run.ScheduledFor, cron)
+	}
+	if err := c.store.recordScheduleRun(ctx, run, expectedNext, newNext, job); err != nil {
 		return err
 	}
-	if run.Status == ScheduleRunFailed {
-		c.notifyScheduleFailed(ctx, run.AssetID, run.ScheduledFor, cron)
+	if job != nil {
+		c.wakeOps()
 	}
 	name := c.assetName(ctx, run.AssetID)
 	summary := "计划发起任务：资产「" + name + "」"

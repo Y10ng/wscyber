@@ -70,6 +70,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（�
 | GET/POST/PUT | `/tasks/{id}/board`、`/tasks/{id}/board/endpoints\|facts\|oracles`（GET 列表，键游标）、`/tasks/{id}/board/oracles`（POST 用户提出）、`/tasks/{id}/board/oracles/{number}`（PUT 优先级/重开/放弃） | 任务黑板：地图（已发送且有响应的流量按端点键增量摄取 + 模型补充）、事实、Oracle（O-001 编号、去重、状态与事件）；总览含 `boardDigest` 摘要与计数；用户操作入审计；见 `native/BOARD.md` |
 | GET | `/tasks/{id}/authz-compares?evidence_id=` | 多账号越权对比记录（新到旧、≤100）：`webapi_authz_compare` 把已存证请求换其它账号/匿名逐个重发并存证，账号用 `{{cred:<id>.username|secret}}` 占位符，hint 只作线索；见 `native/AUTHZ.md` |
 | GET | `/audit?action=&actor=&task_id=&asset_id=&q=&from=&to=&limit=&cursor=` | 审计记录（只读）：任务/策略/会话发起、审批决定、资产/测试账号/计划/漏洞库/推送配置改动、计划运行与推送终态，actor user/system，`at` 倒序键游标；见 `native/AUDIT.md` |
+| GET | `/approvals?task_id=&session_id=&status=&limit=&cursor=`、`/tasks/{id}/approvals?session_id=&status=&limit=&cursor=` | 审批记录（R2，表 `webapi_approvals`，迁移 0002）：按任务精确过滤、session 含经父会话处理的子 Agent 审批，`pending_count` 为同范围待审批数，`actionable` 标出本进程仍挂起可处理的项；Hub 重启时遗留 pending 记为 cancelled；见 `native/POLICY.md`「审批记录」 |
 
 工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）、`webapi_board_read|map|fact|oracle`（任务黑板：任务内会话可读，仅研究会话可写；Oracle 成立须关联候选，不等于确认）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 
@@ -77,7 +78,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（�
 
 - 授权：`webapi_http` 按任务测试策略强制 origin（scope=unrestricted 时不限制、仍完整记录）。
 - 出口（B2）：模型节点装 `Capability.EgressExtension()`（复用上游 `tools/proxy.NewProxyHub`，CA 在 `state-dir/egress-ca/`），终端（bash/tmux）每个进程注入带令牌的代理与 CA 变量；代理在连目标前按会话所属任务策略放行/拒绝（origins 时越界 407，unrestricted 只记录，普通对话放行记录），放行与拒绝都写 `webapi_egress_flows`。是代理强制，可被刻意绕过（unset 代理变量、`--noproxy`、nc/原始 socket、DNS、已建隧道内不复核），不是 netns/iptables 隔离。浏览器 `playwright` 与爬虫 `katana`（M5c，`webapi/browser*.go`）由本项目包装注册：每会话无头 Chromium + 本机中继补调用令牌，记 `tool=browser|katana`，拒绝改代理/外部浏览器参数。见 `native/POLICY.md`、`native/BROWSER.md`。
-- 审批：任务测试策略 approval（默认 high_risk）经原生 `tool.before` 挂起高危 `webapi_http` / 终端命令（all 时还有全部非只读 HTTP、终端与 `write`），以 `guardrail.Review` 事件出卡片，人经 Hub guardrail 命名空间 Pending/Resolve 批准；拒绝/超时（10 分钟）不执行，HTTP 记 `review_denied/review_expired` 未发送。终端规则是静态表，见 `native/POLICY.md`。
+- 审批：任务测试策略 approval（默认 high_risk）经原生 `tool.before` 挂起高危 `webapi_http` / 终端命令（all 时还有全部非只读 HTTP、终端与 `write`），以 `guardrail.Review` 事件出卡片，人经 Hub guardrail 命名空间 Pending/Resolve 批准；拒绝/超时（10 分钟）不执行，HTTP 记 `review_denied/review_expired` 未发送。每次审批持久记录在 `webapi_approvals`（pending → approved/rejected/expired/cancelled，决定人 user/system），Hub 重启时遗留挂起记为 cancelled 并审计。终端规则是静态表，见 `native/POLICY.md`。
 - unknown：同任务相同请求指纹的发送未知状态阻止自动重发。
 - 旧库升级：新 Hub 打开已知旧结构库（四/六/八/十/十二/十五/十七/二十/二十二表阶段）时事务性补齐到完整结构（含测试策略、资产、周期计划、计划后续、漏洞库、出口记录表）；其他结构报错。没有通用迁移框架。
 - 未做：出口流量被候选/验证引用、模型报告、复测、用量/原文记录、资料库接入、图谱/时间线。

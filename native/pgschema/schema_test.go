@@ -116,7 +116,7 @@ func TestBaselineMatchesModelDeclarations(t *testing.T) {
 
 	declared := upstreamCoreTables(t)
 	module := webapi.SchemaModule()
-	if len(module.Tables) != 44 {
+	if len(module.Tables) != 46 {
 		t.Fatalf("webapi.SchemaModule 声明 %d 张表", len(module.Tables))
 	}
 	for table, columns := range module.Tables {

@@ -122,10 +122,16 @@ func (s *taskStore) dueSchedules(ctx context.Context, now time.Time) ([]assetSch
 
 // recordScheduleRun 在一个事务内写运行记录（同 asset+scheduled_for 已有则不重复）并推进
 // next_run_at；推进只在计划仍是本次读取时的 next_run_at 时生效，不覆盖期间人为保存的新计划。
-func (s *taskStore) recordScheduleRun(ctx context.Context, run scheduleRunModel, expectedNext, newNext string) error {
+// job 非空时同事务插入运营通知待登记（同键已有则不重复）。
+func (s *taskStore) recordScheduleRun(ctx context.Context, run scheduleRunModel, expectedNext, newNext string, job *notifyRegistrationModel) error {
 	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(&run).On("CONFLICT (asset_id, scheduled_for) DO NOTHING").Exec(ctx); err != nil {
 			return err
+		}
+		if job != nil {
+			if err := enqueueRegistrationTx(ctx, tx, job); err != nil {
+				return err
+			}
 		}
 		_, err := tx.NewUpdate().Model((*assetScheduleModel)(nil)).Set("next_run_at = ?", newNext).
 			Where("asset_id = ? AND next_run_at = ?", run.AssetID, expectedNext).Exec(ctx)

@@ -80,7 +80,7 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	if !strings.HasPrefix(text, "wscyber-hub dev (") || !strings.Contains(text, "cyber f4b1fb2f") || !strings.Contains(text, "ui 147423bd (未嵌入)") || !strings.Contains(text, "schema 1") {
+	if !strings.HasPrefix(text, "wscyber-hub dev (") || !strings.Contains(text, "cyber f4b1fb2f") || !strings.Contains(text, "ui 147423bd (未嵌入)") || !strings.Contains(text, "schema 2") {
 		t.Fatalf("version text: %q", text)
 	}
 	embedded := syntheticEmbeddedUI(t)

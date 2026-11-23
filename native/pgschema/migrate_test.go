@@ -16,10 +16,10 @@ func TestKnownMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(names, []string{"0001"}) {
+	if !slices.Equal(names, []string{"0001", "0002"}) {
 		t.Fatalf("内嵌迁移 %v", names)
 	}
-	if v := pgschema.SchemaVersion(); v != 1 {
+	if v := pgschema.SchemaVersion(); v != 2 {
 		t.Fatalf("SchemaVersion = %d", v)
 	}
 }
@@ -31,7 +31,7 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Initialized || status.Current() || !slices.Equal(status.Pending, []string{"0001"}) || status.Expected != "0001" {
+	if status.Initialized || status.Current() || !slices.Equal(status.Pending, []string{"0001", "0002"}) || status.Expected != "0002" {
 		t.Fatalf("空库状态 %+v", status)
 	}
 	// Status 只读：不应建出迁移表。
@@ -47,14 +47,14 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(result.Applied, []string{"0001"}) {
+	if !slices.Equal(result.Applied, []string{"0001", "0002"}) {
 		t.Fatalf("应用 %v", result.Applied)
 	}
 	status, err = pgschema.Status(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.Current() || len(status.Applied) != 1 || status.Applied[0].Name != "0001" || status.Applied[0].GroupID != 1 || status.Applied[0].MigratedAt.IsZero() {
+	if !status.Current() || len(status.Applied) != 2 || status.Applied[0].Name != "0001" || status.Applied[1].Name != "0002" || status.Applied[0].GroupID != 1 || status.Applied[1].GroupID != 1 || status.Applied[0].MigratedAt.IsZero() {
 		t.Fatalf("迁移后状态 %+v", status)
 	}
 	if err := pgschema.RequireCurrent(ctx, db); err != nil {
@@ -76,7 +76,7 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 		}
 	}
 	var rows, tenants int
-	if err := db.NewRaw(`SELECT count(*) FROM wscyber_migrations`).Scan(ctx, &rows); err != nil || rows != 1 {
+	if err := db.NewRaw(`SELECT count(*) FROM wscyber_migrations`).Scan(ctx, &rows); err != nil || rows != 2 {
 		t.Fatalf("迁移表行数 %d %v", rows, err)
 	}
 	if err := db.NewRaw(`SELECT count(*) FROM tenants`).Scan(ctx, &tenants); err != nil || tenants != 1 {
@@ -103,8 +103,8 @@ func TestMigrateConcurrentStartsApplyOnce(t *testing.T) {
 		}
 		applied += len(results[i].Applied)
 	}
-	if applied != 1 {
-		t.Fatalf("并发迁移共应用 %d 次，期望 1", applied)
+	if applied != 2 {
+		t.Fatalf("并发迁移共应用 %d 个迁移，期望 2（每个迁移恰一次）", applied)
 	}
 }
 

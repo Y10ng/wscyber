@@ -300,6 +300,10 @@ func (c *Capability) handleGetTaskBySession(w http.ResponseWriter, r *http.Reque
 type Capability struct {
 	store     *taskStore
 	approvals *approvalRuntime
+	// instance 是本进程的随机实例 ID（写入审批记录）；启动时只把其它实例遗留的 pending 判为“Hub 重启中断”。
+	instance string
+	// backlog 是写库失败、待补写的审批终态（见 approval_record.go）。
+	backlog approvalBacklog
 	// secrets 加密资产测试账号；密钥文件在 state-dir。
 	secrets *secretBox
 	// launcher 由 Routes 从原生管理 API 注入（从资产发起任务用）；测试可替换。
@@ -335,8 +339,8 @@ func NewCapability(database pgschema.DatabaseURL, stateDir string) (*Capability,
 	if err != nil {
 		return nil, fmt.Errorf("打开 webapi 任务存储: %w", err)
 	}
-	capability := &Capability{store: store, approvals: newApprovalRuntime(), secrets: newSecretBox(filepath.Join(stateDir, secretKeyFileName)),
-		egressCADir: filepath.Join(stateDir, egressCADirName)}
+	capability := &Capability{store: store, approvals: newApprovalRuntime(), instance: "hub_" + newSessionID() + newSessionID(),
+		secrets: newSecretBox(filepath.Join(stateDir, secretKeyFileName)), egressCADir: filepath.Join(stateDir, egressCADirName)}
 	notifyCapabilities.Store(store, capability)
 	return capability, nil
 }
@@ -359,6 +363,10 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		// 模型节点随 Hub 进程启动：上次遗留的 running 子会话按已中断结束并释放 Oracle（M5a）。
 		if err := c.store.releaseOrphanSubsessions(context.Background(), time.Now()); err != nil {
 			log.Printf("webapi 遗留子会话释放失败：%v", err)
+		}
+		// 上次进程遗留的待审批：调用已随进程中断，记录改为 cancelled 并写审计，对应待审批通知不再登记/发送（R2）。
+		if err := c.recoverInterruptedApprovals(context.Background()); err != nil {
+			log.Printf("webapi 遗留待审批清理失败：%v", err)
 		}
 		c.startScheduler()
 		c.startNotifier()
@@ -444,6 +452,8 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 		{Pattern: "POST /api/webapi/notifications/{id}/dismiss", Handler: http.HandlerFunc(c.handleNotificationDismiss)},
 		{Pattern: "POST /api/webapi/notifications/{id}/retry", Handler: http.HandlerFunc(c.handleNotificationRetry)},
 		{Pattern: "GET /api/webapi/audit", Handler: http.HandlerFunc(c.handleAuditList)},
+		{Pattern: "GET /api/webapi/approvals", Handler: http.HandlerFunc(c.handleApprovalList)},
+		{Pattern: "GET /api/webapi/tasks/{id}/approvals", Handler: http.HandlerFunc(c.handleTaskApprovals)},
 	}
 }
 

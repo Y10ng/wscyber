@@ -526,7 +526,7 @@ func TestWebAPIScheduleFollowupSwitchesArchivedFailures(t *testing.T) {
 		taskID := "busy-" + id
 		f.do("PUT", "/api/webapi/assets/"+id+"/tasks/"+taskID, "")
 		f.launcher.running[f.sessionOf(taskID)] = true
-		if err := f.capability.store.recordScheduleRun(t.Context(), scheduleRunModel{ID: "wsr-" + id, AssetID: id, ScheduledFor: fmt.Sprintf("2026-11-18T10:0%d:00Z", index), TaskID: taskID, Status: ScheduleRunLaunched, CreatedAt: "x"}, "", ""); err != nil {
+		if err := f.capability.store.recordScheduleRun(t.Context(), scheduleRunModel{ID: "wsr-" + id, AssetID: id, ScheduledFor: fmt.Sprintf("2026-11-18T10:0%d:00Z", index), TaskID: taskID, Status: ScheduleRunLaunched, CreatedAt: "x"}, "", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

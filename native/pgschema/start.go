@@ -52,7 +52,7 @@ func Start(ctx context.Context, u DatabaseURL, logf func(format string, args ...
 	instance.lock = lock
 	// 迁移锁取在单实例锁的同一会话上（advisory lock 可在一个会话内叠加），
 	// 迁移本身用池里另一条连接；故控制池 2 条即够，不会自锁。
-	result, err := migrateLocked(ctx, db, lock.conn)
+	result, err := migrateLocked(ctx, db, lock.conn, "")
 	if err != nil {
 		return fail(err)
 	}

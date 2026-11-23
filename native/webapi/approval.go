@@ -92,8 +92,9 @@ func (r *approvalRuntime) forget(inv operation.Invocation) {
 }
 
 // review 发 PENDING 事件并阻塞到批准/拒绝/超时/取消，再发终态事件。
-// onPending（可为 nil）在挂起登记后、发 PENDING 事件前同步调用一次（运营通知只入内存队列，不等待数据库）。
-func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.Stream, call *aop.ToolCall, ref *operationpb.Ref, reason string, onPending func(*guardrail.Review)) guardrail.ReviewState {
+// persist（可为 nil）在 PENDING 事件发出后同步调用以落审批记录（等待 webapi 全局写锁不阻塞 PENDING 事件）；
+// 失败时在等待决定期间每秒重试。尝试上下文脱离调用的 deadline、随调用取消而取消，单次最长 approvalPersistWait。
+func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.Stream, call *aop.ToolCall, ref *operationpb.Ref, reason string, persist func(context.Context, *guardrail.Review) error) guardrail.ReviewState {
 	inv := operation.InvocationFromContext(ctx)
 	id := ref.GetOperationId()
 	if id == "" || call == nil || inv.SessionID == "" {
@@ -116,18 +117,37 @@ func (r *approvalRuntime) review(ctx, lifetime context.Context, stream *events.S
 	r.pending[id] = p
 	snapshot := proto.Clone(p.review).(*guardrail.Review)
 	r.mu.Unlock()
-	if onPending != nil {
-		onPending(proto.Clone(snapshot).(*guardrail.Review))
-	}
 	emitReview(stream, inv, snapshot)
+	persisted := persist == nil
+	tryPersist := func() {
+		if persisted {
+			return
+		}
+		attempt, cancelAttempt := context.WithTimeout(context.WithoutCancel(ctx), approvalPersistWait)
+		stopAttempt := context.AfterFunc(ctx, cancelAttempt)
+		persisted = persist(attempt, proto.Clone(snapshot).(*guardrail.Review)) == nil
+		stopAttempt()
+		cancelAttempt()
+	}
+	tryPersist()
 	timer := time.NewTimer(time.Until(p.review.ExpiresAt.AsTime()))
 	defer timer.Stop()
-	select {
-	case <-p.done:
-	case <-ctx.Done():
-		r.finish(p, guardrail.ReviewState_REVIEW_STATE_CANCELED)
-	case <-timer.C:
-		r.finish(p, guardrail.ReviewState_REVIEW_STATE_EXPIRED)
+	retry := time.NewTicker(approvalPersistRetry)
+	defer retry.Stop()
+wait:
+	for {
+		select {
+		case <-p.done:
+			break wait
+		case <-ctx.Done():
+			r.finish(p, guardrail.ReviewState_REVIEW_STATE_CANCELED)
+			break wait
+		case <-timer.C:
+			r.finish(p, guardrail.ReviewState_REVIEW_STATE_EXPIRED)
+			break wait
+		case <-retry.C:
+			tryPersist()
+		}
 	}
 	r.mu.Lock()
 	state := p.review.State
@@ -346,17 +366,19 @@ func (c *Capability) admitTool(ctx, lifetime context.Context, stream *events.Str
 	if reason == "" {
 		return toolhooks.Admission{}, nil
 	}
+	var sub *taskSubsessionModel
 	if task != nil {
 		reason += fmt.Sprintf("（任务 %s 测试策略 approval=%s）", task.ID, policy.Approval)
-		if sub, _ := c.store.subsessionFor(ctx, inv.SessionID); sub != nil {
+		if sub, _ = c.store.subsessionFor(ctx, inv.SessionID); sub != nil {
 			reason += "（子 Agent oracle_explorer 会话 " + inv.SessionID + "）"
 		}
 	}
-	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason, func(review *guardrail.Review) {
-		c.notifyApprovalPending(ctx, task, name, arguments, review)
+	// 审批记录（R2）：挂起落 pending 行（同事务登记待发的 approval_pending 通知），终态同事务写审计并撤销未发出的通知。
+	draft := c.prepareApproval(ctx, inv, task, sub, name, arguments, reason)
+	state := c.approvals.review(ctx, lifetime, stream, event.Call, event.Operation, reason, func(attempt context.Context, review *guardrail.Review) error {
+		return c.persistApproval(attempt, draft, review)
 	})
-	c.notifyApprovalResolved(ctx, event.Operation.GetOperationId())
-	c.auditReview(ctx, inv.SessionID, event.Operation.GetOperationId(), task, name, arguments, state)
+	c.finishApprovalRecord(ctx, draft, state)
 	if state == guardrail.ReviewState_REVIEW_STATE_APPROVED {
 		return toolhooks.Admission{}, nil
 	}

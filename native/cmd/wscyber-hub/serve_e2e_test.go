@@ -156,7 +156,7 @@ func TestServeEndToEnd(t *testing.T) {
 	if _, ok := ready["browser"].(string); !ok {
 		t.Fatal("ready lacks browser")
 	}
-	if db, _ := ready["database"].(map[string]any); db["database"] != database.Database() || db["user"] != database.User() || ready["schema"] != float64(1) {
+	if db, _ := ready["database"].(map[string]any); db["database"] != database.Database() || db["user"] != database.User() || ready["schema"] != float64(2) {
 		t.Fatalf("ready database/schema: %v %v", ready["database"], ready["schema"])
 	}
 	if _, set := os.LookupEnv(envDatabaseURL); set {

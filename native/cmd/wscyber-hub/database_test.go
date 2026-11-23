@@ -191,7 +191,7 @@ func TestDatabaseURLNotExposed(t *testing.T) {
 		database["database"] != opts.database.Database() || database["user"] != opts.database.User() || len(database) != 4 {
 		t.Fatalf("ready database: %v", ready["database"])
 	}
-	if ready["schema"] != float64(buildinfo.SchemaVersion) || buildinfo.SchemaVersion != 1 {
+	if ready["schema"] != float64(buildinfo.SchemaVersion) || buildinfo.SchemaVersion != 2 {
 		t.Fatalf("ready schema: %v", ready["schema"])
 	}
 	if !strings.Contains(noticeText.String(), "PostgreSQL: postgres host=") {

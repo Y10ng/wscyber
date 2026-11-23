@@ -10,6 +10,7 @@ import (
 	"time"
 
 	coretool "github.com/chainreactors/cyber/core/tool"
+	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
 // 审计记录（B3）测试：全部为临时库合成数据（example.test 演示资产、虚构账号与 webhook key）。
@@ -368,8 +369,8 @@ func TestAuditApprovalDecisions(t *testing.T) {
 	// 终端命令摘要截前 200 字并脱敏。
 	long := "curl -X DELETE http://example.test/x --user admin:fixture-pass-11 " + strings.Repeat("a", 400)
 	raw, _ := json.Marshal(map[string]string{"command": long})
-	operation := reviewOperation("bash", string(raw))
-	if len([]rune(operation)) != auditCommandRunes || strings.Contains(operation, "fixture-pass-11") {
+	operation := approvalSummary("bash", string(raw), guardrail.RedactText)
+	if len([]rune(operation)) != approvalSummaryRunes || strings.Contains(operation, "fixture-pass-11") {
 		t.Fatalf("bash operation = %q", operation)
 	}
 	if _, err := coretool.ParseArgs[httpToolArguments](args); err != nil {

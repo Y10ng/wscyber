@@ -112,13 +112,14 @@ func Migrate(ctx context.Context, db *bun.DB) (MigrateResult, error) {
 	}
 	// discardConn 关闭会话即释放锁（即使显式解锁失败）。
 	defer discardConn(lockConn)
-	return migrateLocked(ctx, db, lockConn)
+	return migrateLocked(ctx, db, lockConn, "")
 }
 
 // migrateLocked 在 lockConn 上取会话级迁移锁后应用迁移，返回前显式解锁；
 // lockConn 由调用方提供并负责关闭（Start 复用单实例锁连接，使控制池只需 2 条连接）。
-// 迁移本身在 db 池的另一条连接上执行。
-func migrateLocked(ctx context.Context, db *bun.DB, lockConn *sql.Conn) (MigrateResult, error) {
+// 迁移本身在 db 池的另一条连接上执行。upTo 非空时只应用版本 ≤ upTo 的迁移（仅测试用：
+// 构造“停在旧版本、已有数据”的库，再验证后续迁移在其上应用）。
+func migrateLocked(ctx context.Context, db *bun.DB, lockConn *sql.Conn, upTo string) (MigrateResult, error) {
 	migrations, err := Migrations()
 	if err != nil {
 		return MigrateResult{}, err
@@ -156,7 +157,7 @@ func migrateLocked(ctx context.Context, db *bun.DB, lockConn *sql.Conn) (Migrate
 	groupID := all.LastGroupID() + 1
 	for i := range all {
 		migration := &all[i]
-		if migration.IsApplied() {
+		if migration.IsApplied() || upTo != "" && migration.Name > upTo {
 			continue
 		}
 		migration.GroupID = groupID

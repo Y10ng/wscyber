@@ -56,7 +56,7 @@ type requestModel struct {
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
-		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil), (*taskScenarioModel)(nil), (*assetScenarioModel)(nil), (*taskExploreModel)(nil), (*assetExploreModel)(nil), (*replayModel)(nil), (*subagentReservationModel)(nil), (*taskSubsessionModel)(nil), (*subsessionUsageModel)(nil), (*authzCompareModel)(nil), (*notifyOpsSettingsModel)(nil), (*notificationOpsModel)(nil)},
+		Models: []any{(*taskModel)(nil), (*requestModel)(nil), (*findingModel)(nil), (*findingRevisionModel)(nil), (*verificationModel)(nil), (*verificationResultModel)(nil), (*reportModel)(nil), (*reportDraftModel)(nil), (*retestModel)(nil), (*retestResultModel)(nil), (*taskPolicyModel)(nil), (*taskPolicyEventModel)(nil), (*assetModel)(nil), (*assetCredentialModel)(nil), (*assetTaskModel)(nil), (*assetScheduleModel)(nil), (*scheduleRunModel)(nil), (*scheduleOptionsModel)(nil), (*scheduleRunFollowupModel)(nil), (*scheduleFollowupModel)(nil), (*assetVulnModel)(nil), (*assetVulnMemberModel)(nil), (*egressFlowModel)(nil), (*notifySettingsModel)(nil), (*notificationModel)(nil), (*auditEventModel)(nil), (*vulnTriageModel)(nil), (*vulnSLAModel)(nil), (*boardEndpointModel)(nil), (*boardIngestModel)(nil), (*boardFactModel)(nil), (*boardOracleModel)(nil), (*boardOracleEventModel)(nil), (*taskScenarioModel)(nil), (*assetScenarioModel)(nil), (*taskExploreModel)(nil), (*assetExploreModel)(nil), (*replayModel)(nil), (*subagentReservationModel)(nil), (*taskSubsessionModel)(nil), (*subsessionUsageModel)(nil), (*authzCompareModel)(nil), (*notifyOpsSettingsModel)(nil), (*notificationOpsModel)(nil), (*approvalModel)(nil), (*notifyRegistrationModel)(nil)},
 		Tables: map[string][]string{
 			"webapi_tasks":                  {"id", "known_info", "objective", "origins_json", "initial_session_id", "created_at"},
 			"webapi_requests":               {"id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "flow_pb", "created_at", "completed_at"},
@@ -102,6 +102,8 @@ func SchemaModule() webservice.SchemaModule {
 			"webapi_authz_compares":         {"id", "task_id", "session_id", "original_evidence_id", "label", "variant_evidence_id", "status", "hint", "http_status", "created_at"},
 			"webapi_notify_ops_settings":    {"id", "notify_approval", "notify_schedule_failed", "notify_weekly_digest", "weekly_digest_since", "updated_at"},
 			"webapi_notification_ops":       {"notification_id", "title", "asset_id", "session_id", "payload_json"},
+			"webapi_approvals":              {"id", "operation_id", "task_id", "session_id", "parent_session_id", "turn_id", "call_id", "tool", "summary", "reason", "status", "decided_by", "status_reason", "hub_instance", "created_at", "expires_at", "decided_at"},
+			"webapi_notify_registrations":   {"key", "kind", "approval_id", "args_json", "attempts", "next_attempt_at", "last_error", "created_at"},
 		},
 		Indexes: []webservice.SchemaIndex{
 			{Model: (*requestModel)(nil), Name: "webapi_requests_call", Columns: []string{"task_id", "turn_id", "call_id"}, Unique: true},
@@ -143,6 +145,13 @@ func SchemaModule() webservice.SchemaModule {
 			{Model: (*subsessionUsageModel)(nil), Name: "webapi_subsession_usage_task_created", Columns: []string{"task_id", "created_at"}},
 			{Model: (*authzCompareModel)(nil), Name: "webapi_authz_compares_task_created", Expr: "task_id, created_at DESC"},
 			{Model: (*authzCompareModel)(nil), Name: "webapi_authz_compares_original", Columns: []string{"original_evidence_id"}},
+			{Model: (*approvalModel)(nil), Name: "webapi_approvals_task_created", Expr: "task_id, created_at DESC, id DESC"},
+			{Model: (*approvalModel)(nil), Name: "webapi_approvals_session", Columns: []string{"session_id"}},
+			{Model: (*approvalModel)(nil), Name: "webapi_approvals_parent_session", Columns: []string{"parent_session_id"}},
+			{Model: (*approvalModel)(nil), Name: "webapi_approvals_operation", Columns: []string{"operation_id"}},
+			{Model: (*approvalModel)(nil), Name: "webapi_approvals_status_created", Expr: "status, created_at DESC, id DESC"},
+			{Model: (*notifyRegistrationModel)(nil), Name: "webapi_notify_registrations_due", Columns: []string{"next_attempt_at", "key"}},
+			{Model: (*notifyRegistrationModel)(nil), Name: "webapi_notify_registrations_approval", Columns: []string{"approval_id"}},
 		},
 	}
 }

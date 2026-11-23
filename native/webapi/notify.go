@@ -81,9 +81,9 @@ type notifyRuntime struct {
 	imageLimit int           // 0 = wecomImageLimit
 
 	opsMu      sync.Mutex
-	opsRunMu   sync.Mutex // 串行登记（投递 goroutine 与测试）
-	opsPending map[string]*opsRegistration
-	opsWake    chan struct{}
+	opsRunMu   sync.Mutex    // 串行登记（投递 goroutine 与测试）
+	opsWake    chan struct{} // 有新待登记时唤醒投递 goroutine
+	digestNext time.Time     // 每周摘要登记失败后的下次尝试（真实时钟）
 }
 
 // reserve 在全局每分钟窗口内预留 n 条发送名额；不足返回 false（本轮不再发送）。
@@ -118,19 +118,21 @@ func (c *Capability) startNotifier() {
 		wake := c.opsWakeup()
 		go func() {
 			defer close(c.notify.done)
-			defer c.logPendingOpsOnStop()
 			if err := c.store.resetSendingNotifications(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("webapi 推送：恢复中断的发送失败：%v", err)
 			}
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					c.enqueueOps(NotifyKindWeeklyDigest, nil, c.registerWeeklyDigest)
-				case <-wake:
+			// 启动即处理一轮：上次进程留在表里的待登记与到期通知不必等第一个周期。
+			for first := true; ; first = false {
+				if !first {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						c.tickWeeklyDigest(ctx)
+					case <-wake:
+					}
 				}
 				c.retryOpsRegistrations(ctx)
 				if err := c.deliverNotifications(ctx); err != nil && ctx.Err() == nil {

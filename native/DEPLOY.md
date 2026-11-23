@@ -113,7 +113,7 @@
   - 发版说明写明“含迁移：是/否、schema 版本 N”。
 - **注入**：新包 `native/internal/buildinfo`，`var Version, Commit, BuildTime string`，构建时 `-ldflags "-s -w -X wscyber/native/internal/buildinfo.Version=v0.1.0 -X ….Commit=<git sha> -X ….BuildTime=<SOURCE_DATE_EPOCH 对应 UTC>"`；未注入时 `Version="dev"`，Commit 回落 `debug.ReadBuildInfo()` 的 `vcs.revision`（+`-dirty`）。上游提交、UI 清单哈希（embed 后可算）、schema 版本（P1 迁移 embed 的最大版本）由代码常量/运行时计算，不靠 ldflags。
 - **可见性**：
-  - `wscyber-hub version`：`wscyber-hub v0.1.0 (commit abc1234, 2026-12-01T00:00:00Z, cyber f4b1fb2f, ui 147423bd, schema 1, go1.26.4)`；`--json` 同字段。
+  - `wscyber-hub version`：`wscyber-hub v0.1.0 (commit abc1234, 2026-12-01T00:00:00Z, cyber f4b1fb2f, ui 147423bd, schema 2, go1.26.4)`；`--json` 同字段。
   - `ready` 事件新增 `version`、`browser`（Chromium 路径或空串）两个字段。
   - `GET /api/wscyber/version`（需鉴权，与其它 `/api/` 相同）返回同 JSON；前端在侧栏底部显示 `v0.1.0 · abc1234`（小片前端覆盖，ds-flash）。`/health`、`/readyz` 不暴露版本。
   - 镜像标签与 OCI label `org.opencontainers.image.version/revision/source/licenses`。
