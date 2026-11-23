@@ -913,6 +913,7 @@ export default {
     assetSearchPlaceholder: '搜索名称 / 负责人 / origin',
     assetShowArchived: '显示已归档',
     assetOriginsCount: '{{count}} 个 origin',
+    assetOverdueVulns: '{{count}} 个漏洞已逾期',
     assetScenarioSection: '研究场景与策略',
     assetCredEmpty: '还没有测试账号',
     assetCredSecretMasked: '••••••',

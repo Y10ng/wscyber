@@ -6,14 +6,14 @@ import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
-import { FilterPills, Page, PageHeader } from './PageFrame'
+import { FilterPills, Page, PageHeader, type FilterPillItem } from './PageFrame'
 import { IntegrationStatusBadge, NotificationStatusBadge } from './ui-badges'
 import { formatShortDateTime } from '../lib/time'
 import { usePolling } from '../hooks/usePolling'
 import {
   actWebApiNotification, APIError, getWebApiWecomSettings, listWebApiNotifications,
   saveWebApiWecomSettings, testWebApiWecom,
-  type WebApiNotification, type WebApiNotificationKind, type WebApiNotificationStatus, type WebApiWecomSettings,
+  type WebApiNotification, type WebApiNotificationKind, type WebApiNotificationStatus, type WebApiNotificationStatusCounts, type WebApiWecomSettings,
 } from '../api'
 
 const PAGE_LIMIT = 50
@@ -69,6 +69,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
   const [testResult, setTestResult] = useState<{ tone: 'success' | 'warning'; text: string } | null>(null)
 
   const [items, setItems] = useState<WebApiNotification[]>([])
+  const [statusCounts, setStatusCounts] = useState<WebApiNotificationStatusCounts | undefined>(undefined)
   const [filter, setFilter] = useState<NotificationFilter>(presetFilter || 'all')
   const [kindFilter, setKindFilter] = useState<NotificationKindFilter>('all')
   const [hasMore, setHasMore] = useState(false)
@@ -188,6 +189,7 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
       cursorRef.current = data.next_cursor
       setHasMore(data.has_more)
       setItems((prev) => (opts.reset ? data.items : [...prev, ...data.items]))
+      if (data.status_counts) setStatusCounts(data.status_counts)
       setListError('')
     } catch (err) {
       if (current !== seq.current) return
@@ -233,14 +235,14 @@ export default function IntegrationsPage({ onOpenSession, onOpenMenu, presetFilt
     }
   }
 
-  const filterItems: Array<{ key: NotificationFilter; label: string }> = [
-    { key: 'all', label: t('shell.integrationsFilterAll') },
-    { key: 'pending_confirm', label: t('shell.integrationsFilterPending') },
-    { key: 'queued', label: t('shell.integrationsFilterQueued') },
-    { key: 'sending', label: t('shell.integrationsFilterSending') },
-    { key: 'sent', label: t('shell.integrationsFilterSent') },
-    { key: 'failed', label: t('shell.integrationsFilterFailed') },
-    { key: 'dismissed', label: t('shell.integrationsFilterDismissed') },
+  const filterItems: FilterPillItem<NotificationFilter>[] = [
+    { key: 'all', label: t('shell.integrationsFilterAll'), count: statusCounts?.all },
+    { key: 'pending_confirm', label: t('shell.integrationsFilterPending'), count: statusCounts?.pending_confirm },
+    { key: 'queued', label: t('shell.integrationsFilterQueued'), count: statusCounts?.queued },
+    { key: 'sending', label: t('shell.integrationsFilterSending'), count: statusCounts?.sending },
+    { key: 'sent', label: t('shell.integrationsFilterSent'), count: statusCounts?.sent },
+    { key: 'failed', label: t('shell.integrationsFilterFailed'), count: statusCounts?.failed },
+    { key: 'dismissed', label: t('shell.integrationsFilterDismissed'), count: statusCounts?.dismissed },
   ]
 
   const kindFilterItems: Array<{ key: NotificationKindFilter; label: string }> = [

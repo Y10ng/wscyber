@@ -416,10 +416,11 @@ function AssetRow({ asset, selected, onSelect }: {
     is_default: !asset.scope && !asset.approval,
   }), [asset.scope, asset.approval])
   const policySummary = useWebApiPolicySummary(policy)
-  // 次行：负责人 · N 个 origin · 策略摘要（逾期漏洞计数暂无数据，不做）。
+  // 次行：负责人 · N 个 origin · 策略摘要。
   const meta = [asset.owner, t('webapi.assetOriginsCount', { count: asset.origins.length }), policySummary.text]
     .filter(Boolean)
     .join(' · ')
+  const overdueVulns = asset.overdue_vulns ?? 0
 
   return (
     <button
@@ -435,6 +436,13 @@ function AssetRow({ asset, selected, onSelect }: {
       <span className="flex w-full min-w-0 items-center gap-2">
         <span className="assets-list-title min-w-0 flex-1 text-[14px] font-medium text-foreground">{asset.name}</span>
         {asset.archived && <span className="shrink-0 text-[11px] text-muted-foreground">{t('webapi.assetArchivedBadge')}</span>}
+        {overdueVulns > 0 && (
+          <span
+            className="rounded-full bg-[var(--st-new-dot)] px-1.5 text-[10.5px] font-semibold leading-4 tabular text-white shrink-0"
+            title={t('webapi.assetOverdueVulns', { count: overdueVulns })}
+            aria-label={t('webapi.assetOverdueVulns', { count: overdueVulns })}
+          >{overdueVulns}</span>
+        )}
         <EnvBadge env={asset.environment} className="shrink-0" />
       </span>
       <span className="block w-full truncate text-[12px] text-muted-foreground">{meta || '—'}</span>

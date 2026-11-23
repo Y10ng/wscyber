@@ -2269,6 +2269,8 @@ export interface WebApiAsset {
   credentials: WebApiAssetCredential[]
   // M1 默认研究场景；旧响应缺省时按默认场景处理。
   scenario?: WebApiScenario
+  // 列表接口返回的逾期漏洞数；单资产详情接口不返回，故可选。
+  overdue_vulns?: number
 }
 
 export interface WebApiAssetTaskItem {
@@ -2760,10 +2762,22 @@ export interface WebApiNotification {
   sent_at: string | null
 }
 
+export interface WebApiNotificationStatusCounts {
+  all: number
+  pending_confirm: number
+  queued: number
+  sending: number
+  sent: number
+  failed: number
+  dismissed: number
+}
+
 export interface WebApiNotificationList {
   items: WebApiNotification[]
   has_more: boolean
   next_cursor: string | null
+  // 全量计数，不受 status 过滤与分页影响；旧响应可能缺省。
+  status_counts?: WebApiNotificationStatusCounts
 }
 
 export async function listWebApiNotifications(params: {

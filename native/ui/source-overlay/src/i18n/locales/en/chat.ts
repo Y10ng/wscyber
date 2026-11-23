@@ -918,6 +918,7 @@ export default {
     assetSearchPlaceholder: 'Search name / owner / origin',
     assetShowArchived: 'Show archived',
     assetOriginsCount: '{{count}} origins',
+    assetOverdueVulns: '{{count}} overdue vulnerabilities',
     assetScenarioSection: 'Research scenario & policy',
     assetCredEmpty: 'No test accounts yet',
     assetCredSecretMasked: '••••••',
