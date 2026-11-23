@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/uptrace/bun"
 )
 
 // 全局任务列表（U2a）：只读，跨任务汇总状态、计数与 token。见 native/OVERVIEW.md。
@@ -24,7 +27,7 @@ const (
 	globalListDefaultLimit = 50
 	globalListMaxLimit     = 200
 	globalQueryMaxRunes    = 200
-	// sqlInChunk 是批量 IN (...) 的分块大小，远低于 SQLite 变量上限。
+	// sqlInChunk 是批量 IN (...) 的分块大小（bun 内联值，不受绑定参数上限影响；分块只为控制单条 SQL 长度）。
 	sqlInChunk = 500
 )
 
@@ -68,13 +71,13 @@ type taskListRow struct {
 
 // taskListRows 读取全部任务（assetID 非空时只取该资产关联任务），一次 SQL + 一次计划运行集合查询。
 // hasTurn = 研究会话持久化事件里有任何带 turn_id 的事件（走 chat_aop_events(session_id, cursor) 唯一索引）。
-// archived = 初始会话原生行 archived=1；会话行不存在视为未归档。
+// archived = 初始会话原生行 archived 为真；会话行不存在视为未归档。
 func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskListRow, error) {
 	query := `SELECT t.id, t.objective, t.known_info, t.origins_json, t.initial_session_id, t.created_at,
 		COALESCE(a.id, ''), COALESCE(a.name, ''), COALESCE(p.scope, ''), COALESCE(p.approval, ''),
 		COALESCE(sc.scenario, ''), COALESCE(sc.done_criteria, ''), COALESCE(ex.max_rounds, 0),
 		EXISTS (SELECT 1 FROM chat_aop_events e WHERE e.session_id = t.initial_session_id AND e.turn_id != ''),
-		COALESCE((SELECT cs.archived = 1 FROM chat_sessions cs WHERE cs.id = t.initial_session_id), 0)
+		COALESCE((SELECT cs.archived FROM chat_sessions cs WHERE cs.id = t.initial_session_id), false)
 		FROM webapi_tasks t
 		LEFT JOIN webapi_asset_tasks l ON l.task_id = t.id
 		LEFT JOIN webapi_assets a ON a.id = l.asset_id
@@ -86,64 +89,61 @@ func (s *taskStore) taskListRows(ctx context.Context, assetID string) ([]*taskLi
 		query += ` WHERE l.asset_id = ?`
 		args = append(args, assetID)
 	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
 	out := []*taskListRow{}
-	for rows.Next() {
-		row := &taskListRow{}
-		var originsJSON, assetRefID, assetName, scope, approval, scenarioKey, doneCriteria string
-		var maxRounds int
-		if err := rows.Scan(&row.item.TaskID, &row.objective, &row.knownInfo, &originsJSON, &row.item.InitialSessionID, &row.item.CreatedAt,
-			&assetRefID, &assetName, &scope, &approval, &scenarioKey, &doneCriteria, &maxRounds, &row.hasTurn, &row.item.Archived); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		origins, decodeErr := decodeOrigins(originsJSON)
-		if decodeErr != nil || origins == nil {
-			origins = []string{}
-		}
-		row.item.Origins = origins
-		row.item.Title = usageTitle(row.objective)
-		if assetRefID != "" {
-			row.item.Asset = &TaskAssetRef{ID: assetRefID, Name: assetName}
-		}
-		policy := defaultTaskPolicy()
-		if scope != "" {
-			policy.Scope, policy.Approval = scope, approval
-		}
-		row.item.Policy = TaskListPolicy{Scope: policy.Scope, Approval: policy.Approval}
-		row.item.Scenario = defaultTaskScenario()
-		if scenarioKey != "" {
-			row.item.Scenario = newTaskScenario(scenarioKey, doneCriteria, false).withMaxRounds(maxRounds)
-		}
-		row.createdAt = parseAt(row.item.CreatedAt)
-		out = append(out, row)
-	}
-	if err := closeRows(rows); err != nil {
-		return nil, err
-	}
 	scheduled := map[string]bool{}
-	runRows, err := s.db.QueryContext(ctx, `SELECT DISTINCT task_id FROM webapi_schedule_runs WHERE task_id != ''`)
-	if err != nil {
-		return nil, err
-	}
-	for runRows.Next() {
-		var taskID string
-		if err := runRows.Scan(&taskID); err != nil {
-			runRows.Close()
-			return nil, err
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		if err := scanRows(db.QueryContext(ctx, query, args...))(func(rows *sql.Rows) error {
+			row := &taskListRow{}
+			var originsJSON, assetRefID, assetName, scope, approval, scenarioKey, doneCriteria string
+			var maxRounds int
+			if err := rows.Scan(&row.item.TaskID, &row.objective, &row.knownInfo, &originsJSON, &row.item.InitialSessionID, &row.item.CreatedAt,
+				&assetRefID, &assetName, &scope, &approval, &scenarioKey, &doneCriteria, &maxRounds, &row.hasTurn, &row.item.Archived); err != nil {
+				return err
+			}
+			out = append(out, taskListRowFrom(row, originsJSON, assetRefID, assetName, scope, approval, scenarioKey, doneCriteria, maxRounds))
+			return nil
+		}); err != nil {
+			return err
 		}
-		scheduled[taskID] = true
-	}
-	if err := closeRows(runRows); err != nil {
+		return scanRows(db.QueryContext(ctx, `SELECT DISTINCT task_id FROM webapi_schedule_runs WHERE task_id != ''`))(func(rows *sql.Rows) error {
+			var taskID string
+			if err := rows.Scan(&taskID); err != nil {
+				return err
+			}
+			scheduled[taskID] = true
+			return nil
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	for _, row := range out {
 		row.item.Scheduled = scheduled[row.item.TaskID]
 	}
 	return out, nil
+}
+
+func taskListRowFrom(row *taskListRow, originsJSON, assetRefID, assetName, scope, approval, scenarioKey, doneCriteria string, maxRounds int) *taskListRow {
+	origins, decodeErr := decodeOrigins(originsJSON)
+	if decodeErr != nil || origins == nil {
+		origins = []string{}
+	}
+	row.item.Origins = origins
+	row.item.Title = usageTitle(row.objective)
+	if assetRefID != "" {
+		row.item.Asset = &TaskAssetRef{ID: assetRefID, Name: assetName}
+	}
+	policy := defaultTaskPolicy()
+	if scope != "" {
+		policy.Scope, policy.Approval = scope, approval
+	}
+	row.item.Policy = TaskListPolicy{Scope: policy.Scope, Approval: policy.Approval}
+	row.item.Scenario = defaultTaskScenario()
+	if scenarioKey != "" {
+		row.item.Scenario = newTaskScenario(scenarioKey, doneCriteria, false).withMaxRounds(maxRounds)
+	}
+	row.createdAt = parseAt(row.item.CreatedAt)
+	return row
 }
 
 // taskRunStatus：无任何轮次 not_started；有运行中子 Agent 会话为 running；否则按原生 SessionRunning（研究会话）判定 running/idle，
@@ -220,20 +220,15 @@ func inChunks(ids []string, fn func(placeholders string, args []any) error) erro
 func (s *taskStore) countByTask(ctx context.Context, table string, taskIDs []string) (map[string]int, error) {
 	out := map[string]int{}
 	err := inChunks(taskIDs, func(placeholders string, args []any) error {
-		rows, err := s.db.QueryContext(ctx, `SELECT task_id, COUNT(*) FROM `+table+` WHERE task_id IN (`+placeholders+`) GROUP BY task_id`, args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
+		return s.queryRows(ctx, func(rows *sql.Rows) error {
 			var taskID string
 			var count int
 			if err := rows.Scan(&taskID, &count); err != nil {
-				rows.Close()
 				return err
 			}
 			out[taskID] = count
-		}
-		return closeRows(rows)
+			return nil
+		}, `SELECT task_id, COUNT(*) FROM `+table+` WHERE task_id IN (`+placeholders+`) GROUP BY task_id`, args...)
 	})
 	return out, err
 }
@@ -246,24 +241,19 @@ func (s *taskStore) supportedByTask(ctx context.Context, taskIDs []string) (map[
 	}
 	byFinding := map[string]*latest{}
 	err := inChunks(taskIDs, func(placeholders string, args []any) error {
-		rows, err := s.db.QueryContext(ctx, `SELECT v.task_id, v.finding_id, v.id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at
-			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
-			WHERE v.task_id IN (`+placeholders+`)`, args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
+		return s.queryRows(ctx, func(rows *sql.Rows) error {
 			var taskID, findingID, verificationID, verdict, createdAt string
 			if err := rows.Scan(&taskID, &findingID, &verificationID, &verdict, &createdAt); err != nil {
-				rows.Close()
 				return err
 			}
 			at, key := parseAt(createdAt), createdAt+"\x00"+verificationID
 			if current := byFinding[findingID]; current == nil || laterThan(at, key, current.at, current.key) {
 				byFinding[findingID] = &latest{taskID: taskID, verdict: verdict, key: key, at: at}
 			}
-		}
-		return closeRows(rows)
+			return nil
+		}, `SELECT v.task_id, v.finding_id, v.id, COALESCE(r.payload_json::jsonb #>> '{payload,verdict}', ''), r.created_at
+			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
+			WHERE v.task_id IN (`+placeholders+`)`, args...)
 	})
 	out := map[string]int{}
 	for _, entry := range byFinding {
@@ -286,21 +276,16 @@ func (s *taskStore) taskSessions(ctx context.Context, rows []*taskListRow) (map[
 	}
 	for _, table := range []string{"webapi_verifications", "webapi_reports", "webapi_retests"} {
 		err := inChunks(taskIDs, func(placeholders string, args []any) error {
-			result, err := s.db.QueryContext(ctx, `SELECT task_id, session_id FROM `+table+` WHERE task_id IN (`+placeholders+`)`, args...)
-			if err != nil {
-				return err
-			}
-			for result.Next() {
+			return s.queryRows(ctx, func(result *sql.Rows) error {
 				var taskID, session string
 				if err := result.Scan(&taskID, &session); err != nil {
-					result.Close()
 					return err
 				}
 				if _, seen := sessions[session]; session != "" && !seen {
 					sessions[session] = taskID
 				}
-			}
-			return closeRows(result)
+				return nil
+			}, `SELECT task_id, session_id FROM `+table+` WHERE task_id IN (`+placeholders+`)`, args...)
 		})
 		if err != nil {
 			return nil, err
@@ -320,15 +305,10 @@ func (s *taskStore) sessionActivity(ctx context.Context, sessions map[string]str
 	lastAt := map[string]time.Time{}
 	tokens := map[string]*UsageTotals{}
 	err := inChunks(ids, func(placeholders string, args []any) error {
-		rows, err := s.db.QueryContext(ctx, `SELECT session_id, created_at, event_proto FROM chat_aop_events WHERE session_id IN (`+placeholders+`)`, args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
+		return s.queryRows(ctx, func(rows *sql.Rows) error {
 			var session, createdAt string
 			var raw []byte
 			if err := rows.Scan(&session, &createdAt, &raw); err != nil {
-				rows.Close()
 				return err
 			}
 			taskID := sessions[session]
@@ -337,14 +317,14 @@ func (s *taskStore) sessionActivity(ctx context.Context, sessions map[string]str
 			}
 			usage, decodeErr := eventUsage(raw)
 			if decodeErr != nil || usage == nil {
-				continue
+				return nil
 			}
 			if tokens[taskID] == nil {
 				tokens[taskID] = &UsageTotals{}
 			}
 			tokens[taskID].add(usage)
-		}
-		return closeRows(rows)
+			return nil
+		}, `SELECT session_id, created_at, event_proto FROM chat_aop_events WHERE session_id IN (`+placeholders+`)`, args...)
 	})
 	return lastAt, tokens, err
 }

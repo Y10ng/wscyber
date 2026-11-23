@@ -82,7 +82,7 @@ func newExportCase(t *testing.T) *exportCase {
 		t.Fatalf("verification rejected: %s", message)
 	}
 	// 原件捕获截断（保存后标记，模拟只保存了前一部分响应）。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_requests SET capture_truncated = 1 WHERE id = ?`, step2.ID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_requests SET capture_truncated = true WHERE id = ?`, step2.ID); err != nil {
 		t.Fatal(err)
 	}
 	f.cardRetest("t1", fid, frev, "reproducible")
@@ -246,7 +246,7 @@ func TestVulnExportSingleJSON(t *testing.T) {
 		t.Fatalf("legacy json = %s", legacy)
 	}
 	// 证据行缺失：步骤标记 missing，不给原文。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `DELETE FROM webapi_requests WHERE id = ?`, c.steps[2].ID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `DELETE FROM webapi_requests WHERE id = ?`, c.steps[2].ID); err != nil {
 		t.Fatal(err)
 	}
 	_, missing, _ := f.export("GET", "/api/webapi/vulns/"+c.reproKey+"/card/export?format=markdown", "")

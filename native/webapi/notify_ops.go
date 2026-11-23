@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,7 +109,7 @@ func (c *Capability) opsWakeup() <-chan struct{} {
 	return c.notify.opsWake
 }
 
-// enqueueOps 不做数据库 I/O；审批 PENDING 事件不再等待 SQLite 写锁。
+// enqueueOps 不做数据库 I/O；审批 PENDING 事件不等待 webapi 全局写锁。
 func (c *Capability) enqueueOps(key string, valid func() bool, register func(context.Context) error) {
 	c.notify.opsMu.Lock()
 	defer c.notify.opsMu.Unlock()
@@ -388,22 +389,17 @@ func (c *Capability) weeklyDigestPayload(ctx context.Context, slot time.Time) (*
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.store.db.QueryContext(ctx, `SELECT id, name FROM webapi_assets WHERE archived = 0 ORDER BY name, id`)
-	if err != nil {
-		return nil, err
-	}
 	order := []string{}
 	byAsset := map[string]*digestRow{}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		row := &digestRow{}
 		if err := rows.Scan(&row.AssetID, &row.Name); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		order = append(order, row.AssetID)
 		byAsset[row.AssetID] = row
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT id, name FROM webapi_assets WHERE NOT archived ORDER BY name COLLATE "C", id COLLATE "C"`); err != nil {
 		return nil, err
 	}
 	standalone := &digestRow{Name: "未关联资产"}

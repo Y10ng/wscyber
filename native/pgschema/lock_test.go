@@ -70,6 +70,23 @@ func TestStartSequence(t *testing.T) {
 	if err := instance.Lock().Check(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// 控制池只用 2 条（单实例锁连接兼作迁移锁连接 + 迁移连接）；空库迁移不自锁。
+	if got := instance.DB().Stats().MaxOpenConnections; got != 2 {
+		t.Fatalf("控制池上限 %d", got)
+	}
+	// 迁移锁已释放：另一个池可立即取得。
+	probe, err := database.Open(t, "migrate-lock-probe").DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotMigrateLock bool
+	if err := probe.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1, $2)`, int32(0x77736379), int32(2)).Scan(&gotMigrateLock); err != nil || !gotMigrateLock {
+		t.Fatalf("Start 后迁移锁应已释放: %v %v", gotMigrateLock, err)
+	}
+	if _, err := probe.ExecContext(ctx, `SELECT pg_advisory_unlock($1, $2)`, int32(0x77736379), int32(2)); err != nil {
+		t.Fatal(err)
+	}
+	_ = probe.Close()
 	if _, err := pgschema.Start(ctx, database.URL, nil); !errors.Is(err, pgschema.ErrInstanceLocked) {
 		t.Fatalf("同库第二个 Hub 应因单实例锁失败: %v", err)
 	}

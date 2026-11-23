@@ -102,7 +102,9 @@ func reportSummary(model reportModel) (ReportSummary, error) {
 
 func (s *taskStore) reportForSession(ctx context.Context, sessionID string) (*reportModel, error) {
 	var model reportModel
-	err := s.orm.NewSelect().Model(&model).Where("session_id = ?", sessionID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("session_id = ?", sessionID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -114,7 +116,9 @@ func (s *taskStore) reportForSession(ctx context.Context, sessionID string) (*re
 
 func (s *taskStore) reportByID(ctx context.Context, taskID, id string) (*reportModel, error) {
 	var model reportModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ? AND id = ?", taskID, id).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("task_id = ? AND id = ?", taskID, id).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -135,8 +139,11 @@ func (s *taskStore) saveReport(ctx context.Context, id, taskID string, items []R
 	}
 	model := &reportModel{ID: id, TaskID: taskID, SessionID: newSessionID(), ItemsJSON: string(canonical), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	created, conflict := false, false
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		result, err := tx.NewInsert().Model(model).On("CONFLICT(id) DO NOTHING").Exec(ctx)
+		if isMissingParent(err) {
+			return errReportNotFound // 任务不存在：同 SQLite 时代“插入后按归属不符回滚”。
+		}
 		if err != nil {
 			return err
 		}
@@ -206,7 +213,9 @@ func (s *taskStore) saveReport(ctx context.Context, id, taskID string, items []R
 // fillReportDraftSummary 只取草稿payload一次，填has_draft与title。
 func (s *taskStore) fillReportDraftSummary(ctx context.Context, summary *ReportSummary) error {
 	var payloadJSON string
-	err := s.orm.NewSelect().Model((*reportDraftModel)(nil)).Column("payload_json").Where("report_id = ?", summary.ReportID).Limit(1).Scan(ctx, &payloadJSON)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model((*reportDraftModel)(nil)).Column("payload_json").Where("report_id = ?", summary.ReportID).Limit(1).Scan(ctx, &payloadJSON)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -223,7 +232,9 @@ func (s *taskStore) fillReportDraftSummary(ctx context.Context, summary *ReportS
 
 func (s *taskStore) reportDraft(ctx context.Context, reportID string) (*ReportDraftView, error) {
 	var model reportDraftModel
-	err := s.orm.NewSelect().Model(&model).Where("report_id = ?", reportID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("report_id = ?", reportID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -286,11 +297,13 @@ func (s *taskStore) reportDetail(ctx context.Context, model *reportModel) (*Repo
 
 func (s *taskStore) reportList(ctx context.Context, taskID string, limit int, afterCreatedAt, afterID string) ([]ReportSummary, error) {
 	var models []reportModel
-	query := s.orm.NewSelect().Model(&models).Where("task_id = ?", taskID)
-	if afterCreatedAt != "" {
-		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", afterCreatedAt, afterCreatedAt, afterID)
-	}
-	if err := query.Order("created_at DESC", "id DESC").Limit(int64(limit + 1)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Where("task_id = ?", taskID)
+		if afterCreatedAt != "" {
+			query = query.Where(`(created_at COLLATE "C" < ? OR (created_at = ? AND id COLLATE "C" < ?))`, afterCreatedAt, afterCreatedAt, afterID)
+		}
+		return query.OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(int64(limit + 1)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	items := make([]ReportSummary, 0, len(models))
@@ -321,7 +334,9 @@ func (s *taskStore) saveReportDraft(ctx context.Context, inv operation.Invocatio
 	}
 	model := &reportDraftModel{ReportID: report.ID, SessionID: inv.SessionID, TurnID: inv.TurnID, CallID: inv.CallID, PayloadJSON: string(payload), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	var existing reportDraftModel
-	err = s.orm.NewSelect().Model(&existing).Where("report_id = ?", report.ID).Limit(1).Scan(ctx)
+	err = s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&existing).Where("report_id = ?", report.ID).Limit(1).Scan(ctx)
+	})
 	if err == nil {
 		if !sameDraftInvocation(existing, inv, canonical) {
 			return nil, errReportDraft
@@ -331,13 +346,15 @@ func (s *taskStore) saveReportDraft(ctx context.Context, inv operation.Invocatio
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		_, err := tx.NewInsert().Model(model).Exec(ctx)
 		return err
 	})
 	if err != nil {
 		// 回执失联只核对一次，不重新生成草稿。
-		lookup := s.orm.NewSelect().Model(&existing).Where("report_id = ?", report.ID).Limit(1).Scan(ctx)
+		lookup := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&existing).Where("report_id = ?", report.ID).Limit(1).Scan(ctx)
+		})
 		if lookup != nil {
 			return nil, errors.Join(err, lookup)
 		}

@@ -92,7 +92,7 @@ func (p *oracleExplorerScript) ChatCompletion(_ context.Context, request *provid
 			), nil
 		case 2:
 			var evidenceID string
-			if err := p.f.cap.store.db.QueryRow(`SELECT id FROM webapi_requests WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1`).Scan(&evidenceID); err != nil {
+			if err := p.f.cap.store.db().QueryRow(`SELECT id FROM webapi_requests WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1`).Scan(&evidenceID); err != nil {
 				return nil, err
 			}
 			return toolCallMessage(fixtureCall("c-close", "webapi_board_oracle", map[string]any{"action": "close", "number": "O-001", "status": "refuted",

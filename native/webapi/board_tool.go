@@ -13,6 +13,7 @@ import (
 	"github.com/chainreactors/cyber/aop"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
+	"github.com/uptrace/bun"
 )
 
 // 黑板模型工具：任务内任意会话（研究/验证/复测/子 Agent）可读；写只允许该任务研究会话（initial_session_id）
@@ -545,7 +546,9 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 	if current, err := t.store.boardOracle(ctx, taskID, number); err != nil {
 		return coretool.ErrorResult(publicBoardError(err)), nil
 	} else if current != nil {
-		if holder, err = t.store.oracleSubagentHolder(ctx, t.store.orm, current.ID); err != nil {
+		if holder, err = readValue(ctx, t.store, func(ctx context.Context, db bun.IDB) (string, error) {
+			return t.store.oracleSubagentHolder(ctx, db, current.ID)
+		}); err != nil {
 			return coretool.ErrorResult(publicBoardError(err)), nil
 		}
 	}

@@ -180,32 +180,24 @@ type unsyncedFinding struct {
 // syncAssetVulns 把资产关联任务中尚未入库的候选按端点键加入 auto 条目（单事务、幂等）。
 // 已入库的成员不再重新计算；调用方须持有 lockAssetVulns。
 func (s *taskStore) syncAssetVulns(ctx context.Context, assetID string) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT f.id, f.task_id, r.payload_json FROM webapi_findings f
-		JOIN webapi_asset_tasks l ON l.task_id = f.task_id
-		JOIN webapi_finding_revisions r ON r.id = f.current_revision_id
-		WHERE l.asset_id = ? AND NOT EXISTS (SELECT 1 FROM webapi_asset_vuln_members m WHERE m.finding_id = f.id)
-		ORDER BY f.number ASC`, assetID)
-	if err != nil {
-		return err
-	}
 	pending := []unsyncedFinding{}
-	for rows.Next() {
+	if err := s.queryRows(ctx, func(rows *sql.Rows) error {
 		var item unsyncedFinding
 		if err := rows.Scan(&item.FindingID, &item.TaskID, &item.PayloadJSON); err != nil {
-			rows.Close()
 			return err
 		}
 		pending = append(pending, item)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if err := rows.Err(); err != nil || len(pending) == 0 {
+		return nil
+	}, `SELECT f.id, f.task_id, r.payload_json FROM webapi_findings f
+		JOIN webapi_asset_tasks l ON l.task_id = f.task_id
+		JOIN webapi_finding_revisions r ON r.id = f.current_revision_id
+		WHERE l.asset_id = ? AND NOT EXISTS (SELECT 1 FROM webapi_asset_vuln_members m WHERE m.finding_id = f.id)
+		ORDER BY f.number ASC`, assetID); err != nil || len(pending) == 0 {
 		return err
 	}
 	now := nowRFC3339()
-	// 事务首条 SQL 即写（INSERT ... DO NOTHING），避免 SQLite 读事务升级竞争；冲突即已入库，不挪动。
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	// 写事务（全局写锁）内逐条 INSERT ... DO NOTHING；冲突即已入库，不挪动。
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		for _, item := range pending {
 			var payload storedFindingPayload
 			key := "finding:" + item.FindingID
@@ -313,25 +305,24 @@ func laterThan(a time.Time, aKey string, b time.Time, bKey string) bool {
 
 // assetLatestTask 返回资产最近一次任务（webapi_asset_tasks 按 created_at 最新，含手动发起）及各任务关联时间。
 func (s *taskStore) assetTaskTimes(ctx context.Context, assetID string) (latest string, times map[string]time.Time, err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT task_id, created_at FROM webapi_asset_tasks WHERE asset_id = ?`, assetID)
-	if err != nil {
-		return "", nil, err
-	}
-	defer rows.Close()
 	times = map[string]time.Time{}
 	var latestAt time.Time
-	for rows.Next() {
+	err = s.queryRows(ctx, func(rows *sql.Rows) error {
 		var taskID, createdAt string
 		if err := rows.Scan(&taskID, &createdAt); err != nil {
-			return "", nil, err
+			return err
 		}
 		at := parseAt(createdAt)
 		times[taskID] = at
 		if latest == "" || laterThan(at, taskID, latestAt, latest) {
 			latest, latestAt = taskID, at
 		}
+		return nil
+	}, `SELECT task_id, created_at FROM webapi_asset_tasks WHERE asset_id = ?`, assetID)
+	if err != nil {
+		return "", nil, err
 	}
-	return latest, times, rows.Err()
+	return latest, times, nil
 }
 
 // assetVulns 计算资产全部非空条目的视图（未排序过滤），以及最近一次任务。调用方须已同步。
@@ -341,7 +332,9 @@ func (s *taskStore) assetVulns(ctx context.Context, assetID string) (string, []*
 		return "", nil, err
 	}
 	var vulns []assetVulnModel
-	if err := s.orm.NewSelect().Model(&vulns).Where("asset_id = ?", assetID).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&vulns).Where("asset_id = ?", assetID).Scan(ctx)
+	}); err != nil {
 		return "", nil, err
 	}
 	members, err := s.vulnMemberRows(ctx, assetID)
@@ -367,7 +360,15 @@ func (s *taskStore) assetVulns(ctx context.Context, assetID string) (string, []*
 }
 
 func (s *taskStore) vulnMemberRows(ctx context.Context, assetID string) ([]vulnMemberRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT m.vuln_id, m.finding_id, m.task_id, m.link, f.number, r.title, f.current_revision_id, f.created_at, t.initial_session_id
+	out := []vulnMemberRow{}
+	err := s.queryRows(ctx, func(rows *sql.Rows) error {
+		var row vulnMemberRow
+		if err := rows.Scan(&row.VulnID, &row.FindingID, &row.TaskID, &row.Link, &row.Number, &row.Title, &row.RevisionID, &row.CreatedAt, &row.InitialSessionID); err != nil {
+			return err
+		}
+		out = append(out, row)
+		return nil
+	}, `SELECT m.vuln_id, m.finding_id, m.task_id, m.link, f.number, r.title, f.current_revision_id, f.created_at, t.initial_session_id
 		FROM webapi_asset_vuln_members m
 		JOIN webapi_findings f ON f.id = m.finding_id
 		JOIN webapi_finding_revisions r ON r.id = f.current_revision_id
@@ -376,50 +377,39 @@ func (s *taskStore) vulnMemberRows(ctx context.Context, assetID string) ([]vulnM
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []vulnMemberRow{}
-	for rows.Next() {
-		var row vulnMemberRow
-		if err := rows.Scan(&row.VulnID, &row.FindingID, &row.TaskID, &row.Link, &row.Number, &row.Title, &row.RevisionID, &row.CreatedAt, &row.InitialSessionID); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // vulnEvents 返回资产全部成员的验证判读与复测结论（按候选分组），时间为结果保存时间。
 func (s *taskStore) vulnEvents(ctx context.Context, assetID string) (map[string][]vulnEvent, error) {
 	out := map[string][]vulnEvent{}
 	queries := []struct{ kind, sql string }{
-		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at,
-			COALESCE(json_extract(r.payload_json, '$.payload.suggested_severity'), '')
+		{FollowupVerify, `SELECT v.finding_id, COALESCE(r.payload_json::jsonb #>> '{payload,verdict}', ''), r.created_at,
+			COALESCE(r.payload_json::jsonb #>> '{payload,suggested_severity}', '')
 			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
 			JOIN webapi_asset_vuln_members m ON m.finding_id = v.finding_id WHERE m.asset_id = ?`},
-		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at, ''
+		{FollowupRetest, `SELECT t.finding_id, COALESCE(r.payload_json::jsonb #>> '{payload,conclusion}', ''), r.created_at, ''
 			FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id
 			JOIN webapi_asset_vuln_members m ON m.finding_id = t.finding_id WHERE m.asset_id = ?`},
 	}
-	for _, query := range queries {
-		rows, err := s.db.QueryContext(ctx, query.sql, assetID)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			event := vulnEvent{Kind: query.kind}
-			if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
-				rows.Close()
-				return nil, err
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		for _, query := range queries {
+			if err := scanRows(db.QueryContext(ctx, query.sql, assetID))(func(rows *sql.Rows) error {
+				event := vulnEvent{Kind: query.kind}
+				if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
+					return err
+				}
+				event.at = parseAt(event.At)
+				out[event.FindingID] = append(out[event.FindingID], event)
+				return nil
+			}); err != nil {
+				return err
 			}
-			event.at = parseAt(event.At)
-			out[event.FindingID] = append(out[event.FindingID], event)
 		}
-		if err := rows.Close(); err != nil {
-			return nil, err
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -565,9 +555,11 @@ func (s *taskStore) assetVulnView(ctx context.Context, assetID, vulnID string) (
 // ---- 人工操作（调用方须持有 lockAssetVulns 并已同步） ----
 
 func (s *taskStore) setVulnTitle(ctx context.Context, assetID, vulnID, title string) error {
-	_, err := s.orm.NewUpdate().Model((*assetVulnModel)(nil)).Set("title_override = ?", title).Set("updated_at = ?", nowRFC3339()).
-		Where("id = ? AND asset_id = ?", vulnID, assetID).Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*assetVulnModel)(nil)).Set("title_override = ?", title).Set("updated_at = ?", nowRFC3339()).
+			Where("id = ? AND asset_id = ?", vulnID, assetID).Exec(ctx)
+		return err
+	})
 }
 
 // deleteEmptyManualVuln：成员被移空的人工条目（endpoint_key 为空）删除（连同其处置记录）；auto 条目保留行与处置。
@@ -587,14 +579,16 @@ func deleteEmptyManualVuln(ctx context.Context, tx bun.Tx, vulnID string) error 
 // moveVulnMember 把候选移入 vulnID（不存在则新建人工条目 = 拆分），link=manual。返回是否新建条目。
 func (s *taskStore) moveVulnMember(ctx context.Context, assetID, vulnID, findingID string) (bool, error) {
 	var taskID string
-	err := s.db.QueryRowContext(ctx, `SELECT task_id FROM webapi_findings WHERE id = ?`, findingID).Scan(&taskID)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT task_id FROM webapi_findings WHERE id = ?`, findingID).Scan(&taskID)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, errVulnFindingMissing
 	}
 	if err != nil {
 		return false, err
 	}
-	member, err := findOptional[assetVulnMemberModel](ctx, s.orm, "finding_id = ?", findingID)
+	member, err := readOptional[assetVulnMemberModel](ctx, s, "finding_id = ?", findingID)
 	if err != nil {
 		return false, err
 	}
@@ -602,7 +596,7 @@ func (s *taskStore) moveVulnMember(ctx context.Context, assetID, vulnID, finding
 	if member == nil || member.AssetID != assetID {
 		return false, errVulnFindingAsset
 	}
-	target, err := findOptional[assetVulnModel](ctx, s.orm, "id = ?", vulnID)
+	target, err := readOptional[assetVulnModel](ctx, s, "id = ?", vulnID)
 	if err != nil {
 		return false, err
 	}
@@ -614,7 +608,7 @@ func (s *taskStore) moveVulnMember(ctx context.Context, assetID, vulnID, finding
 	}
 	now := nowRFC3339()
 	created := target == nil
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if created {
 			if _, err := tx.NewInsert().Model(&assetVulnModel{ID: vulnID, AssetID: assetID, CreatedAt: now, UpdatedAt: now}).Exec(ctx); err != nil {
 				return err
@@ -636,7 +630,9 @@ func (s *taskStore) moveVulnMember(ctx context.Context, assetID, vulnID, finding
 func (s *taskStore) mergeVulns(ctx context.Context, assetID, into, from string) error {
 	for _, id := range []string{into, from} {
 		var count int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_asset_vuln_members WHERE vuln_id = ? AND asset_id = ?`, id, assetID).Scan(&count); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_asset_vuln_members WHERE vuln_id = ? AND asset_id = ?`, id, assetID).Scan(&count)
+		}); err != nil {
 			return err
 		}
 		if count == 0 {
@@ -644,7 +640,7 @@ func (s *taskStore) mergeVulns(ctx context.Context, assetID, into, from string) 
 		}
 	}
 	now := nowRFC3339()
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewUpdate().Model((*assetVulnMemberModel)(nil)).Set("vuln_id = ?", into).Set("link = ?", VulnLinkManual).Set("updated_at = ?", now).
 			Where("vuln_id = ? AND asset_id = ?", from, assetID).Exec(ctx); err != nil {
 			return err

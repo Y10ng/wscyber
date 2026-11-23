@@ -1,9 +1,9 @@
 package webapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +11,7 @@ import (
 	"github.com/chainreactors/cyber/aop/traffic"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 func (f *authzFixture) setPolicy(t *testing.T, scope, approval string) {
@@ -25,7 +25,7 @@ func (f *authzFixture) setPolicy(t *testing.T, scope, approval string) {
 func (f *authzFixture) requestCount(t *testing.T) int {
 	t.Helper()
 	var count int
-	if err := f.capability.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_requests WHERE task_id = ?`, f.task.ID).Scan(&count); err != nil {
+	if err := f.capability.store.db().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_requests WHERE task_id = ?`, f.task.ID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -299,7 +299,10 @@ func TestWebAPIAuthzCompareAvailableToSubsession(t *testing.T) {
 	}
 	child := &taskSubsessionModel{SessionID: "child-authz", TaskID: f.task.ID, ParentSessionID: f.task.InitialSessionID,
 		ParentCallID: "parent-call", OracleID: "synthetic", AgentName: OracleExplorerName, Status: subsessionRunning, CreatedAt: nowRFC3339()}
-	if _, err := f.capability.store.orm.NewInsert().Model(child).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(child).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	inv := operation.Invocation{SessionID: child.SessionID, TurnID: "child-turn", CallID: "child-original"}
@@ -340,42 +343,22 @@ func TestWebAPIAuthzCompareNotOverallApprovalGated(t *testing.T) {
 	}
 }
 
-func TestWebAPIAuthzCompareSchemaUpgradeFromM5aAndListLimit(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(41, 37))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Save(t.Context(), "m5a-task", "旧任务", "M5a 阶段保留行", []string{"https://api.example.test"}); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare M5a stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full schema after M5a upgrade: %v", err)
-	}
-	_ = complete.Close()
-	reopened, err := openTaskStore(database)
+// 越权对比列表：新到旧、上限 100 条，可按原始证据过滤。
+func TestWebAPIAuthzCompareListLimit(t *testing.T) {
+	database := newTestHub(t)
+	reopened, err := openTaskStore(database.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if task, err := reopened.Get(t.Context(), "m5a-task"); err != nil || task == nil {
-		t.Fatalf("old task lost: %v", err)
+	if _, err := reopened.Save(t.Context(), "m5a-task", "旧任务", "M5a 阶段保留行", []string{"https://api.example.test"}); err != nil {
+		t.Fatal(err)
 	}
 	base := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
 	for index := 0; index < 105; index++ {
 		row := &authzCompareModel{ID: fmt.Sprintf("row-%03d", index), TaskID: "m5a-task", SessionID: "s", OriginalEvidenceID: fmt.Sprintf("original-%d", index%2),
 			Label: "合成", Status: "review_required", Hint: authzHintNotSent, CreatedAt: base.Add(time.Duration(index) * time.Second).Format(time.RFC3339Nano)}
-		if _, err := reopened.orm.NewInsert().Model(row).Exec(t.Context()); err != nil {
+		if err := reopened.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.NewInsert().Model(row).Exec(ctx); return err }); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -386,8 +369,5 @@ func TestWebAPIAuthzCompareSchemaUpgradeFromM5aAndListLimit(t *testing.T) {
 	filtered, err := reopened.listAuthzCompares(t.Context(), "m5a-task", "original-0")
 	if err != nil || len(filtered) != 53 {
 		t.Fatalf("filtered items = %d %v", len(filtered), err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }

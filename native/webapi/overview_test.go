@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,13 +35,13 @@ func newGlobalFixture(t *testing.T) *globalFixture {
 	previous := time.Local
 	time.Local = time.FixedZone("UTC+8", 8*3600)
 	t.Cleanup(func() { time.Local = previous })
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	native, err := webservice.NewSQLiteStore(database, SchemaModule())
+	database := newTestHub(t)
+	native, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = native.Close() })
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +59,7 @@ func newGlobalFixture(t *testing.T) *globalFixture {
 
 func (f *globalFixture) exec(query string, args ...any) {
 	f.t.Helper()
-	if _, err := f.cap.store.db.Exec(query, args...); err != nil {
+	if _, err := f.cap.store.db().Exec(query, args...); err != nil {
 		f.t.Fatalf("%s: %v", query, err)
 	}
 }
@@ -327,7 +326,7 @@ func TestTaskListArchived(t *testing.T) {
 	f := newGlobalFixture(t)
 	f.task("T-active", "", "进行中的演示任务", "演示", "https://active.example.test", "s-active", "2026-11-18T00:00:00Z")
 	f.task("T-archived", "", "已归档的演示任务", "演示", "https://archived.example.test", "s-archived", "2026-11-17T00:00:00Z")
-	f.exec(`UPDATE chat_sessions SET archived = 1 WHERE id = 's-archived'`)
+	f.exec(`UPDATE chat_sessions SET archived = true WHERE id = 's-archived'`)
 	// 初始会话行不存在时按未归档处理。
 	f.exec(`INSERT INTO webapi_tasks (id, known_info, objective, origins_json, initial_session_id, created_at) VALUES
 		('T-missing', '演示', '无会话行的演示任务', '["https://missing.example.test"]', 's-missing', '2026-11-16T00:00:00Z')`)
@@ -366,7 +365,7 @@ func TestTaskListArchivedPaging(t *testing.T) {
 	f.task("T-new", "", "演示任务一", "演示", "https://one.example.test", "s-new", "2026-11-18T00:00:00Z")
 	f.task("T-mid", "", "演示任务二", "演示", "https://two.example.test", "s-mid", "2026-11-17T00:00:00Z")
 	f.task("T-old", "", "演示任务三", "演示", "https://three.example.test", "s-old", "2026-11-16T00:00:00Z")
-	f.exec(`UPDATE chat_sessions SET archived = 1 WHERE id IN ('s-new', 's-mid', 's-old')`)
+	f.exec(`UPDATE chat_sessions SET archived = true WHERE id IN ('s-new', 's-mid', 's-old')`)
 
 	var first taskListResponse
 	f.getJSON("/api/webapi/task-list?archived=1&limit=2", &first)
@@ -484,7 +483,7 @@ func TestGlobalListVulns(t *testing.T) {
 
 	// 同步已写入 A1 漏洞库（与资产接口一致），A2 未同步（归档不处理）。
 	var members int
-	_ = f.cap.store.db.QueryRow(`SELECT COUNT(*) FROM webapi_asset_vuln_members WHERE asset_id = 'A2'`).Scan(&members)
+	_ = f.cap.store.db().QueryRow(`SELECT COUNT(*) FROM webapi_asset_vuln_members WHERE asset_id = 'A2'`).Scan(&members)
 	if members != 0 {
 		t.Fatalf("archived asset synced: %d", members)
 	}

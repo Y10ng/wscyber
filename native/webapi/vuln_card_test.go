@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/chainreactors/cyber/aop/traffic"
 	"github.com/chainreactors/cyber/core/operation"
+	"github.com/uptrace/bun"
 )
 
 // K1 漏洞卡后端测试：全部为临时库合成数据（example.test 演示资产、虚构候选、合成 Flow）。
@@ -63,7 +65,7 @@ func reproPayload(evidenceID string) map[string]any {
 func (f *notifyFixture) legacyVerify(taskID, findingID, revisionID string) VerificationSummary {
 	f.t.Helper()
 	summary := f.verify(taskID, findingID, revisionID, "supported", notifyFlow("GET", "https://api.example.test/legacy", "", `{"ok":true}`))
-	if _, err := f.capability.store.db.ExecContext(f.t.Context(), `UPDATE webapi_verification_results SET payload_json = json_remove(payload_json, '$.payload.impact', '$.payload.key_steps') WHERE verification_id = ?`, summary.VerificationID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(f.t.Context(), `UPDATE webapi_verification_results SET payload_json = (payload_json::jsonb #- '{payload,impact}' #- '{payload,key_steps}')::text WHERE verification_id = ?`, summary.VerificationID); err != nil {
 		f.t.Fatal(err)
 	}
 	return summary
@@ -73,11 +75,17 @@ func (f *notifyFixture) cardRetest(taskID, findingID, revisionID, conclusion str
 	f.t.Helper()
 	ctx := f.t.Context()
 	id, session := "r-"+newSessionID(), newSessionID()
-	if _, err := f.capability.store.orm.NewInsert().Model(&retestModel{ID: id, TaskID: taskID, FindingID: findingID, SourceRevisionID: revisionID, SessionID: session, CreatedAt: nowRFC3339()}).Exec(ctx); err != nil {
+	if err := f.capability.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&retestModel{ID: id, TaskID: taskID, FindingID: findingID, SourceRevisionID: revisionID, SessionID: session, CreatedAt: nowRFC3339()}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 	payload, _ := json.Marshal(storedRetestResult{Canonical: conclusion, Payload: retestToolPayload{Conclusion: conclusion, Method: "演示", Summary: "复测 " + conclusion}})
-	if _, err := f.capability.store.orm.NewInsert().Model(&retestResultModel{RetestID: id, SessionID: session, TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: nowRFC3339()}).Exec(ctx); err != nil {
+	if err := f.capability.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&retestResultModel{RetestID: id, SessionID: session, TurnID: "t", CallID: "c-" + id, PayloadJSON: string(payload), CreatedAt: nowRFC3339()}).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 	time.Sleep(2 * time.Millisecond)
@@ -106,7 +114,7 @@ func TestVerificationReproValidation(t *testing.T) {
 	e2 := f.addEvidence("t1", v.SessionID, cardFlow("https://api.example.test/orders/1001", "sid=a", `{"owner":"demo-user"}`))
 	other := f.addEvidence("t1", "s-research", cardFlow("https://api.example.test/orders/1003", "sid=a", `{}`))
 	truncated := f.addEvidence("t1", v.SessionID, cardFlow("https://api.example.test/orders/1004", "sid=a", `{}`))
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_requests SET capture_truncated = 1 WHERE id = ?`, truncated.ID); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_requests SET capture_truncated = true WHERE id = ?`, truncated.ID); err != nil {
 		t.Fatal(err)
 	}
 	marks := func(n int) []string {
@@ -335,8 +343,11 @@ func TestVulnCardSections(t *testing.T) {
 		t.Fatalf("asset vuln list code/suggested = %q %q", orderVuln.Code, orderVuln.SuggestedSeverity)
 	}
 	sentAt := notifyTime(time.Now())
-	if _, err := f.capability.store.orm.NewInsert().Model(&notificationModel{ID: "wn_card", DedupeKey: vid, Kind: NotifyKindNew, TaskID: "t1", FindingID: f2,
-		VerificationID: v2.VerificationID, VulnID: vid, Status: NotifySent, CreatedAt: sentAt, SentAt: sql.NullString{String: sentAt, Valid: true}}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&notificationModel{ID: "wn_card", DedupeKey: vid, Kind: NotifyKindNew, TaskID: "t1", FindingID: f2,
+			VerificationID: v2.VerificationID, VulnID: vid, Status: NotifySent, CreatedAt: sentAt, SentAt: sql.NullString{String: sentAt, Valid: true}}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Millisecond)
@@ -526,7 +537,7 @@ func TestVulnCardSections(t *testing.T) {
 		}
 	}
 	var audits int
-	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_audit_events WHERE action NOT IN ('vuln.triage', 'credential.save', 'asset.create', 'task.create')`).Scan(&audits)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_audit_events WHERE action NOT IN ('vuln.triage', 'credential.save', 'asset.create', 'task.create')`).Scan(&audits)
 	if audits != 0 {
 		t.Fatalf("card reads wrote %d audit events", audits)
 	}
@@ -579,7 +590,7 @@ func TestVulnCardCurl(t *testing.T) {
 	}
 	var audits int
 	countUnmasked := func() int {
-		_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_audit_events WHERE action = 'vuln.curl_unmasked'`).Scan(&audits)
+		_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM webapi_audit_events WHERE action = 'vuln.curl_unmasked'`).Scan(&audits)
 		return audits
 	}
 	if countUnmasked() != 0 {
@@ -599,7 +610,7 @@ func TestVulnCardCurl(t *testing.T) {
 		t.Fatalf("unmasked audits = %d", audits)
 	}
 	var detail string
-	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT detail_json FROM webapi_audit_events WHERE action = 'vuln.curl_unmasked'`).Scan(&detail)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT detail_json FROM webapi_audit_events WHERE action = 'vuln.curl_unmasked'`).Scan(&detail)
 	if !strings.Contains(detail, `"step":1`) || !strings.Contains(detail, e1.ID) || !strings.Contains(detail, v.VerificationID) || strings.Contains(detail, "Fixture-Pass-9") {
 		t.Fatalf("audit detail = %s", detail)
 	}
@@ -654,7 +665,7 @@ func TestVulnCardNotifyUsesRepro(t *testing.T) {
 		t.Fatalf("verification rejected: %s", message)
 	}
 	var resultAt string
-	_ = f.capability.store.db.QueryRowContext(t.Context(), `SELECT created_at FROM webapi_verification_results WHERE verification_id = ?`, v.VerificationID).Scan(&resultAt)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), `SELECT created_at FROM webapi_verification_results WHERE verification_id = ?`, v.VerificationID).Scan(&resultAt)
 	local := parseAt(resultAt).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04")
 	f.deliver()
 	got := f.wecom.received()

@@ -2,7 +2,6 @@ package webapi
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -163,7 +162,7 @@ func TestWebAPIScheduleLaunchDeterministicNoDuplicate(t *testing.T) {
 	// 同一时刻再查：不再发起。
 	f.tick()
 	// 模拟“发起后、写记录前”Hub 中断：next_run_at 回到旧值再查，同 task_id 幂等，不重复 Open/Run、不重复记录。
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "UPDATE webapi_asset_schedules SET next_run_at = ? WHERE asset_id = ?", "2026-11-18T10:00:00Z", "a1"); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), "UPDATE webapi_asset_schedules SET next_run_at = ? WHERE asset_id = ?", "2026-11-18T10:00:00Z", "a1"); err != nil {
 		t.Fatal(err)
 	}
 	f.tick()
@@ -329,32 +328,6 @@ func TestWebAPIScheduleFailureArchivedDisabled(t *testing.T) {
 	}
 }
 
-// 已有资产阶段（十五表）的旧库补两张计划表；完整新结构再次 Prepare 不变。
-func TestWebAPIScheduleSchemaUpgradeFromAssetStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(15, 15))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare asset stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
-	}
-	f := openAssetFixture(t, database)
-	f.createAsset("a1")
-	if status, _, raw := f.do("PUT", "/api/webapi/assets/a1/schedule", `{"cron":"0 3 * * *"}`); status != 201 {
-		t.Fatalf("schedule after upgrade = %d %s", status, raw)
-	}
-}
-
 // 调度器随 Capability 生命周期：Close 停止 goroutine 并返回；重复 Close 安全。
 func TestWebAPISchedulerLifecycle(t *testing.T) {
 	f := newAssetFixture(t)
@@ -383,7 +356,7 @@ func TestWebAPISchedulerLifecycle(t *testing.T) {
 // 真实原生 Sessions：会话不存在/绑定节点不在线 → 不算运行中。
 func TestWebAPIScheduleSessionRunningRealSessions(t *testing.T) {
 	f := newAssetFixture(t)
-	store, err := webservice.NewSQLiteStore(f.database, SchemaModule())
+	store, err := webservice.NewSQLiteStore(f.database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 )
 
 // 审计记录（B3）测试：全部为临时库合成数据（example.test 演示资产、虚构账号与 webhook key）。
@@ -192,7 +190,7 @@ func TestAuditAssetCredentialScheduleAndLaunch(t *testing.T) {
 	f.setNow("2026-11-18T10:00:20Z")
 	f.tick()
 	f.tick()
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "UPDATE webapi_asset_schedules SET next_run_at = ? WHERE asset_id = ?", "2026-11-18T10:00:00Z", "a1"); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), "UPDATE webapi_asset_schedules SET next_run_at = ? WHERE asset_id = ?", "2026-11-18T10:00:00Z", "a1"); err != nil {
 		t.Fatal(err)
 	}
 	f.tick()
@@ -471,38 +469,6 @@ func TestAuditQueryFiltersPagingAndValidation(t *testing.T) {
 		"task_id=a%2Fb", "asset_id=a%2Fb", "from=2026-13-01", "to=2026-11-1", "from=2026-11-13&to=2026-11-12", "cursor=bad", "q=" + strings.Repeat("长", 201)} {
 		if status, value, raw := f.do("GET", "/api/webapi/audit?"+query, ""); status != 400 || value["error"] == nil {
 			t.Errorf("query %s = %d %s, want 400 {error}", query, status, raw)
-		}
-	}
-}
-
-// D2（二十五表）与 B2/U2a/D1（二十三表）旧库补审计表与索引；补后完整原生校验通过且可写可查。
-func TestAuditSchemaUpgradeFromKnownStages(t *testing.T) {
-	for _, stage := range []struct{ models, indexes int }{{25, 25}, {23, 22}} {
-		database := filepath.Join(t.TempDir(), "hub.sqlite")
-		old, err := webservice.NewSQLiteStore(database, webapiSchemaStage(stage.models, stage.indexes))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = old.Close()
-		if _, err := webservice.NewSQLiteStore(database, SchemaModule()); err == nil {
-			t.Fatalf("stage %v already complete", stage)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare stage %v: %v", stage, err)
-		}
-		complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-		if err != nil {
-			t.Fatalf("full validation after stage %v: %v", stage, err)
-		}
-		_ = complete.Close()
-		f := openAssetFixture(t, database)
-		f.createAsset("a1")
-		requireAudit(t, f.capability, "asset.create", 1)
-		if status, value, _ := f.do("GET", "/api/webapi/audit?action=asset.", ""); status != 200 || len(value["items"].([]any)) != 1 {
-			t.Fatalf("query after upgrade = %d %v", status, value)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare complete again: %v", err)
 		}
 	}
 }

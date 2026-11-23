@@ -2,11 +2,13 @@ package pgschema
 
 import (
 	"context"
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +75,21 @@ func KnownMigrations() ([]string, error) {
 	return names, nil
 }
 
+// SchemaVersion 返回本二进制内嵌迁移的最大版本号（文件名数字前缀，0001 → 1），
+// 即 `wscyber-hub version` 的 schema 字段。内嵌迁移无效时返回 0
+// （此时 Start/Migrate 会以明确错误失败，不会带着错误版本运行）。
+func SchemaVersion() int {
+	names, err := KnownMigrations()
+	if err != nil || len(names) == 0 {
+		return 0
+	}
+	version, err := strconv.Atoi(names[len(names)-1])
+	if err != nil || version < 0 {
+		return 0
+	}
+	return version
+}
+
 // MigrateResult 记录一次 Migrate 实际应用的迁移。
 type MigrateResult struct {
 	Applied []string
@@ -89,19 +106,26 @@ func Migrate(ctx context.Context, db *bun.DB) (MigrateResult, error) {
 	if max := db.Stats().MaxOpenConnections; max == 1 {
 		return MigrateResult{}, errors.New("迁移需要连接池至少 2 条连接（锁连接 + 迁移连接）")
 	}
-	migrations, err := Migrations()
-	if err != nil {
-		return MigrateResult{}, err
-	}
 	lockConn, err := db.DB.Conn(ctx)
 	if err != nil {
 		return MigrateResult{}, fmt.Errorf("取得迁移锁连接: %w", err)
 	}
+	// discardConn 关闭会话即释放锁（即使显式解锁失败）。
 	defer discardConn(lockConn)
+	return migrateLocked(ctx, db, lockConn)
+}
+
+// migrateLocked 在 lockConn 上取会话级迁移锁后应用迁移，返回前显式解锁；
+// lockConn 由调用方提供并负责关闭（Start 复用单实例锁连接，使控制池只需 2 条连接）。
+// 迁移本身在 db 池的另一条连接上执行。
+func migrateLocked(ctx context.Context, db *bun.DB, lockConn *sql.Conn) (MigrateResult, error) {
+	migrations, err := Migrations()
+	if err != nil {
+		return MigrateResult{}, err
+	}
 	if _, err := lockConn.ExecContext(ctx, `SELECT pg_advisory_lock($1, $2)`, lockNamespace, lockMigrateKey); err != nil {
 		return MigrateResult{}, fmt.Errorf("获取迁移锁: %w", err)
 	}
-	// discardConn 关闭会话即释放锁；正常路径仍显式解锁。
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

@@ -10,7 +10,6 @@ import (
 
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 )
 
 type reportFixture struct {
@@ -348,78 +347,5 @@ func TestWebAPIReportDraftAndDeterministicExport(t *testing.T) {
 	status, detail, _ := f.do(http.MethodGet, "/api/webapi/tasks/"+f.task.ID+"/reports/"+reportID, "")
 	if status != 200 || detail["draft"] == nil || detail["has_draft"] != true {
 		t.Fatalf("detail draft = %d %+v", status, detail)
-	}
-}
-
-func TestWebAPIReportLegacyPreparation(t *testing.T) {
-	// 含验证六表的旧库：只补报告两表，原行保全。
-	database := t.TempDir() + "/hub.sqlite"
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(6, 8))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stage.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outcome, err := store.Save(t.Context(), "verification-stage-task", "旧任务", "保留验证阶段行", []string{"http://127.0.0.1:8000"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare verification stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	if err := complete.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	preserved, err := reopened.Get(t.Context(), outcome.Task.ID)
-	if err != nil || preserved == nil || preserved.KnownInfo != "旧任务" {
-		t.Fatalf("verification stage task lost: %+v %v", preserved, err)
-	}
-	if count, err := reopened.orm.NewSelect().Model((*reportModel)(nil)).Count(t.Context()); err != nil || count != 0 {
-		t.Fatalf("report table not empty/created: %d %v", count, err)
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
-	}
-
-	// 六表＋仅报告表的半成结构拒绝。
-	halfPath := t.TempDir() + "/half.sqlite"
-	half, err := webservice.NewSQLiteStore(halfPath, webapiSchemaStage(6, 8))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := half.Close(); err != nil {
-		t.Fatal(err)
-	}
-	halfStore, err := openTaskStore(halfPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := halfStore.orm.NewCreateTable().Model((*reportModel)(nil)).Exec(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := halfStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(halfPath); err == nil {
-		t.Fatal("partial report schema accepted")
 	}
 }

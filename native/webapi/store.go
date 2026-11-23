@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/sqlitedialect"
-	_ "modernc.org/sqlite"
 
 	webservice "github.com/chainreactors/cyber/pkg/web/service"
+
+	"wscyber/native/pgschema"
 )
 
 // taskModel 是 webapi_tasks 的关系列投影，只操作此业务表。
@@ -44,16 +43,16 @@ type requestModel struct {
 	Reason           string         `bun:"reason,type:text,notnull"`
 	Sent             sql.NullBool   `bun:"sent"`
 	StatusCode       sql.NullInt64  `bun:"status_code"`
-	Preview          []byte         `bun:"preview,type:blob,notnull"`
+	Preview          []byte         `bun:"preview,type:bytea,notnull"`
 	PreviewTruncated bool           `bun:"preview_truncated,notnull"`
 	CaptureTruncated bool           `bun:"capture_truncated,notnull"`
-	FlowPB           []byte         `bun:"flow_pb,type:blob,notnull"`
+	FlowPB           []byte         `bun:"flow_pb,type:bytea,notnull"`
 	CreatedAt        string         `bun:"created_at,notnull"`
 	CompletedAt      sql.NullString `bun:"completed_at"`
 }
 
-// SchemaModule 是本能力新增的表声明；Hub 建库时并入唯一 schema。
-// 既有相邻测试重开同一 hub.sqlite 时可传该模块匹配新 schema。
+// SchemaModule 是本能力的表声明。表由 pgschema 基线迁移建立；原生存储打开时
+// 按此声明校验列存在（⊇），本包不建表。
 func SchemaModule() webservice.SchemaModule {
 	return webservice.SchemaModule{
 		Name:   "webapi",
@@ -148,27 +147,34 @@ func SchemaModule() webservice.SchemaModule {
 	}
 }
 
-// taskStore 持有自有可关闭 *sql.DB，仅操作本能力任务、HTTP证据和候选业务表。
+// taskStore 持有 webapi 自己的 PostgreSQL 连接池（与上游原生存储分池、不共享事务），
+// 仅操作本能力的业务表（另只读原生 chat_sessions/chat_aop_events）。
+// 所有访问经 read/write 助手（store_tx.go）。
 type taskStore struct {
-	db  *sql.DB
 	orm *bun.DB
 }
 
-// openTaskStore 打开同一 hub.sqlite，仅建/用本表；数据库其余部分由原生
-// SchemaModule 机制校验，这里不做迁移或重建。
-func openTaskStore(database string) (*taskStore, error) {
-	if strings.TrimSpace(database) == "" {
-		return nil, fmt.Errorf("webapi 数据库路径不能为空")
+// openTaskStore 用 pgschema 的统一连接参数打开 webapi 池，并要求库已迁移到
+// 本二进制期望的版本；这里不建表、不迁移（迁移由 Hub 启动时 pgschema.Start 负责）。
+func openTaskStore(database pgschema.DatabaseURL) (*taskStore, error) {
+	if database.IsZero() {
+		return nil, fmt.Errorf("webapi 数据库连接串不能为空")
 	}
-	// Begin 即取写锁并按 busy_timeout 等待，避免 deferred 先读后写升级立即 BUSY。
-	db, err := sql.Open("sqlite", database+"?_journal_mode=WAL&_busy_timeout=5000&_txlock=immediate")
+	orm, err := pgschema.OpenDB(database, pgschema.AppWebAPI, pgschema.DefaultPoolOptions)
 	if err != nil {
-		return nil, fmt.Errorf("打开 sqlite: %w", err)
+		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	orm := bun.NewDB(db, sqlitedialect.New())
-	return &taskStore{db: db, orm: orm}, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := orm.PingContext(ctx); err != nil {
+		_ = orm.Close()
+		return nil, fmt.Errorf("连接 webapi 数据库 %s: %w", database, err)
+	}
+	if err := pgschema.RequireCurrent(ctx, orm); err != nil {
+		_ = orm.Close()
+		return nil, fmt.Errorf("webapi 数据库 %s: %w", database, err)
+	}
+	return &taskStore{orm: orm}, nil
 }
 
 func (s *taskStore) Close() error {
@@ -233,7 +239,9 @@ func marshalOrigins(origins []string) (string, error) {
 // Get 按 id 回读真实保存字段；不存在返回 (nil, nil)。
 func (s *taskStore) Get(ctx context.Context, id string) (*Task, error) {
 	var model taskModel
-	err := s.orm.NewSelect().Model(&model).Where("id = ?", id).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("id = ?", id).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -243,9 +251,8 @@ func (s *taskStore) Get(ctx context.Context, id string) (*Task, error) {
 	return model.toTask()
 }
 
-// Save 在同一事务内先 INSERT ... ON CONFLICT(id) DO NOTHING，再一次 SELECT
-// 做规范比较：事务首条 SQL 即写，避免与原生 Hub 其它连接并发写时的
-// SQLite 读事务升级 BUSY/SNAPSHOT 窗口；唯一约束保证并发同 ID 只有一条。
+// Save 在同一写事务内先 INSERT ... ON CONFLICT(id) DO NOTHING，再一次 SELECT
+// 做规范比较；写事务持全局写锁串行，唯一约束保证并发同 ID 只有一条。
 func (s *taskStore) Save(ctx context.Context, id, knownInfo, objective string, origins []string) (*SaveOutcome, error) {
 	return s.SaveWithScenario(ctx, id, knownInfo, objective, origins, nil)
 }
@@ -267,7 +274,7 @@ func (s *taskStore) SaveWithScenario(ctx context.Context, id, knownInfo, objecti
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	outcome := &SaveOutcome{}
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewInsert().Model(&model).On("CONFLICT (id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -244,7 +245,27 @@ func boardNow(now time.Time) string { return notifyTime(now) }
 func boardEndpointID(taskID, key string) string { return namespacedUUID(boardEndpointNS, taskID, key) }
 
 func newBoardOracleID() string { return "bo_" + newSessionID() + newSessionID() }
-func newBoardEventID() string  { return "boe_" + newSessionID() + newSessionID() }
+
+// newBoardEventID 生成按插入序递增的事件 ID："boe_" + 16 位十六进制时间戳（纳秒，进程内严格递增）
+// + 16 位随机。事件列表按 (at, id) 排序：SQLite 时代第二键是 rowid（插入序），PG 无 rowid，
+// 用可排序 ID 等价复现（写事务持全局写锁，插入顺序即 ID 生成顺序；长度与旧格式相同）。
+func newBoardEventID() string { return "boe_" + boardEventSeq() + newSessionID() }
+
+var boardEventClock struct {
+	sync.Mutex
+	last int64
+}
+
+func boardEventSeq() string {
+	boardEventClock.Lock()
+	defer boardEventClock.Unlock()
+	next := time.Now().UnixNano()
+	if next <= boardEventClock.last {
+		next = boardEventClock.last + 1
+	}
+	boardEventClock.last = next
+	return fmt.Sprintf("%016x", uint64(next))
+}
 
 func marshalStrings(values []string) string {
 	if values == nil {
@@ -330,9 +351,9 @@ func oracleClosed(status string) bool {
 	return status == oracleHolds || status == oracleRefuted || status == oracleBlocked || status == oracleDropped
 }
 
-// boardTx 首条 SQL 即写（确保摄取游标行存在），避免与原生 Hub 其他连接并发写时读事务升级失败。
+// boardTx 是黑板写事务：持全局写锁后先确保摄取游标行存在，再执行 fn。
 func (s *taskStore) boardTx(ctx context.Context, taskID string, fn func(ctx context.Context, tx bun.Tx) error) error {
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(&boardIngestModel{TaskID: taskID}).On("CONFLICT (task_id) DO NOTHING").Exec(ctx); err != nil {
 			return err
 		}
@@ -369,14 +390,16 @@ func (s *taskStore) boardIngestCursor(ctx context.Context, db bun.IDB, taskID st
 	return cursor, err
 }
 
-const boardAfterCursor = "task_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))"
+const boardAfterCursor = `task_id = ? AND (created_at COLLATE "C" > ? OR (created_at = ? AND id COLLATE "C" > ?))`
 
 func (s *taskStore) boardIngestBatch(ctx context.Context, taskID string, now time.Time) (bool, error) {
-	cursor, err := s.boardIngestCursor(ctx, s.orm, taskID)
-	if err != nil {
-		return false, err
-	}
-	pending, err := s.orm.NewSelect().Model((*requestModel)(nil)).Where(boardAfterCursor, taskID, cursor.LastCreatedAt, cursor.LastCreatedAt, cursor.LastID).Exists(ctx)
+	pending, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) (bool, error) {
+		cursor, err := s.boardIngestCursor(ctx, db, taskID)
+		if err != nil {
+			return false, err
+		}
+		return db.NewSelect().Model((*requestModel)(nil)).Where(boardAfterCursor, taskID, cursor.LastCreatedAt, cursor.LastCreatedAt, cursor.LastID).Exists(ctx)
+	})
 	if err != nil || !pending {
 		return true, err
 	}
@@ -389,7 +412,7 @@ func (s *taskStore) boardIngestBatch(ctx context.Context, taskID string, now tim
 		var rows []requestModel
 		if err := tx.NewSelect().Model(&rows).Column("id", "method", "url", "sent", "status_code", "flow_pb", "created_at", "completed_at").
 			Where(boardAfterCursor, taskID, cursor.LastCreatedAt, cursor.LastCreatedAt, cursor.LastID).
-			Order("created_at ASC", "id ASC").Limit(boardIngestBatch).Scan(ctx); err != nil {
+			OrderExpr(`created_at COLLATE "C" ASC, id COLLATE "C" ASC`).Limit(boardIngestBatch).Scan(ctx); err != nil {
 			return err
 		}
 		done = len(rows) < boardIngestBatch
@@ -621,7 +644,9 @@ func (s *taskStore) boardMapEndpoints(ctx context.Context, taskID string, keys, 
 func (s *taskStore) boardCheckEvidence(ctx context.Context, taskID, path string, ids []string) error {
 	for index, id := range ids {
 		var sent sql.NullBool
-		err := s.orm.NewSelect().Model((*requestModel)(nil)).Column("sent").Where("task_id = ? AND id = ?", taskID, id).Limit(1).Scan(ctx, &sent)
+		err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model((*requestModel)(nil)).Column("sent").Where("task_id = ? AND id = ?", taskID, id).Limit(1).Scan(ctx, &sent)
+		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%s[%d]=%q 不是本任务的证据（只能引用本任务 webapi_http 返回的 evidence_id）", path, index, id)
 		}
@@ -637,7 +662,9 @@ func (s *taskStore) boardCheckEvidence(ctx context.Context, taskID, path string,
 
 func (s *taskStore) boardFindingNumber(ctx context.Context, taskID, findingID string) (string, error) {
 	var number int64
-	err := s.orm.NewSelect().Model((*findingModel)(nil)).Column("number").Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx, &number)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model((*findingModel)(nil)).Column("number").Where("task_id = ? AND id = ?", taskID, findingID).Limit(1).Scan(ctx, &number)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -717,17 +744,19 @@ type boardFactFilter struct {
 
 func (s *taskStore) boardFacts(ctx context.Context, taskID string, filter boardFactFilter) ([]BoardFact, error) {
 	var models []boardFactModel
-	query := s.orm.NewSelect().Model(&models).Where("task_id = ?", taskID)
-	if filter.kind != "" {
-		query = query.Where("kind = ?", filter.kind)
-	}
-	if filter.status != "" {
-		query = query.Where("status = ?", filter.status)
-	}
-	if filter.afterAt != "" {
-		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", filter.afterAt, filter.afterAt, filter.afterID)
-	}
-	if err := query.Order("created_at DESC", "id DESC").Limit(int64(filter.limit)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Where("task_id = ?", taskID)
+		if filter.kind != "" {
+			query = query.Where("kind = ?", filter.kind)
+		}
+		if filter.status != "" {
+			query = query.Where("status = ?", filter.status)
+		}
+		if filter.afterAt != "" {
+			query = query.Where(`(created_at COLLATE "C" < ? OR (created_at = ? AND id COLLATE "C" < ?))`, filter.afterAt, filter.afterAt, filter.afterID)
+		}
+		return query.OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(int64(filter.limit)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]BoardFact, 0, len(models))
@@ -748,21 +777,23 @@ type boardEndpointFilter struct {
 	limit    int
 }
 
-const boardUntestedClause = `NOT EXISTS (SELECT 1 FROM webapi_board_oracles AS o, json_each(o.endpoint_keys_json) AS j WHERE o.task_id = webapi_board_endpoint.task_id AND j.value = webapi_board_endpoint.endpoint_key)`
+const boardUntestedClause = `NOT EXISTS (SELECT 1 FROM webapi_board_oracles AS o, jsonb_array_elements_text(o.endpoint_keys_json::jsonb) AS j(value) WHERE o.task_id = webapi_board_endpoint.task_id AND j.value = webapi_board_endpoint.endpoint_key)`
 
 func (s *taskStore) boardEndpoints(ctx context.Context, taskID string, filter boardEndpointFilter) ([]BoardEndpoint, error) {
 	var models []boardEndpointModel
-	query := s.orm.NewSelect().Model(&models).Where("task_id = ?", taskID)
-	if filter.needle != "" {
-		query = query.Where("(instr(lower(endpoint_key), ?) > 0 OR instr(lower(note), ?) > 0)", filter.needle, filter.needle)
-	}
-	if filter.untested {
-		query = query.Where(boardUntestedClause)
-	}
-	if filter.afterKey != "" {
-		query = query.Where("endpoint_key > ?", filter.afterKey)
-	}
-	if err := query.Order("endpoint_key ASC").Limit(int64(filter.limit)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Where("task_id = ?", taskID)
+		if filter.needle != "" {
+			query = query.Where("(strpos(lower(endpoint_key), ?) > 0 OR strpos(lower(note), ?) > 0)", filter.needle, filter.needle)
+		}
+		if filter.untested {
+			query = query.Where(boardUntestedClause)
+		}
+		if filter.afterKey != "" {
+			query = query.Where(`endpoint_key COLLATE "C" > ?`, filter.afterKey)
+		}
+		return query.OrderExpr(`endpoint_key COLLATE "C" ASC`).Limit(int64(filter.limit)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	refs, err := s.boardEndpointOracleRefs(ctx, taskID)
@@ -788,7 +819,9 @@ func boardEndpointView(model boardEndpointModel, oracles []string) BoardEndpoint
 // boardEndpointOracleRefs：端点键 → 引用它的 Oracle 编号（任意状态，按编号）。
 func (s *taskStore) boardEndpointOracleRefs(ctx context.Context, taskID string) (map[string][]string, error) {
 	var oracles []boardOracleModel
-	if err := s.orm.NewSelect().Model(&oracles).Column("number", "endpoint_keys_json").Where("task_id = ?", taskID).Order("number ASC").Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&oracles).Column("number", "endpoint_keys_json").Where("task_id = ?", taskID).Order("number ASC").Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	refs := map[string][]string{}
@@ -969,21 +1002,23 @@ type boardOracleFilter struct {
 
 func (s *taskStore) boardOracles(ctx context.Context, taskID string, filter boardOracleFilter, withEvents bool) ([]BoardOracle, error) {
 	var models []boardOracleModel
-	query := s.orm.NewSelect().Model(&models).Where("task_id = ?", taskID)
-	if filter.status != "" {
-		query = query.Where("status = ?", filter.status)
-	}
-	if filter.category != "" {
-		query = query.Where("category = ?", filter.category)
-	}
-	if filter.afterNumber > 0 {
-		query = query.Where("number > ?", filter.afterNumber)
-	}
-	if filter.modelOrder {
-		query = query.OrderExpr("CASE status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 WHEN 'blocked' THEN 2 WHEN 'holds' THEN 3 WHEN 'refuted' THEN 4 ELSE 5 END").
-			OrderExpr("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END")
-	}
-	if err := query.Order("number ASC").Limit(int64(filter.limit)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Where("task_id = ?", taskID)
+		if filter.status != "" {
+			query = query.Where("status = ?", filter.status)
+		}
+		if filter.category != "" {
+			query = query.Where("category = ?", filter.category)
+		}
+		if filter.afterNumber > 0 {
+			query = query.Where("number > ?", filter.afterNumber)
+		}
+		if filter.modelOrder {
+			query = query.OrderExpr("CASE status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 WHEN 'blocked' THEN 2 WHEN 'holds' THEN 3 WHEN 'refuted' THEN 4 ELSE 5 END").
+				OrderExpr("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END")
+		}
+		return query.Order("number ASC").Limit(int64(filter.limit)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	return s.boardOracleViews(ctx, taskID, models, withEvents)
@@ -1014,7 +1049,9 @@ func (s *taskStore) boardOracleViews(ctx context.Context, taskID string, models 
 		return out, nil
 	}
 	var events []boardOracleEventModel
-	if err := s.orm.NewSelect().Model(&events).Where("oracle_id IN (?)", bun.In(ids)).OrderExpr("at ASC, rowid ASC").Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&events).Where("oracle_id IN (?)", bun.In(ids)).OrderExpr(`at COLLATE "C" ASC, id COLLATE "C" ASC`).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	index := map[string]int{}
@@ -1031,7 +1068,9 @@ func (s *taskStore) boardOracleViews(ctx context.Context, taskID string, models 
 
 func (s *taskStore) boardOracle(ctx context.Context, taskID string, number int64) (*BoardOracle, error) {
 	var models []boardOracleModel
-	if err := s.orm.NewSelect().Model(&models).Where("task_id = ? AND number = ?", taskID, number).Limit(1).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("task_id = ? AND number = ?", taskID, number).Limit(1).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	if len(models) == 0 {
@@ -1051,30 +1090,36 @@ func (s *taskStore) boardCounts(ctx context.Context, taskID string) (*BoardCount
 	for _, status := range boardOracleStatuses {
 		counts.Oracles[status] = 0
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(source = 'traffic'), 0), COALESCE(SUM(source = 'model'), 0),
-		COALESCE(SUM(`+strings.ReplaceAll(boardUntestedClause, "webapi_board_endpoint.", "e.")+`), 0)
-		FROM webapi_board_endpoints AS e WHERE e.task_id = ?`, taskID)
-	if err := row.Scan(&counts.Endpoints, &counts.TrafficEndpoints, &counts.ModelEndpoints, &counts.UntestedEndpoints); err != nil {
-		return nil, err
-	}
-	row = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(status = 'active'), 0), COALESCE(SUM(status = 'active' AND confidence = 'confirmed'), 0) FROM webapi_board_facts WHERE task_id = ?`, taskID)
-	if err := row.Scan(&counts.Facts, &counts.ConfirmedFacts); err != nil {
-		return nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM webapi_board_oracles WHERE task_id = ? GROUP BY status`, taskID)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		row := db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE source = 'traffic'), COUNT(*) FILTER (WHERE source = 'model'),
+			COUNT(*) FILTER (WHERE `+strings.ReplaceAll(boardUntestedClause, "webapi_board_endpoint.", "e.")+`)
+			FROM webapi_board_endpoints AS e WHERE e.task_id = ?`, taskID)
+		if err := row.Scan(&counts.Endpoints, &counts.TrafficEndpoints, &counts.ModelEndpoints, &counts.UntestedEndpoints); err != nil {
+			return err
+		}
+		row = db.QueryRowContext(ctx, `SELECT COUNT(*) FILTER (WHERE status = 'active'), COUNT(*) FILTER (WHERE status = 'active' AND confidence = 'confirmed') FROM webapi_board_facts WHERE task_id = ?`, taskID)
+		if err := row.Scan(&counts.Facts, &counts.ConfirmedFacts); err != nil {
+			return err
+		}
+		rows, err := db.QueryContext(ctx, `SELECT status, COUNT(*) FROM webapi_board_oracles WHERE task_id = ? GROUP BY status`, taskID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var status string
+			var count int64
+			if err := rows.Scan(&status, &count); err != nil {
+				return err
+			}
+			counts.Oracles[status] = count
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var status string
-		var count int64
-		if err := rows.Scan(&status, &count); err != nil {
-			return nil, err
-		}
-		counts.Oracles[status] = count
-	}
-	return counts, rows.Err()
+	return counts, nil
 }
 
 func boardEndpointBrief(endpoint BoardEndpoint) string {
@@ -1115,8 +1160,10 @@ func (s *taskStore) boardDigest(ctx context.Context, taskID string, maxChars int
 	lines := []string{fmt.Sprintf("地图：%d 个端点（流量 %d / 模型补充 %d），其中 %d 个尚无任何 Oracle 引用", counts.Endpoints, counts.TrafficEndpoints, counts.ModelEndpoints, counts.UntestedEndpoints)}
 	if counts.UntestedEndpoints > 0 {
 		var models []boardEndpointModel
-		if err := s.orm.NewSelect().Model(&models).Where("task_id = ?", taskID).Where(boardUntestedClause).
-			OrderExpr("request_count = 0 ASC, endpoint_key ASC").Limit(15).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&models).Where("task_id = ?", taskID).Where(boardUntestedClause).
+				OrderExpr(`request_count = 0 ASC, endpoint_key COLLATE "C" ASC`).Limit(15).Scan(ctx)
+		}); err != nil {
 			return "", err
 		}
 		lines = append(lines, "未被 Oracle 引用的端点（前 15）：")
@@ -1131,8 +1178,10 @@ func (s *taskStore) boardDigest(ctx context.Context, taskID string, maxChars int
 	lines = append(lines, "Oracle："+strings.Join(oracleCounts, " / "))
 	if counts.Oracles[oracleOpen]+counts.Oracles[oracleInProgress] > 0 {
 		var models []boardOracleModel
-		if err := s.orm.NewSelect().Model(&models).Where("task_id = ? AND status IN (?, ?)", taskID, oracleOpen, oracleInProgress).
-			OrderExpr("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, number ASC").Limit(10).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&models).Where("task_id = ? AND status IN (?, ?)", taskID, oracleOpen, oracleInProgress).
+				OrderExpr("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, number ASC").Limit(10).Scan(ctx)
+		}); err != nil {
 			return "", err
 		}
 		lines = append(lines, "待证明（open/in_progress 按优先级，前 10）：")
@@ -1143,8 +1192,10 @@ func (s *taskStore) boardDigest(ctx context.Context, taskID string, maxChars int
 	}
 	if counts.Oracles[oracleHolds]+counts.Oracles[oracleRefuted] > 0 {
 		var models []boardOracleModel
-		if err := s.orm.NewSelect().Model(&models).Where("task_id = ? AND status IN (?, ?)", taskID, oracleHolds, oracleRefuted).
-			Order("updated_at DESC", "number DESC").Limit(5).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&models).Where("task_id = ? AND status IN (?, ?)", taskID, oracleHolds, oracleRefuted).
+				OrderExpr(`updated_at COLLATE "C" DESC, number DESC`).Limit(5).Scan(ctx)
+		}); err != nil {
 			return "", err
 		}
 		views, err := s.boardOracleViews(ctx, taskID, models, false)
@@ -1163,8 +1214,10 @@ func (s *taskStore) boardDigest(ctx context.Context, taskID string, maxChars int
 	lines = append(lines, fmt.Sprintf("事实：%d 条有效（confirmed %d / inferred %d）", counts.Facts, counts.ConfirmedFacts, counts.Facts-counts.ConfirmedFacts))
 	if counts.ConfirmedFacts > 0 {
 		var models []boardFactModel
-		if err := s.orm.NewSelect().Model(&models).Where("task_id = ? AND status = ? AND confidence = ?", taskID, factActive, factConfirmed).
-			Order("created_at DESC", "id DESC").Limit(10).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&models).Where("task_id = ? AND status = ? AND confidence = ?", taskID, factActive, factConfirmed).
+				OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(10).Scan(ctx)
+		}); err != nil {
 			return "", err
 		}
 		lines = append(lines, "已确认事实（最近 10）：")

@@ -268,7 +268,7 @@ func (c *Capability) launchFollowup(ctx context.Context, item scheduleFollowupMo
 	subject, variant := "验证", verificationMessageVariant
 	var sessionID string
 	if item.Kind == FollowupVerify {
-		existing, err := findOptional[verificationModel](ctx, c.store.orm, "id = ?", item.TargetID)
+		existing, err := readOptional[verificationModel](ctx, c.store, "id = ?", item.TargetID)
 		if err != nil {
 			return "", "", err
 		}

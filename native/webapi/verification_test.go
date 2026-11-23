@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 	"github.com/chainreactors/cyber/aop/traffic"
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -109,7 +110,10 @@ func TestWebAPIVerificationSourceSessionAndFindingProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := capability.store.orm.NewUpdate().Model((*verificationModel)(nil)).Set("created_at = ?", verification.CreatedAt).Where("id IN (?, ?)", verification.VerificationID, secondSameTime.VerificationID).Exec(t.Context()); err != nil {
+	if err := capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*verificationModel)(nil)).Set("created_at = ?", verification.CreatedAt).Where("id IN (?, ?)", verification.VerificationID, secondSameTime.VerificationID).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	findingInv.CallID = "finding-call-update"
@@ -285,7 +289,10 @@ func TestWebAPIVerificationResultEvidenceAndImmutability(t *testing.T) {
 	}
 	flow.Complete = false
 	model.FlowPB, _ = proto.Marshal(&flow)
-	if _, err := capability.store.orm.NewUpdate().Model(model).Column("capture_truncated", "flow_pb").WherePK().Exec(t.Context()); err != nil {
+	if err := capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model(model).Column("capture_truncated", "flow_pb").WherePK().Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if rejected, message := executeVerification(t, tool, fourthInv, verificationArguments("supported", truncated.EvidenceID, "supporting")); rejected != nil || !strings.Contains(message, "完整捕获") {
@@ -294,109 +301,5 @@ func TestWebAPIVerificationResultEvidenceAndImmutability(t *testing.T) {
 	fourthInv.CallID = "fourth-call-limitation"
 	if accepted, message := executeVerification(t, tool, fourthInv, verificationArguments("inconclusive", truncated.EvidenceID, "limitation")); accepted == nil {
 		t.Fatalf("truncated limitation rejected: %s", message)
-	}
-}
-
-func TestWebAPIVerificationLegacyPreparation(t *testing.T) {
-	database := t.TempDir() + "/hub.sqlite"
-	legacy, err := webservice.NewSQLiteStore(database, legacyWebAPISchema())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outcome, err := store.Save(t.Context(), "legacy-task", "旧任务", "保留旧行", []string{"http://127.0.0.1:8000"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	inv := operation.Invocation{SessionID: outcome.Task.InitialSessionID, TurnID: "old-turn", CallID: "old-call"}
-	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8000/old", nil)
-	flow := traffic.FlowFromHTTP(request, nil, nil, nil)
-	flow.Id = "legacy-evidence"
-	claimed, fresh, err := store.claim(t.Context(), inv, outcome.Task.ID, requestSpec{method: "GET", url: request.URL.String(), fingerprint: "old-fingerprint", flow: flow}, "claimed", "旧证据")
-	if err != nil || !fresh {
-		t.Fatalf("insert old evidence: %+v %v %v", claimed, fresh, err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare legacy: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	if err := complete.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	preservedTask, err := reopened.Get(t.Context(), outcome.Task.ID)
-	if err != nil || preservedTask == nil || preservedTask.KnownInfo != "旧任务" {
-		t.Fatalf("old task lost: %+v %v", preservedTask, err)
-	}
-	preservedEvidence, err := reopened.evidenceByID(t.Context(), outcome.Task.ID, claimed.ID)
-	if err != nil || preservedEvidence == nil || preservedEvidence.Fingerprint != "old-fingerprint" {
-		t.Fatalf("old evidence lost: %+v %v", preservedEvidence, err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
-	}
-	if err := PrepareWebAPISchema(t.TempDir() + "/empty.sqlite"); err != nil {
-		t.Fatalf("empty database should remain native-created: %v", err)
-	}
-
-	partialDatabase := t.TempDir() + "/partial.sqlite"
-	partial, err := webservice.NewSQLiteStore(partialDatabase, legacyWebAPISchema())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := partial.Close(); err != nil {
-		t.Fatal(err)
-	}
-	partialStore, err := openTaskStore(partialDatabase)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 用明确未知附加表确保既不按旧库也不按新库静默升级。
-	if _, err := partialStore.orm.NewCreateTable().Model((*unknownSchemaTable)(nil)).Table("webapi_unknown_extra").Exec(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := partialStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(partialDatabase); err == nil {
-		t.Fatal("unknown extra table accepted")
-	}
-	// 再用明确半成库检查缺第二张验证表的拒绝。
-	halfPath := t.TempDir() + "/half.sqlite"
-	half, err := webservice.NewSQLiteStore(halfPath, legacyWebAPISchema())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := half.Close(); err != nil {
-		t.Fatal(err)
-	}
-	halfStore, err := openTaskStore(halfPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := halfStore.orm.NewCreateTable().Model((*verificationModel)(nil)).Exec(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := halfStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(halfPath); err == nil {
-		t.Fatal("partial verification schema accepted")
 	}
 }

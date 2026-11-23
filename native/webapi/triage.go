@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -119,7 +120,7 @@ type TriageView struct {
 // ---- 存储 ----
 
 func (s *taskStore) vulnSLA(ctx context.Context) (VulnSLA, error) {
-	model, err := findOptional[vulnSLAModel](ctx, s.orm, "id = ?", vulnSLAID)
+	model, err := readOptional[vulnSLAModel](ctx, s, "id = ?", vulnSLAID)
 	if err != nil || model == nil {
 		return defaultVulnSLA, err
 	}
@@ -129,24 +130,28 @@ func (s *taskStore) vulnSLA(ctx context.Context) (VulnSLA, error) {
 
 func (s *taskStore) putVulnSLA(ctx context.Context, sla VulnSLA, at string) error {
 	model := &vulnSLAModel{ID: vulnSLAID, CriticalDays: sla.CriticalDays, HighDays: sla.HighDays, MediumDays: sla.MediumDays, LowDays: sla.LowDays, UpdatedAt: at}
-	_, err := s.orm.NewInsert().Model(model).On("CONFLICT (id) DO UPDATE").
-		Set("critical_days = EXCLUDED.critical_days, high_days = EXCLUDED.high_days, medium_days = EXCLUDED.medium_days, low_days = EXCLUDED.low_days, updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).On("CONFLICT (id) DO UPDATE").
+			Set("critical_days = EXCLUDED.critical_days, high_days = EXCLUDED.high_days, medium_days = EXCLUDED.medium_days, low_days = EXCLUDED.low_days, updated_at = EXCLUDED.updated_at").
+			Exec(ctx)
+		return err
+	})
 }
 
 func (s *taskStore) triageRecord(ctx context.Context, key string) (*vulnTriageModel, error) {
-	return findOptional[vulnTriageModel](ctx, s.orm, "vuln_key = ?", key)
+	return readOptional[vulnTriageModel](ctx, s, "vuln_key = ?", key)
 }
 
 // triageRecords 返回全部处置记录（按键）；assetID 非空时只取该资产。
 func (s *taskStore) triageRecords(ctx context.Context, assetID string) (map[string]vulnTriageModel, error) {
 	var models []vulnTriageModel
-	query := s.orm.NewSelect().Model(&models)
-	if assetID != "" {
-		query = query.Where("asset_id = ?", assetID)
-	}
-	if err := query.Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models)
+		if assetID != "" {
+			query = query.Where("asset_id = ?", assetID)
+		}
+		return query.Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	out := make(map[string]vulnTriageModel, len(models))
@@ -166,10 +171,12 @@ func (s *taskStore) vulnDisposition(ctx context.Context, key string) (string, er
 }
 
 func (s *taskStore) putTriageRecord(ctx context.Context, model *vulnTriageModel) error {
-	_, err := s.orm.NewInsert().Model(model).On("CONFLICT (vuln_key) DO UPDATE").
-		Set("asset_id = EXCLUDED.asset_id, severity = EXCLUDED.severity, disposition = EXCLUDED.disposition, owner = EXCLUDED.owner, due_date = EXCLUDED.due_date, note = EXCLUDED.note, updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).On("CONFLICT (vuln_key) DO UPDATE").
+			Set("asset_id = EXCLUDED.asset_id, severity = EXCLUDED.severity, disposition = EXCLUDED.disposition, owner = EXCLUDED.owner, due_date = EXCLUDED.due_date, note = EXCLUDED.note, updated_at = EXCLUDED.updated_at").
+			Exec(ctx)
+		return err
+	})
 }
 
 // mergeTriage（合并事务内）：目标无记录则继承 from 的记录，否则保留目标的；from 记录删除。
@@ -201,20 +208,15 @@ func (c *Capability) loadTriageContext(ctx context.Context) (*triageContext, err
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.store.db.QueryContext(ctx, `SELECT id, owner FROM webapi_assets`)
-	if err != nil {
-		return nil, err
-	}
 	owners := map[string]string{}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var id, owner string
 		if err := rows.Scan(&id, &owner); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		owners[id] = owner
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT id, owner FROM webapi_assets`); err != nil {
 		return nil, err
 	}
 	loc := c.scheduleLocation()
@@ -294,11 +296,11 @@ func (c *Capability) resolveVulnKey(ctx context.Context, key string) (*triageTar
 		}
 		return nil, nil, errTriageNotFound
 	}
-	vuln, err := findOptional[assetVulnModel](ctx, c.store.orm, "id = ?", key)
+	vuln, err := readOptional[assetVulnModel](ctx, c.store, "id = ?", key)
 	if err == nil && vuln == nil {
 		// 条目可能尚未同步出来（auto 条目在漏洞库接口首次访问时才建）：同步全部资产后再找一次。
 		if err = c.syncAllAssetVulns(ctx); err == nil {
-			vuln, err = findOptional[assetVulnModel](ctx, c.store.orm, "id = ?", key)
+			vuln, err = readOptional[assetVulnModel](ctx, c.store, "id = ?", key)
 		}
 	}
 	if err != nil {
@@ -325,20 +327,15 @@ func (c *Capability) resolveVulnKey(ctx context.Context, key string) (*triageTar
 
 // syncAllAssetVulns 按资产加锁同步全部资产（含归档）的漏洞库。
 func (c *Capability) syncAllAssetVulns(ctx context.Context) error {
-	rows, err := c.store.db.QueryContext(ctx, `SELECT id FROM webapi_assets ORDER BY id`)
-	if err != nil {
-		return err
-	}
 	assets := []string{}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return err
 		}
 		assets = append(assets, id)
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT id FROM webapi_assets ORDER BY id COLLATE "C"`); err != nil {
 		return err
 	}
 	for _, assetID := range assets {

@@ -107,7 +107,9 @@ func (s *taskStore) subsessionFor(ctx context.Context, sessionID string) (*taskS
 		return nil, nil
 	}
 	var model taskSubsessionModel
-	err := s.orm.NewSelect().Model(&model).Where("session_id = ?", sessionID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("session_id = ?", sessionID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -306,7 +308,9 @@ func releaseOracleTx(ctx context.Context, tx bun.Tx, oracleID, holder, sessionID
 // releaseSubagentReservation 清理未被 SessionStart 消费的预占（子会话未启动），Oracle 退回 open。
 func (s *taskStore) releaseSubagentReservation(ctx context.Context, parentSessionID, callID string, now time.Time) error {
 	var reservation subagentReservationModel
-	err := s.orm.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", parentSessionID, callID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", parentSessionID, callID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -336,7 +340,9 @@ func (c *Capability) subagentSessionStart(ctx context.Context, event agenthooks.
 		return struct{}{}, nil
 	}
 	var reservation subagentReservationModel
-	err := c.store.orm.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", event.ParentID, event.ParentToolCallID).Limit(1).Scan(ctx)
+	err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", event.ParentID, event.ParentToolCallID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		task, taskErr := c.store.taskForSession(ctx, event.ParentID)
 		if taskErr != nil {
@@ -425,7 +431,9 @@ func (s *taskStore) endSubsession(ctx context.Context, sessionID, stop, errText 
 // releaseOrphanSubsessions：Hub 启动时（模型节点随 Hub 重启）遗留的 running 行按已中断结束、预占行清除，Oracle 同样释放。
 func (s *taskStore) releaseOrphanSubsessions(ctx context.Context, now time.Time) error {
 	var running []taskSubsessionModel
-	if err := s.orm.NewSelect().Model(&running).Where("status = ?", subsessionRunning).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&running).Where("status = ?", subsessionRunning).Scan(ctx)
+	}); err != nil {
 		return err
 	}
 	var result error
@@ -433,7 +441,7 @@ func (s *taskStore) releaseOrphanSubsessions(ctx context.Context, now time.Time)
 		result = errors.Join(result, s.endSubsession(ctx, row.SessionID, subsessionInterrupted, "Hub 重启时子会话仍在运行，按已中断结束", now))
 	}
 	var reservations []subagentReservationModel
-	if err := s.orm.NewSelect().Model(&reservations).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error { return db.NewSelect().Model(&reservations).Scan(ctx) }); err != nil {
 		return errors.Join(result, err)
 	}
 	for _, reservation := range reservations {
@@ -471,7 +479,10 @@ func (c *Capability) observeSubsessionUsage(event *aop.Event) {
 		CacheReadTokens: int64(usage.GetDetail()["cache_read"]), CacheWriteTokens: int64(usage.GetDetail()["cache_write"]), CreatedAt: at.Format(time.RFC3339Nano)}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := c.store.orm.NewInsert().Model(row).On("CONFLICT (id) DO NOTHING").Exec(ctx); err != nil {
+	if err := c.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(row).On("CONFLICT (id) DO NOTHING").Exec(ctx)
+		return err
+	}); err != nil {
 		log.Printf("webapi 子会话 %s 用量登记失败：%v", event.SessionId, err)
 	}
 }
@@ -546,7 +557,9 @@ func (f filteredTools) ExecuteTool(ctx context.Context, name, arguments string) 
 func (c *Capability) prepareOracleExplorer(ctx context.Context, cfg agent.Config, input subagent.Input) (agent.Config, string, error) {
 	inv := operation.InvocationFromContext(ctx)
 	var reservation subagentReservationModel
-	err := c.store.orm.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", cfg.SessionID, inv.CallID).Limit(1).Scan(ctx)
+	err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&reservation).Where("parent_session_id = ? AND parent_call_id = ?", cfg.SessionID, inv.CallID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return cfg, "", errors.New("oracle_explorer 无平台预占（须由任务研究会话经 subagent 准入派出），不启动")
 	}
@@ -554,7 +567,9 @@ func (c *Capability) prepareOracleExplorer(ctx context.Context, cfg agent.Config
 		return cfg, "", fmt.Errorf("读取子 Agent 预占失败: %w", err)
 	}
 	var oracle boardOracleModel
-	if err := c.store.orm.NewSelect().Model(&oracle).Where("id = ?", reservation.OracleID).Limit(1).Scan(ctx); err != nil {
+	if err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&oracle).Where("id = ?", reservation.OracleID).Limit(1).Scan(ctx)
+	}); err != nil {
 		return cfg, "", fmt.Errorf("读取预占 Oracle 失败: %w", err)
 	}
 	scenario, err := c.store.scenarioForTask(ctx, reservation.TaskID)
@@ -633,7 +648,9 @@ type SubsessionItem struct {
 
 func (s *taskStore) listSubsessions(ctx context.Context, taskID string) ([]SubsessionItem, error) {
 	var rows []taskSubsessionModel
-	if err := s.orm.NewSelect().Model(&rows).Where("task_id = ?", taskID).OrderExpr("created_at DESC, session_id DESC").Limit(subsessionListLimit).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&rows).Where("task_id = ?", taskID).OrderExpr(`created_at COLLATE "C" DESC, session_id COLLATE "C" DESC`).Limit(subsessionListLimit).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	items := make([]SubsessionItem, 0, len(rows))
@@ -644,16 +661,22 @@ func (s *taskStore) listSubsessions(ctx context.Context, taskID string) ([]Subse
 			item.EndedAt = &ended
 		}
 		var oracles []boardOracleModel
-		if err := s.orm.NewSelect().Model(&oracles).Where("id = ? AND task_id = ?", row.OracleID, taskID).Limit(1).Scan(ctx); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model(&oracles).Where("id = ? AND task_id = ?", row.OracleID, taskID).Limit(1).Scan(ctx)
+		}); err != nil {
 			return nil, err
 		}
 		if len(oracles) == 1 {
 			item.Oracle = &SubsessionOracle{ID: oracles[0].ID, Number: oracleNumber(oracles[0].Number), Question: oracles[0].Question, Status: oracles[0].Status}
 		}
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_requests WHERE task_id = ? AND session_id = ?`, taskID, row.SessionID).Scan(&item.RequestCount); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_requests WHERE task_id = ? AND session_id = ?`, taskID, row.SessionID).Scan(&item.RequestCount)
+		}); err != nil {
 			return nil, err
 		}
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT finding_id) FROM webapi_finding_revisions WHERE task_id = ? AND session_id = ?`, taskID, row.SessionID).Scan(&item.FindingCount); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT finding_id) FROM webapi_finding_revisions WHERE task_id = ? AND session_id = ?`, taskID, row.SessionID).Scan(&item.FindingCount)
+		}); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -662,14 +685,18 @@ func (s *taskStore) listSubsessions(ctx context.Context, taskID string) ([]Subse
 }
 
 func (s *taskStore) taskHasRunningSubsession(ctx context.Context, taskID string) (bool, error) {
-	count, err := s.orm.NewSelect().Model((*taskSubsessionModel)(nil)).Where("task_id = ? AND status = ?", taskID, subsessionRunning).Count(ctx)
+	count, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) (int64, error) {
+		return db.NewSelect().Model((*taskSubsessionModel)(nil)).Where("task_id = ? AND status = ?", taskID, subsessionRunning).Count(ctx)
+	})
 	return count > 0, err
 }
 
 // runningSubsessionsOf 列出某父会话下运行中的子会话 id（审批 Pending/Resolve 经父会话聚合用）。
 func (s *taskStore) runningSubsessionsOf(ctx context.Context, parentSessionID string) ([]string, error) {
 	var rows []taskSubsessionModel
-	if err := s.orm.NewSelect().Model(&rows).Column("session_id").Where("parent_session_id = ? AND status = ?", parentSessionID, subsessionRunning).Order("session_id ASC").Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&rows).Column("session_id").Where("parent_session_id = ? AND status = ?", parentSessionID, subsessionRunning).OrderExpr(`session_id COLLATE "C" ASC`).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(rows))

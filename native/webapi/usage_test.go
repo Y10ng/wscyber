@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,13 +31,13 @@ func newUsageFixture(t *testing.T) *usageFixture {
 	previous := time.Local
 	time.Local = time.FixedZone("UTC+8", 8*3600)
 	t.Cleanup(func() { time.Local = previous })
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	native, err := webservice.NewSQLiteStore(database, SchemaModule())
+	database := newTestHub(t)
+	native, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = native.Close() })
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +51,7 @@ func newUsageFixture(t *testing.T) *usageFixture {
 
 func (f *usageFixture) exec(query string, args ...any) {
 	f.t.Helper()
-	if _, err := f.cap.store.db.Exec(query, args...); err != nil {
+	if _, err := f.cap.store.db().Exec(query, args...); err != nil {
 		f.t.Fatalf("%s: %v", query, err)
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // 运营总览（U2a）：GET /api/webapi/overview?days=7|30|90，只读聚合。见 native/OVERVIEW.md。
@@ -187,9 +189,11 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 	view := &Overview{GeneratedAt: now.UTC().Format(time.RFC3339), Timezone: localZoneName(), Days: days}
 
 	// 资产
-	err := c.store.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(archived), 0),
-		(SELECT COUNT(*) FROM webapi_asset_schedules s JOIN webapi_assets a ON a.id = s.asset_id WHERE s.enabled = 1 AND a.archived = 0)
-		FROM webapi_assets`).Scan(&view.Assets.Total, &view.Assets.Archived, &view.Assets.ScheduledEnabled)
+	err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE archived),
+			(SELECT COUNT(*) FROM webapi_asset_schedules s JOIN webapi_assets a ON a.id = s.asset_id WHERE s.enabled AND NOT a.archived)
+			FROM webapi_assets`).Scan(&view.Assets.Total, &view.Assets.Archived, &view.Assets.ScheduledEnabled)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +318,9 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 	}
 
 	// OV2：待推送、资产覆盖、运行中任务、最近失败运行
-	if err := c.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_notifications WHERE status = ?`, NotifyPendingConfirm).Scan(&view.Todo.PendingPush); err != nil {
+	if err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webapi_notifications WHERE status = ?`, NotifyPendingConfirm).Scan(&view.Todo.PendingPush)
+	}); err != nil {
 		return nil, err
 	}
 	if view.Coverage, err = c.overviewCoverage(ctx, now); err != nil {
@@ -332,23 +338,20 @@ func (c *Capability) buildOverview(ctx context.Context, days int) (*Overview, er
 // recentScheduleRuns：全部资产最近 5 次计划运行（scheduled_for 倒序），带后续状态（非 launched 为 null）。
 func (c *Capability) recentScheduleRuns(ctx context.Context) ([]OverviewRecentRun, error) {
 	var models []scheduleRunModel
-	if err := c.store.orm.NewSelect().Model(&models).Order("scheduled_for DESC", "id DESC").Limit(overviewListMax).Scan(ctx); err != nil {
+	if err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).OrderExpr(`scheduled_for COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(overviewListMax).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	names := map[string]string{}
-	rows, err := c.store.db.QueryContext(ctx, `SELECT id, name FROM webapi_assets`)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var id, name string
 		if err := rows.Scan(&id, &name); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		names[id] = name
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT id, name FROM webapi_assets`); err != nil {
 		return nil, err
 	}
 	out := make([]OverviewRecentRun, 0, len(models))
@@ -521,25 +524,20 @@ func (c *Capability) overviewCoverage(ctx context.Context, now time.Time) (Overv
 		at  time.Time
 	}
 	latest := map[string]linkAt{}
-	rows, err := c.store.db.QueryContext(ctx, `SELECT asset_id, created_at FROM webapi_asset_tasks`)
-	if err != nil {
-		return out, err
-	}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var assetID, createdAt string
 		if err := rows.Scan(&assetID, &createdAt); err != nil {
-			rows.Close()
-			return out, err
+			return err
 		}
 		at := parseAt(createdAt)
 		if at.IsZero() {
-			continue
+			return nil
 		}
 		if prev, ok := latest[assetID]; !ok || at.After(prev.at) {
 			latest[assetID] = linkAt{raw: createdAt, at: at}
 		}
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT asset_id, created_at FROM webapi_asset_tasks`); err != nil {
 		return out, err
 	}
 	type assetRow struct {
@@ -548,24 +546,19 @@ func (c *Capability) overviewCoverage(ctx context.Context, now time.Time) (Overv
 		last      *linkAt
 	}
 	assets := []assetRow{}
-	rows, err = c.store.db.QueryContext(ctx, `SELECT id, name, created_at FROM webapi_assets WHERE archived = 0 ORDER BY id`)
-	if err != nil {
-		return out, err
-	}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var row assetRow
 		var createdAt string
 		if err := rows.Scan(&row.id, &row.name, &createdAt); err != nil {
-			rows.Close()
-			return out, err
+			return err
 		}
 		row.createdAt = parseAt(createdAt)
 		if last, ok := latest[row.id]; ok {
 			row.last = &last
 		}
 		assets = append(assets, row)
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT id, name, created_at FROM webapi_assets WHERE NOT archived ORDER BY id COLLATE "C"`); err != nil {
 		return out, err
 	}
 	out.Total = len(assets)
@@ -616,8 +609,10 @@ func (c *Capability) overviewRunning(ctx context.Context, now time.Time, rows []
 	items := make([]running, 0, len(rows))
 	for _, row := range rows {
 		item := running{row: row}
-		err := c.store.db.QueryRowContext(ctx, `SELECT created_at FROM chat_aop_events WHERE session_id = ? AND turn_id != '' ORDER BY cursor LIMIT 1`,
-			row.item.InitialSessionID).Scan(&item.raw)
+		err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.QueryRowContext(ctx, `SELECT created_at FROM chat_aop_events WHERE session_id = ? AND turn_id != '' ORDER BY cursor LIMIT 1`,
+				row.item.InitialSessionID).Scan(&item.raw)
+		})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
@@ -652,34 +647,31 @@ func (c *Capability) overviewRunning(ctx context.Context, now time.Time, rows []
 // recentFailedRuns：运行本身 failed 或有 failed 后续的计划运行，按 scheduled_for 倒序前 3；
 // error 取运行的错误，运行未失败时取首个失败后续（创建时间最早）的错误。
 func (c *Capability) recentFailedRuns(ctx context.Context) ([]OverviewFailedRun, error) {
-	rows, err := c.store.db.QueryContext(ctx, `SELECT r.id, r.asset_id, COALESCE(a.name, ''), r.scheduled_for, r.status, r.error
-		FROM webapi_schedule_runs r LEFT JOIN webapi_assets a ON a.id = r.asset_id
-		WHERE r.status = ? OR EXISTS (SELECT 1 FROM webapi_schedule_followups f WHERE f.run_id = r.id AND f.status = ?)
-		ORDER BY r.scheduled_for DESC, r.id DESC LIMIT ?`, ScheduleRunFailed, FollowupFailed, overviewFailedMax)
-	if err != nil {
-		return nil, err
-	}
 	type failedRow struct {
 		id  string
 		run OverviewFailedRun
 	}
 	found := []failedRow{}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var item failedRow
 		if err := rows.Scan(&item.id, &item.run.AssetID, &item.run.AssetName, &item.run.ScheduledFor, &item.run.Status, &item.run.Error); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		found = append(found, item)
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT r.id, r.asset_id, COALESCE(a.name, ''), r.scheduled_for, r.status, r.error
+		FROM webapi_schedule_runs r LEFT JOIN webapi_assets a ON a.id = r.asset_id
+		WHERE r.status = ? OR EXISTS (SELECT 1 FROM webapi_schedule_followups f WHERE f.run_id = r.id AND f.status = ?)
+		ORDER BY r.scheduled_for COLLATE "C" DESC, r.id COLLATE "C" DESC LIMIT ?`, ScheduleRunFailed, FollowupFailed, overviewFailedMax); err != nil {
 		return nil, err
 	}
 	out := make([]OverviewFailedRun, 0, len(found))
 	for _, item := range found {
 		if item.run.Status != ScheduleRunFailed {
-			err := c.store.db.QueryRowContext(ctx, `SELECT error FROM webapi_schedule_followups WHERE run_id = ? AND status = ? ORDER BY created_at, id LIMIT 1`,
-				item.id, FollowupFailed).Scan(&item.run.Error)
+			err := c.store.read(ctx, func(ctx context.Context, db bun.IDB) error {
+				return db.QueryRowContext(ctx, `SELECT error FROM webapi_schedule_followups WHERE run_id = ? AND status = ? ORDER BY created_at COLLATE "C", id COLLATE "C" LIMIT 1`,
+					item.id, FollowupFailed).Scan(&item.run.Error)
+			})
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, err
 			}

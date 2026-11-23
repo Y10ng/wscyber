@@ -265,11 +265,11 @@ func (c *Capability) registerVerificationNotification(ctx context.Context, verif
 	if settings == nil || settings.WebhookCipher == "" || !settings.Enabled {
 		return nil
 	}
-	verification, err := findOptional[verificationModel](ctx, c.store.orm, "id = ?", verificationID)
+	verification, err := readOptional[verificationModel](ctx, c.store, "id = ?", verificationID)
 	if err != nil || verification == nil {
 		return errors.Join(errors.New("验证不存在"), err)
 	}
-	result, err := findOptional[verificationResultModel](ctx, c.store.orm, "verification_id = ?", verificationID)
+	result, err := readOptional[verificationResultModel](ctx, c.store, "verification_id = ?", verificationID)
 	if err != nil || result == nil {
 		return errors.Join(errors.New("验证结果不存在"), err)
 	}
@@ -548,11 +548,11 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	if notifyOpsKinds[item.Kind] {
 		return c.buildOpsMessage(ctx, item, baseURL)
 	}
-	verification, err := findOptional[verificationModel](ctx, c.store.orm, "id = ?", item.VerificationID)
+	verification, err := readOptional[verificationModel](ctx, c.store, "id = ?", item.VerificationID)
 	if err != nil || verification == nil {
 		return nil, errors.Join(errors.New("验证不存在"), err)
 	}
-	resultModel, err := findOptional[verificationResultModel](ctx, c.store.orm, "verification_id = ?", item.VerificationID)
+	resultModel, err := readOptional[verificationResultModel](ctx, c.store, "verification_id = ?", item.VerificationID)
 	if err != nil || resultModel == nil {
 		return nil, errors.Join(errors.New("验证结果不存在"), err)
 	}
@@ -560,7 +560,7 @@ func (c *Capability) buildNotifyMessage(ctx context.Context, item notificationMo
 	if err := json.Unmarshal([]byte(resultModel.PayloadJSON), &result); err != nil {
 		return nil, errors.New("验证结果无法解析")
 	}
-	revision, err := findOptional[findingRevisionModel](ctx, c.store.orm, "id = ?", verification.SourceRevisionID)
+	revision, err := readOptional[findingRevisionModel](ctx, c.store, "id = ?", verification.SourceRevisionID)
 	if err != nil || revision == nil {
 		return nil, errors.Join(errors.New("候选修订不存在"), err)
 	}
@@ -671,7 +671,7 @@ func (c *Capability) notifyAssetContext(ctx context.Context, taskID string) (str
 	if err != nil || assetID == "" {
 		return "", nil, err
 	}
-	asset, err := findOptional[assetModel](ctx, c.store.orm, "id = ?", assetID)
+	asset, err := readOptional[assetModel](ctx, c.store, "id = ?", assetID)
 	if err != nil || asset == nil {
 		return "", nil, err
 	}

@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+
+	"wscyber/native/pgschema"
 )
 
 // 由 -ldflags -X 注入；-X 只能改写包级字符串变量，故不得改为常量或函数调用初始化。
@@ -26,8 +28,8 @@ var (
 // CyberCommit 是固定的上游 cyber-harness 提交（native/DEPENDENCIES.md）。
 const CyberCommit = "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf"
 
-// SchemaVersion 是本二进制期望的数据库迁移版本；PostgreSQL 迁移接入（P1/P3）前为 0。
-var SchemaVersion = 0
+// SchemaVersion 是本二进制期望的数据库迁移版本＝内嵌迁移的最大版本（native/pgschema）。
+var SchemaVersion = pgschema.SchemaVersion()
 
 // Info 是 `wscyber-hub version --json` 与 GET /api/wscyber/version 的共同结构。
 type Info struct {

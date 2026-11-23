@@ -150,7 +150,9 @@ func scenarioNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // scenarioForTask 每次读库：设置后下一次 Run 生效。
 func (s *taskStore) scenarioForTask(ctx context.Context, taskID string) (TaskScenario, error) {
 	var model taskScenarioModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ?", taskID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("task_id = ?", taskID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultTaskScenario(), nil
 	}
@@ -160,7 +162,7 @@ func (s *taskStore) scenarioForTask(ctx context.Context, taskID string) (TaskSce
 	if _, ok := scenarioDefOf(model.Scenario); !ok {
 		return TaskScenario{}, fmt.Errorf("已保存研究场景非法")
 	}
-	rounds, err := taskMaxRounds(ctx, s.orm, taskID)
+	rounds, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) (int, error) { return taskMaxRounds(ctx, db, taskID) })
 	if err != nil {
 		return TaskScenario{}, err
 	}
@@ -212,10 +214,14 @@ func (s *taskStore) assetScenarios(ctx context.Context, assetIDs ...string) (map
 		return out, nil
 	}
 	var models []assetScenarioModel
-	if err := s.orm.NewSelect().Model(&models).Where("asset_id IN (?)", bun.In(assetIDs)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&models).Where("asset_id IN (?)", bun.In(assetIDs)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
-	rounds, err := assetMaxRounds(ctx, s.orm, assetIDs...)
+	rounds, err := readValue(ctx, s, func(ctx context.Context, db bun.IDB) (map[string]int, error) {
+		return assetMaxRounds(ctx, db, assetIDs...)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +234,7 @@ func (s *taskStore) assetScenarios(ctx context.Context, assetIDs ...string) (map
 
 // putAssetScenario 写资产默认场景；maxRounds>0 时同一事务写最大轮数，0＝不动已保存值。
 func (s *taskStore) putAssetScenario(ctx context.Context, assetID, key, criteria string, maxRounds int) error {
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		model := &assetScenarioModel{AssetID: assetID, Scenario: key, DoneCriteria: criteria, UpdatedAt: scenarioNow()}
 		_, err := tx.NewInsert().Model(model).
 			On("CONFLICT (asset_id) DO UPDATE").Set("scenario = EXCLUDED.scenario").Set("done_criteria = EXCLUDED.done_criteria").Set("updated_at = EXCLUDED.updated_at").
@@ -283,7 +289,7 @@ func (c *Capability) handlePutTaskScenario(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	err = c.store.orm.RunInTx(r.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+	err = c.store.write(r.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
 		return putTaskScenarioTx(ctx, tx, id, key, criteria, rounds)
 	})
 	if err != nil {
@@ -350,7 +356,9 @@ func (s *taskStore) researchTaskForSession(ctx context.Context, sessionID string
 		return nil, nil
 	}
 	var model taskModel
-	err := s.orm.NewSelect().Model(&model).Where("initial_session_id = ?", sessionID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("initial_session_id = ?", sessionID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

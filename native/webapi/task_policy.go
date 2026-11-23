@@ -74,7 +74,9 @@ func (m *taskPolicyModel) toPolicy() TaskPolicy {
 // policyForTask 每次调用都读库：保存即生效，影响之后的调用。
 func (s *taskStore) policyForTask(ctx context.Context, taskID string) (TaskPolicy, error) {
 	var model taskPolicyModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ?", taskID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("task_id = ?", taskID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultTaskPolicy(), nil
 	}
@@ -109,7 +111,7 @@ func (s *taskStore) setPolicy(ctx context.Context, taskID, scope, approval strin
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	current := &taskPolicyModel{TaskID: taskID, Scope: scope, Approval: approval, UpdatedAt: now}
 	event := &taskPolicyEventModel{ID: "wp_" + newSessionID() + newSessionID(), TaskID: taskID, Scope: scope, Approval: approval, CreatedAt: now}
-	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(current).
 			On("CONFLICT (task_id) DO UPDATE").Set("scope = EXCLUDED.scope").Set("approval = EXCLUDED.approval").Set("updated_at = EXCLUDED.updated_at").
 			Exec(ctx); err != nil {

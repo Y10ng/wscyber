@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +34,13 @@ type subagentFixture struct {
 
 func newSubagentFixture(t *testing.T, oracles int) *subagentFixture {
 	t.Helper()
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	native, err := webservice.NewSQLiteStore(database, SchemaModule())
+	database := newTestHub(t)
+	native, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = native.Close()
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +131,7 @@ func (f *subagentFixture) oracle(number int64) *BoardOracle {
 func (f *subagentFixture) count(query string, args ...any) int {
 	f.t.Helper()
 	var n int
-	if err := f.cap.store.db.QueryRow(query, args...).Scan(&n); err != nil {
+	if err := f.cap.store.db().QueryRow(query, args...).Scan(&n); err != nil {
 		f.t.Fatal(err)
 	}
 	return n
@@ -151,8 +150,8 @@ func TestSubagentAdmissionRejects(t *testing.T) {
 	f := newSubagentFixture(t, 4)
 	store := f.cap.store
 	// O-002 终态、O-003 被其它会话认领。
-	f.cap.store.db.Exec(`UPDATE webapi_board_oracles SET status = 'refuted' WHERE task_id = ? AND number = 2`, f.task.ID)
-	f.cap.store.db.Exec(`UPDATE webapi_board_oracles SET status = 'in_progress', claimed_session_id = 'other-session' WHERE task_id = ? AND number = 3`, f.task.ID)
+	f.cap.store.db().Exec(`UPDATE webapi_board_oracles SET status = 'refuted' WHERE task_id = ? AND number = 2`, f.task.ID)
+	f.cap.store.db().Exec(`UPDATE webapi_board_oracles SET status = 'in_progress', claimed_session_id = 'other-session' WHERE task_id = ? AND number = 3`, f.task.ID)
 	cases := []struct {
 		name, session, args, want string
 	}{
@@ -321,7 +320,7 @@ func TestSubagentSubsessionAttribution(t *testing.T) {
 	if out := f.tool(webHTTP, child, `{"method":"GET","url":"https://outside.example.test/orders/1"}`); !strings.Contains(out, "不在持久授权内") {
 		t.Fatalf("out-of-scope = %s", out)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM webapi_requests WHERE session_id = 'child-a' AND task_id = ? AND status = 'denied' AND sent = 0`, f.task.ID); n != 1 {
+	if n := f.count(`SELECT COUNT(*) FROM webapi_requests WHERE session_id = 'child-a' AND task_id = ? AND status = 'denied' AND sent = false`, f.task.ID); n != 1 {
 		t.Fatalf("denied rows = %d", n)
 	}
 	// 出口代理：子会话按任务策略，越界 407。
@@ -385,7 +384,7 @@ func TestSubagentSubsessionAttribution(t *testing.T) {
 	}
 	// 验证会话仍不可写（不变）。
 	verificationSession := "verify-session"
-	f.cap.store.db.Exec(`INSERT INTO webapi_verifications (id, task_id, finding_id, source_revision_id, session_id, created_at) VALUES ('wv-1', ?, ?, 'r', ?, '2026-01-01T00:00:00Z')`, f.task.ID, finding["finding_id"], verificationSession)
+	f.cap.store.db().Exec(`INSERT INTO webapi_verifications (id, task_id, finding_id, source_revision_id, session_id, created_at) VALUES ('wv-1', ?, ?, 'r', ?, '2026-01-01T00:00:00Z')`, f.task.ID, finding["finding_id"], verificationSession)
 	if out := f.tool(fact, operation.Invocation{SessionID: verificationSession, TurnID: "t", CallID: "c"}, `{"add":[{"kind":"other","subject":"x","statement":"y","confidence":"inferred"}]}`); !strings.Contains(out, "只有本任务研究会话可写黑板") {
 		t.Fatalf("verification wrote board: %s", out)
 	}
@@ -431,7 +430,7 @@ func TestSubagentOrphanReleaseEndpointAndUsage(t *testing.T) {
 	f := newSubagentFixture(t, 2)
 	f.spawn("O-001", "child-a")
 	f.spawn("O-002", "child-b")
-	f.cap.store.db.Exec(`INSERT INTO webapi_requests (id, task_id, session_id, turn_id, call_id, fingerprint, method, url, status, reason, preview, preview_truncated, capture_truncated, flow_pb, created_at) VALUES ('we-1', ?, 'child-a', 't', 'c', 'fp', 'GET', 'x', 'completed', '', x'', 0, 0, x'', '2026-01-01T00:00:00Z')`, f.task.ID)
+	f.cap.store.db().Exec(`INSERT INTO webapi_requests (id, task_id, session_id, turn_id, call_id, fingerprint, method, url, status, reason, preview, preview_truncated, capture_truncated, flow_pb, created_at) VALUES ('we-1', ?, 'child-a', 't', 'c', 'fp', 'GET', 'x', 'completed', '', ''::bytea, false, false, ''::bytea, '2026-01-01T00:00:00Z')`, f.task.ID)
 	// 节点侧用量观察：子会话 Usage 事件记入所属任务。
 	f.h.stream.Publish(&aop.Event{SessionId: "child-a", TurnId: "turn-child", Payload: &aop.Event_Usage{Usage: &aop.TokenUsage{Model: "fixture-model", InputTokens: 100, OutputTokens: 20, Detail: map[string]uint64{"cache_read": 5}}}})
 	f.h.stream.Publish(&aop.Event{SessionId: "unrelated", Payload: &aop.Event_Usage{Usage: &aop.TokenUsage{Model: "fixture-model", InputTokens: 7}}})
@@ -468,8 +467,8 @@ func TestSubagentOrphanReleaseEndpointAndUsage(t *testing.T) {
 		t.Fatalf("missing task = %d", status)
 	}
 	// Hub 重启：遗留 running 行与预占行按已中断释放。
-	f.cap.store.db.Exec(`INSERT INTO webapi_subagent_reservations (parent_session_id, parent_call_id, task_id, oracle_id, created_at) SELECT ?, 'stale-call', task_id, id, '2026-01-01T00:00:00.000Z' FROM webapi_board_oracles WHERE task_id = ? AND number = 2`, f.task.InitialSessionID, f.task.ID)
-	f.cap.store.db.Exec(`UPDATE webapi_board_oracles SET status = 'in_progress', claimed_session_id = '' WHERE task_id = ? AND number = 2`, f.task.ID)
+	f.cap.store.db().Exec(`INSERT INTO webapi_subagent_reservations (parent_session_id, parent_call_id, task_id, oracle_id, created_at) SELECT ?, 'stale-call', task_id, id, '2026-01-01T00:00:00.000Z' FROM webapi_board_oracles WHERE task_id = ? AND number = 2`, f.task.InitialSessionID, f.task.ID)
+	f.cap.store.db().Exec(`UPDATE webapi_board_oracles SET status = 'in_progress', claimed_session_id = '' WHERE task_id = ? AND number = 2`, f.task.ID)
 	if err := f.cap.store.releaseOrphanSubsessions(t.Context(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -516,45 +515,5 @@ func TestSubagentPromptAndTask(t *testing.T) {
 	}
 	if !strings.Contains(scenarioBoardPrompt, "name=oracle_explorer") || !strings.Contains(scenarioBoardPrompt, "最多 3 个") {
 		t.Fatal("research board prompt lacks subagent line")
-	}
-}
-
-// 旧库（含一键重放三十八表）单事务补子 Agent 三表到完整结构；旧行保留，完整库再次 Prepare 不变。
-func TestSubagentSchemaUpgradeFromReplayStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(38, 35))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Save(t.Context(), "replay-stage-task", "旧任务", "保留重放阶段行", []string{"https://api.example.test"}); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare replay stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	reopened, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	if task, err := reopened.Get(t.Context(), "replay-stage-task"); err != nil || task == nil {
-		t.Fatalf("old task lost: %v", err)
-	}
-	if items, err := reopened.listSubsessions(t.Context(), "replay-stage-task"); err != nil || len(items) != 0 {
-		t.Fatalf("new tables unusable: %v %v", items, err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }

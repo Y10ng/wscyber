@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/chainreactors/cyber/core/operation"
 	coretool "github.com/chainreactors/cyber/core/tool"
 	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -35,8 +35,8 @@ type boardFixture struct {
 
 func newBoardFixture(t *testing.T) *boardFixture {
 	t.Helper()
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	native, err := webservice.NewSQLiteStore(database, SchemaModule())
+	database := newTestHub(t)
+	native, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,9 +44,9 @@ func newBoardFixture(t *testing.T) *boardFixture {
 	return openBoardFixture(t, database)
 }
 
-func openBoardFixture(t *testing.T, database string) *boardFixture {
+func openBoardFixture(t *testing.T, database testHub) *boardFixture {
 	t.Helper()
-	capability, err := NewCapability(database)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func openBoardFixture(t *testing.T, database string) *boardFixture {
 
 func (f *boardFixture) exec(query string, args ...any) {
 	f.t.Helper()
-	if _, err := f.cap.store.db.Exec(query, args...); err != nil {
+	if _, err := f.cap.store.db().Exec(query, args...); err != nil {
 		f.t.Fatalf("%s: %v", query, err)
 	}
 }
@@ -109,7 +109,10 @@ func (f *boardFixture) request(taskID, id, method, rawURL string, headers map[st
 	} else {
 		model.Status, model.Sent, model.StatusCode = "claimed", sql.NullBool{}, sql.NullInt64{}
 	}
-	if _, err := f.cap.store.orm.NewInsert().Model(&model).Exec(f.t.Context()); err != nil {
+	if err := f.cap.store.write(f.t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&model).Exec(ctx)
+		return err
+	}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -257,7 +260,7 @@ func TestBoardIngestTrafficIncrementalIdempotent(t *testing.T) {
 	if again := f.endpoints(false); again[boardUsersKey].RequestCount != 2 {
 		t.Fatalf("passed in-flight row: %+v", again[boardUsersKey])
 	}
-	f.exec(`UPDATE webapi_requests SET status = 'completed', sent = 1, status_code = 200, completed_at = ? WHERE id = 'we_inflight'`, f.at(42).Format(time.RFC3339Nano))
+	f.exec(`UPDATE webapi_requests SET status = 'completed', sent = true, status_code = 200, completed_at = ? WHERE id = 'we_inflight'`, f.at(42).Format(time.RFC3339Nano))
 	f.ingest(f.at(42))
 	again := f.endpoints(false)
 	if again[boardUsersKey].RequestCount != 3 || fmt.Sprint(again[boardUsersKey].StatusCodes) != "[200 403 500]" || again["GET https://api.example.test/api/slow"].RequestCount != 1 {
@@ -631,37 +634,4 @@ func TestBoardHTTPListsUserOraclesAndAudit(t *testing.T) {
 		t.Fatalf("PUT missing oracle = %d", status)
 	}
 	requireAudit(t, f.cap, "board.oracle.update", 3)
-}
-
-func TestBoardSchemaUpgradeFromKnownStages(t *testing.T) {
-	for _, stage := range []struct{ models, indexes int }{{28, 29}, {26, 29}} {
-		database := filepath.Join(t.TempDir(), "hub.sqlite")
-		old, err := webservice.NewSQLiteStore(database, webapiSchemaStage(stage.models, stage.indexes))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = old.Close()
-		if _, err := webservice.NewSQLiteStore(database, SchemaModule()); err == nil {
-			t.Fatalf("stage %v already complete", stage)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare stage %v: %v", stage, err)
-		}
-		complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-		if err != nil {
-			t.Fatalf("full validation after stage %v: %v", stage, err)
-		}
-		_ = complete.Close()
-		f := openBoardFixture(t, database)
-		f.seedTraffic()
-		if status, value := f.do("POST", "/api/webapi/tasks/"+f.task.ID+"/board/oracles", `{"question":"升级后可用？","category":"other","endpoint_keys":["`+boardUsersKey+`"],"priority":"low"}`); status != 201 {
-			t.Fatalf("board after upgrade = %d %+v", status, value)
-		}
-		if status, value := f.do("GET", "/api/webapi/tasks/"+f.task.ID+"/board", ""); status != 200 || value["counts"].(map[string]any)["endpoints"] != float64(3) {
-			t.Fatalf("board GET after upgrade = %d %+v", status, value)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare complete again: %v", err)
-		}
-	}
 }

@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/chainreactors/cyber/core/extension"
 	webpkg "github.com/chainreactors/cyber/pkg/web"
@@ -26,6 +25,7 @@ import (
 
 	"wscyber/native/internal/buildinfo"
 	"wscyber/native/internal/uiembed"
+	"wscyber/native/pgschema"
 )
 
 const (
@@ -34,8 +34,8 @@ const (
 	envListen          = "WSCYBER_LISTEN"
 	envStateDir        = "WSCYBER_STATE_DIR"
 	envAccessKeyFile   = "WSCYBER_ACCESS_KEY_FILE"
-	envDatabaseURLFile = "WSCYBER_DATABASE_URL_FILE"
-	envDatabaseURL     = "WSCYBER_DATABASE_URL"
+	envDatabaseURLFile = pgschema.EnvDatabaseURLFile
+	envDatabaseURL     = pgschema.EnvDatabaseURL
 )
 
 // embeddedUI 返回编译进二进制的前端；测试可替换为合成资源。
@@ -53,7 +53,7 @@ type serveConfig struct {
 	listen          string
 	stateDir        string
 	accessKeyFile   string // 空 = 使用 <state>/access.key（不存在则生成）
-	databaseURLFile string
+	databaseURLFile string // 只取旗标；环境变量由 loadDatabaseURL（pgschema.ResolveDatabaseURL）处理
 	uiDir           string
 }
 
@@ -71,7 +71,7 @@ func resolveServeConfig(flags serveConfig, lookup func(string) (string, bool)) (
 		listen:          pick(flags.listen, envListen, defaultServeListen),
 		stateDir:        pick(flags.stateDir, envStateDir, ""),
 		accessKeyFile:   pick(flags.accessKeyFile, envAccessKeyFile, ""),
-		databaseURLFile: pick(flags.databaseURLFile, envDatabaseURLFile, ""),
+		databaseURLFile: flags.databaseURLFile,
 		uiDir:           flags.uiDir,
 	}
 	if config.stateDir == "" {
@@ -88,59 +88,23 @@ func resolveServeConfig(flags serveConfig, lookup func(string) (string, bool)) (
 	return config, nil
 }
 
-// databaseSetting 是已读取并校验的连接串；D1 只做解析与占位，P3 接入 PostgreSQL。
-type databaseSetting struct {
-	dsn    string
-	source string // "file" | "env" | ""
-}
-
-// loadDatabaseURL 读取连接串：--database-url-file / WSCYBER_DATABASE_URL_FILE 优先，否则 WSCYBER_DATABASE_URL。
-// 无论是否采用，WSCYBER_DATABASE_URL 读后立即从进程环境删除（终端子进程继承环境）。
-func loadDatabaseURL(file string) (databaseSetting, error) {
-	envValue, envSet := os.LookupEnv(envDatabaseURL)
-	if envSet {
-		if err := os.Unsetenv(envDatabaseURL); err != nil {
-			return databaseSetting{}, fmt.Errorf("清除环境变量 %s: %w", envDatabaseURL, err)
+// loadDatabaseURL 取 PostgreSQL 连接串（旧旗标形式与 serve 共用）：file（--database-url-file）>
+// $WSCYBER_DATABASE_URL_FILE > $WSCYBER_DATABASE_URL；读取与权限校验全部由 pgschema.ResolveDatabaseURL
+// 完成（错误不回显连接串）。两个环境变量无论是否采用，读后都立即从进程环境删除（终端子进程继承环境）。
+// 都没有时返回 pgschema.ErrNoDatabaseURL。
+func loadDatabaseURL(file string) (pgschema.DatabaseURL, error) {
+	env := map[string]string{}
+	for _, name := range []string{envDatabaseURLFile, envDatabaseURL} {
+		value, set := os.LookupEnv(name)
+		if !set {
+			continue
+		}
+		env[name] = value
+		if err := os.Unsetenv(name); err != nil {
+			return pgschema.DatabaseURL{}, fmt.Errorf("清除环境变量 %s: %w", name, err)
 		}
 	}
-	if file != "" {
-		raw, err := readPrivateFile(file, true)
-		if err != nil {
-			return databaseSetting{}, fmt.Errorf("数据库连接串文件%w", err)
-		}
-		dsn, err := validDatabaseURL(string(raw))
-		if err != nil {
-			return databaseSetting{}, fmt.Errorf("数据库连接串文件内容无效：%w", err)
-		}
-		return databaseSetting{dsn: dsn, source: "file"}, nil
-	}
-	if envSet && strings.TrimSpace(envValue) != "" {
-		dsn, err := validDatabaseURL(envValue)
-		if err != nil {
-			return databaseSetting{}, fmt.Errorf("环境变量 %s 无效：%w", envDatabaseURL, err)
-		}
-		return databaseSetting{dsn: dsn, source: "env"}, nil
-	}
-	return databaseSetting{}, nil
-}
-
-// validDatabaseURL 只做形状检查（单行、非空、URL 形式时 scheme 为 postgres/postgresql）；
-// 完整解析由 P3 的 pgx 配置解析负责。错误不含连接串内容。
-func validDatabaseURL(raw string) (string, error) {
-	dsn := strings.TrimSpace(raw)
-	if dsn == "" {
-		return "", errors.New("为空")
-	}
-	if strings.ContainsFunc(dsn, unicode.IsControl) {
-		return "", errors.New("须为单行且不含控制字符")
-	}
-	if strings.Contains(dsn, "://") {
-		u, err := url.Parse(dsn)
-		if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
-			return "", errors.New("URL 形式须以 postgres:// 或 postgresql:// 开头")
-		}
-	}
-	return dsn, nil
+	return pgschema.ResolveDatabaseURL(file, func(name string) string { return env[name] })
 }
 
 // ensureAccessKey 返回 <state>/access.key；不存在时生成 32 字节随机密钥（hex，0600），已存在则复用。
@@ -248,7 +212,7 @@ func runServe(ctx context.Context, args []string, output io.Writer) error {
 	flags.StringVar(&given.listen, "listen", "", "监听 IP:port；默认 $"+envListen+" 或 "+defaultServeListen+"；对内网开放用 0.0.0.0:8080 并经反向代理终止 TLS")
 	flags.StringVar(&given.stateDir, "state-dir", "", "状态目录（可重开）；默认 $"+envStateDir+" 或 ${XDG_DATA_HOME:-$HOME/.local/share}/wscyber")
 	flags.StringVar(&given.accessKeyFile, "access-key-file", "", "访问密钥文件（0600/0400 普通文件）；默认 $"+envAccessKeyFile+" 或 <state>/access.key（不存在则生成）")
-	flags.StringVar(&given.databaseURLFile, "database-url-file", "", "PostgreSQL 连接串文件（0600/0400）；默认 $"+envDatabaseURLFile+"，或读 $"+envDatabaseURL+"（读后从环境删除）。本版本只校验、尚未接入")
+	flags.StringVar(&given.databaseURLFile, "database-url-file", "", "PostgreSQL 连接串文件（属主私有 0600/0400）；默认 $"+envDatabaseURLFile+"，或读 $"+envDatabaseURL+"（读后从环境删除）；三者都没有则启动失败")
 	flags.StringVar(&given.uiDir, "ui-dir", "", "可选前端构建产物目录，优先于嵌入前端（开发预览用）")
 	if help, err := parseSubcommand(flags, args, output); help || err != nil {
 		return err
@@ -260,9 +224,6 @@ func runServe(ctx context.Context, args []string, output io.Writer) error {
 	// 先做不产生副作用的检查，再建目录/生成密钥。
 	if addr, err := netip.ParseAddrPort(config.listen); err != nil || addr.Addr().Zone() != "" {
 		return fmt.Errorf("--listen 必须为 IP:port（如 127.0.0.1:8080、0.0.0.0:8080）")
-	}
-	if strings.ContainsAny(config.stateDir, "?#") {
-		return fmt.Errorf("--state-dir 不得含 SQLite URI 分隔符")
 	}
 	database, err := loadDatabaseURL(config.databaseURLFile)
 	if err != nil {
@@ -288,11 +249,6 @@ func runServe(ctx context.Context, args []string, output io.Writer) error {
 			notice("已生成访问密钥文件 %s（0600）；浏览器登录时粘贴其内容", keyFile)
 		}
 	}
-	if database.source != "" {
-		// P3 前的占位：连接串已读取并通过形状校验，但不连接；数据仍在 state-dir 的 SQLite。
-		_ = database.dsn
-		notice("已读取数据库连接串（来源：%s）；本版本尚未接入 PostgreSQL，数据仍保存在 %s", database.source, filepath.Join(stateDir, "hub.sqlite"))
-	}
 	embedded := embeddedUI()
 	if config.uiDir == "" && !embeddedUIPresent(embedded) {
 		notice("本二进制未嵌入前端，只提供 API；发布构建会嵌入前端，开发时可用 --ui-dir")
@@ -303,6 +259,7 @@ func runServe(ctx context.Context, args []string, output io.Writer) error {
 	opts := options{
 		localHub: true, modelNode: true, serve: true,
 		listen: config.listen, keyFile: keyFile, stateDir: stateDir, uiDir: config.uiDir, embedUI: embedded,
+		database: database,
 	}
 	return runHub(ctx, opts, output, map[string]any{"access_key_file": keyFile, "state_dir": stateDir})
 }

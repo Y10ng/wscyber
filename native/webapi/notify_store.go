@@ -68,16 +68,18 @@ func notifyTime(at time.Time) string { return at.UTC().Format(notifyTimeLayout) 
 func newNotificationID() string { return "wn_" + newSessionID() + newSessionID() }
 
 func (s *taskStore) notifySettings(ctx context.Context) (*notifySettingsModel, error) {
-	return findOptional[notifySettingsModel](ctx, s.orm, "id = ?", notifyChannelWeCom)
+	return readOptional[notifySettingsModel](ctx, s, "id = ?", notifyChannelWeCom)
 }
 
 func (s *taskStore) putNotifySettings(ctx context.Context, model *notifySettingsModel) error {
 	model.ID = notifyChannelWeCom
-	_, err := s.orm.NewInsert().Model(model).
-		On("CONFLICT (id) DO UPDATE").
-		Set("webhook_cipher = EXCLUDED.webhook_cipher, enabled = EXCLUDED.enabled, require_confirm = EXCLUDED.require_confirm, base_url = EXCLUDED.base_url, updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(model).
+			On("CONFLICT (id) DO UPDATE").
+			Set("webhook_cipher = EXCLUDED.webhook_cipher, enabled = EXCLUDED.enabled, require_confirm = EXCLUDED.require_confirm, base_url = EXCLUDED.base_url, updated_at = EXCLUDED.updated_at").
+			Exec(ctx)
+		return err
+	})
 }
 
 // hasAnySecretCipher：库里是否已有任何用资产密钥加密的密文（资产测试账号或 webhook）。
@@ -85,13 +87,17 @@ func (s *taskStore) hasAnySecretCipher(ctx context.Context) (bool, error) {
 	if found, err := s.hasStoredSecrets(ctx); err != nil || found {
 		return found, err
 	}
-	return s.orm.NewSelect().Model((*notifySettingsModel)(nil)).Where("webhook_cipher <> ''").Exists(ctx)
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) (bool, error) {
+		return db.NewSelect().Model((*notifySettingsModel)(nil)).Where("webhook_cipher <> ''").Exists(ctx)
+	})
 }
 
 // taskAssetID 返回任务关联的资产（无关联为空）。
 func (s *taskStore) taskAssetID(ctx context.Context, taskID string) (string, error) {
 	var assetID string
-	err := s.db.QueryRowContext(ctx, `SELECT asset_id FROM webapi_asset_tasks WHERE task_id = ?`, taskID).Scan(&assetID)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT asset_id FROM webapi_asset_tasks WHERE task_id = ?`, taskID).Scan(&assetID)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -100,7 +106,9 @@ func (s *taskStore) taskAssetID(ctx context.Context, taskID string) (string, err
 
 func (s *taskStore) vulnOfFinding(ctx context.Context, findingID string) (string, error) {
 	var vulnID string
-	err := s.db.QueryRowContext(ctx, `SELECT vuln_id FROM webapi_asset_vuln_members WHERE finding_id = ?`, findingID).Scan(&vulnID)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.QueryRowContext(ctx, `SELECT vuln_id FROM webapi_asset_vuln_members WHERE finding_id = ?`, findingID).Scan(&vulnID)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -119,32 +127,34 @@ func (s *taskStore) notifyEvents(ctx context.Context, vulnID, findingID string) 
 	if vulnID != "" {
 		scope, arg = `IN (SELECT finding_id FROM webapi_asset_vuln_members WHERE vuln_id = ?)`, vulnID
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT 'verify', v.id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at
-		FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id WHERE v.finding_id `+scope+`
-		UNION ALL
-		SELECT 'retest', t.id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at
-		FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id WHERE t.finding_id `+scope, arg, arg)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []notifyEvent{}
-	for rows.Next() {
-		var event notifyEvent
-		if err := rows.Scan(&event.Kind, &event.ID, &event.Value, &event.At); err != nil {
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]notifyEvent, error) {
+		rows, err := db.QueryContext(ctx, `SELECT 'verify', v.id, COALESCE(r.payload_json::jsonb #>> '{payload,verdict}', ''), r.created_at
+			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id WHERE v.finding_id `+scope+`
+			UNION ALL
+			SELECT 'retest', t.id, COALESCE(r.payload_json::jsonb #>> '{payload,conclusion}', ''), r.created_at
+			FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id WHERE t.finding_id `+scope, arg, arg)
+		if err != nil {
 			return nil, err
 		}
-		event.at = parseAt(event.At)
-		out = append(out, event)
-	}
-	return out, rows.Err()
+		defer rows.Close()
+		out := []notifyEvent{}
+		for rows.Next() {
+			var event notifyEvent
+			if err := rows.Scan(&event.Kind, &event.ID, &event.Value, &event.At); err != nil {
+				return nil, err
+			}
+			event.at = parseAt(event.At)
+			out = append(out, event)
+		}
+		return out, rows.Err()
+	})
 }
 
 // insertNotification 单事务登记：kind=new 时同一去重键已有任何通知则不登记；
 // (dedupe_key, kind, verification_id) 冲突不重复。返回是否新插入。
 func (s *taskStore) insertNotification(ctx context.Context, model *notificationModel) (bool, error) {
 	inserted := false
-	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if model.Kind == NotifyKindNew {
 			exists, err := tx.NewSelect().Model((*notificationModel)(nil)).Where("dedupe_key = ?", model.DedupeKey).Exists(ctx)
 			if err != nil || exists {
@@ -163,61 +173,78 @@ func (s *taskStore) insertNotification(ctx context.Context, model *notificationM
 }
 
 func (s *taskStore) notification(ctx context.Context, id string) (*notificationModel, error) {
-	return findOptional[notificationModel](ctx, s.orm, "id = ?", id)
+	return readOptional[notificationModel](ctx, s, "id = ?", id)
 }
 
 // dueNotifications 取到期 queued（next_attempt_at ≤ now），最早到期在前。
 func (s *taskStore) dueNotifications(ctx context.Context, now time.Time, limit int) ([]notificationModel, error) {
 	var items []notificationModel
-	err := s.orm.NewSelect().Model(&items).
-		Where("status = ? AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?", NotifyQueued, notifyTime(now)).
-		OrderExpr("next_attempt_at ASC, created_at ASC, id ASC").Limit(int64(limit)).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&items).
+			Where(`status = ? AND next_attempt_at IS NOT NULL AND next_attempt_at COLLATE "C" <= ?`, NotifyQueued, notifyTime(now)).
+			OrderExpr(`next_attempt_at COLLATE "C" ASC, created_at COLLATE "C" ASC, id COLLATE "C" ASC`).Limit(int64(limit)).Scan(ctx)
+	})
 	return items, err
 }
 
 // claimNotification queued → sending（只在仍为 queued 时）。
 func (s *taskStore) claimNotification(ctx context.Context, id string) (bool, error) {
-	res, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifySending).
-		Where("id = ? AND status = ?", id, NotifyQueued).Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-	affected, err := res.RowsAffected()
+	var affected int64
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifySending).
+			Where("id = ? AND status = ?", id, NotifyQueued).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err = res.RowsAffected()
+		return err
+	})
 	return affected > 0, err
 }
 
 // finishNotification 写投递结果（只更新仍为 sending 的行）。
 func (s *taskStore) finishNotification(ctx context.Context, id, status string, attempts int, next sql.NullString, lastError string, sentAt sql.NullString) error {
-	_, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).
-		Set("status = ?", status).Set("attempts = ?", attempts).Set("next_attempt_at = ?", next).
-		Set("last_error = ?", lastError).Set("sent_at = ?", sentAt).
-		Where("id = ? AND status = ?", id, NotifySending).Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*notificationModel)(nil)).
+			Set("status = ?", status).Set("attempts = ?", attempts).Set("next_attempt_at = ?", next).
+			Set("last_error = ?", lastError).Set("sent_at = ?", sentAt).
+			Where("id = ? AND status = ?", id, NotifySending).Exec(ctx)
+		return err
+	})
 }
 
 // resetSendingNotifications：Hub 重启后上次中断在 sending 的通知回到 queued（不计次，可能重复推送）。
 func (s *taskStore) resetSendingNotifications(ctx context.Context) error {
-	_, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyQueued).
-		Where("status = ?", NotifySending).Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyQueued).
+			Where("status = ?", NotifySending).Exec(ctx)
+		return err
+	})
 }
 
 // transitionNotification 管理操作：当前状态在 from 中才更新；返回 (存在, 已更新)。
 func (s *taskStore) transitionNotification(ctx context.Context, id string, from []string, set func(*bun.UpdateQuery) *bun.UpdateQuery) (bool, bool, error) {
-	query := set(s.orm.NewUpdate().Model((*notificationModel)(nil))).Where("id = ? AND status IN (?)", id, bun.In(from))
-	res, err := query.Exec(ctx)
+	var exists, updated bool
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := set(tx.NewUpdate().Model((*notificationModel)(nil))).Where("id = ? AND status IN (?)", id, bun.In(from)).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected > 0 {
+			exists, updated = true, true
+			return nil
+		}
+		exists, err = tx.NewSelect().Model((*notificationModel)(nil)).Where("id = ?", id).Exists(ctx)
+		return err
+	})
 	if err != nil {
 		return false, false, err
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return false, false, err
-	}
-	if affected > 0 {
-		return true, true, nil
-	}
-	exists, err := s.orm.NewSelect().Model((*notificationModel)(nil)).Where("id = ?", id).Exists(ctx)
-	return exists, false, err
+	return exists, updated, nil
 }
 
 // NotificationView 是管理列表项。
@@ -265,7 +292,12 @@ type notificationFilter struct {
 func (s *taskStore) notificationViews(ctx context.Context, filter notificationFilter, limit, offset int) ([]NotificationView, error) {
 	where := ` WHERE (? = '' OR n.status = ?) AND (? = '' OR n.id = ?) AND (? = '' OR n.dedupe_key = ?)`
 	args := []any{filter.Status, filter.Status, filter.ID, filter.ID, filter.DedupeKey, filter.DedupeKey}
-	rows, err := s.db.QueryContext(ctx, notificationViewSQL+where+` ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) ([]NotificationView, error) {
+		return scanNotificationViews(db.QueryContext(ctx, notificationViewSQL+where+` ORDER BY n.created_at COLLATE "C" DESC, n.id COLLATE "C" DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...))
+	})
+}
+
+func scanNotificationViews(rows *sql.Rows, err error) ([]NotificationView, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -307,10 +339,10 @@ var notifyInFlightStatuses = []string{NotifyPendingConfirm, NotifyQueued, Notify
 // 该键有任一未到终态的通知 → 返回其 id（inFlight）不登记；同 (键, manual, 验证) 已有终态行 → 复用该行重新入队
 // （attempts/last_error/sent_at 清空，created_at 更新为本次）；否则插入新行。不影响 new/regression 的去重。
 func (s *taskStore) enqueueManualNotification(ctx context.Context, model *notificationModel) (id string, inFlight string, err error) {
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		var busy []notificationModel
 		if err := tx.NewSelect().Model(&busy).Where("dedupe_key = ? AND status IN (?)", model.DedupeKey, bun.In(notifyInFlightStatuses)).
-			OrderExpr("created_at DESC, id DESC").Limit(1).Scan(ctx); err != nil {
+			OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(1).Scan(ctx); err != nil {
 			return err
 		}
 		if len(busy) > 0 {

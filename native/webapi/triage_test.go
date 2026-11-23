@@ -2,12 +2,9 @@ package webapi
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 )
 
 // 漏洞处置（V1）测试：全部为临时库合成数据（example.test 演示资产、虚构候选/负责人/备注）。
@@ -533,38 +530,5 @@ func TestTriageScheduleRetestSkipsFalsePositive(t *testing.T) {
 	}
 	if len(items) != 2 || got[a] || !got[b] || !got[c] {
 		t.Fatalf("retests = %+v (a=%s b=%s c=%s)", items, a, b, c)
-	}
-}
-
-// B3（二十六表）与 D2（二十五表）旧库补处置与 SLA 两表；补后完整原生校验通过且可写可查。
-func TestTriageSchemaUpgradeFromKnownStages(t *testing.T) {
-	for _, stage := range []struct{ models, indexes int }{{26, 29}, {25, 25}} {
-		database := filepath.Join(t.TempDir(), "hub.sqlite")
-		old, err := webservice.NewSQLiteStore(database, webapiSchemaStage(stage.models, stage.indexes))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = old.Close()
-		if _, err := webservice.NewSQLiteStore(database, SchemaModule()); err == nil {
-			t.Fatalf("stage %v already complete", stage)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare stage %v: %v", stage, err)
-		}
-		complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-		if err != nil {
-			t.Fatalf("full validation after stage %v: %v", stage, err)
-		}
-		_ = complete.Close()
-		f := openAssetFixture(t, database)
-		if status, value, raw := f.do("PUT", "/api/webapi/vuln-sla", `{"low_days":60}`); status != 200 || value["low_days"] != float64(60) {
-			t.Fatalf("sla after upgrade = %d %s", status, raw)
-		}
-		if status, value, _ := f.do("GET", "/api/webapi/vulns", ""); status != 200 || value["counts"].(map[string]any)["overdue"] != float64(0) {
-			t.Fatalf("vulns after upgrade = %d %v", status, value)
-		}
-		if err := PrepareWebAPISchema(database); err != nil {
-			t.Fatalf("prepare complete again: %v", err)
-		}
 	}
 }

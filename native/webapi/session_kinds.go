@@ -71,7 +71,9 @@ type sessionKindPin struct {
 func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]SessionKindItem, error) {
 	items := make(map[string]SessionKindItem)
 	var tasks []taskModel
-	if err := s.orm.NewSelect().Model(&tasks).Where("initial_session_id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&tasks).Where("initial_session_id IN (?)", bun.In(ids)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	byTaskID := make(map[string]taskModel, len(tasks))
@@ -82,14 +84,18 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 
 	pins := make(map[string]sessionKindPin)
 	var verifications []verificationModel
-	if err := s.orm.NewSelect().Model(&verifications).Where("session_id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&verifications).Where("session_id IN (?)", bun.In(ids)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	for _, model := range verifications {
 		pins[model.SessionID] = sessionKindPin{Kind: "verification", SessionID: model.SessionID, TaskID: model.TaskID, SourceRevisionID: model.SourceRevisionID, CreatedAt: model.CreatedAt}
 	}
 	var retests []retestModel
-	if err := s.orm.NewSelect().Model(&retests).Where("session_id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&retests).Where("session_id IN (?)", bun.In(ids)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	for _, model := range retests {
@@ -108,7 +114,9 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 	labels := make(map[string]revisionLabel)
 	if len(revisionIDs) > 0 {
 		var rows []revisionLabel
-		if err := s.orm.NewSelect().Model((*findingRevisionModel)(nil)).Column("id", "number", "title").Where("id IN (?)", bun.In(revisionIDs)).Scan(ctx, &rows); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model((*findingRevisionModel)(nil)).Column("id", "number", "title").Where("id IN (?)", bun.In(revisionIDs)).Scan(ctx, &rows)
+		}); err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
@@ -118,7 +126,7 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 	for _, pin := range pins {
 		task, ok := byTaskID[pin.TaskID]
 		if !ok {
-			loaded, err := findOptional[taskModel](ctx, s.orm, "id = ?", pin.TaskID)
+			loaded, err := readOptional[taskModel](ctx, s, "id = ?", pin.TaskID)
 			if err != nil {
 				return nil, err
 			}
@@ -133,7 +141,9 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 	}
 
 	var reports []reportModel
-	if err := s.orm.NewSelect().Model(&reports).Where("session_id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&reports).Where("session_id IN (?)", bun.In(ids)).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	reportIDs := make([]string, 0, len(reports))
@@ -147,7 +157,9 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 	titles := make(map[string]string)
 	if len(reportIDs) > 0 {
 		var rows []draftTitle
-		if err := s.orm.NewSelect().Model((*reportDraftModel)(nil)).Column("report_id", "payload_json").Where("report_id IN (?)", bun.In(reportIDs)).Scan(ctx, &rows); err != nil {
+		if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+			return db.NewSelect().Model((*reportDraftModel)(nil)).Column("report_id", "payload_json").Where("report_id IN (?)", bun.In(reportIDs)).Scan(ctx, &rows)
+		}); err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
@@ -161,7 +173,7 @@ func (s *taskStore) sessionKinds(ctx context.Context, ids []string) (map[string]
 	for _, report := range reports {
 		task, ok := byTaskID[report.TaskID]
 		if !ok {
-			loaded, err := findOptional[taskModel](ctx, s.orm, "id = ?", report.TaskID)
+			loaded, err := readOptional[taskModel](ctx, s, "id = ?", report.TaskID)
 			if err != nil {
 				return nil, err
 			}

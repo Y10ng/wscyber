@@ -40,31 +40,14 @@ type toolEvidenceResult struct {
 	CaptureTruncated bool   `json:"capture_truncated"`
 }
 
-func newHTTPToolFixture(t *testing.T, handler http.Handler) (*Capability, *httpTool, *Task, operation.Invocation, *atomic.Int32, string) {
+func newHTTPToolFixture(t *testing.T, handler http.Handler) (*Capability, *httpTool, *Task, operation.Invocation, *atomic.Int32, testHub) {
 	t.Helper()
-	database := t.TempDir() + "/hub.sqlite"
-	capability, err := NewCapability(database)
+	database := newTestHub(t)
+	capability, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = capability.Close(context.Background()) })
-	for _, model := range SchemaModule().Models {
-		if _, err := capability.store.orm.NewCreateTable().Model(model).Exec(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, index := range SchemaModule().Indexes {
-		query := capability.store.orm.NewCreateIndex().Model(index.Model).Index(index.Name).Column(index.Columns...)
-		if index.Expr != "" {
-			query = capability.store.orm.NewCreateIndex().Model(index.Model).Index(index.Name).ColumnExpr(index.Expr)
-		}
-		if index.Unique {
-			query = query.Unique()
-		}
-		if _, err := query.Exec(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
 	var count atomic.Int32
 	counting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count.Add(1)
@@ -147,7 +130,7 @@ func TestWebAPIHTTPTwoRequestsEvidenceAndIdempotency(t *testing.T) {
 	if err := capability.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := NewCapability(database)
+	reopened, err := NewCapability(database.URL, database.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,8 +369,16 @@ func TestWebAPIHTTPConcurrentSameFingerprintSingleSend(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no first request")
 	}
+	// 首个请求停在目标端未完成时，另一 call 必须已因同指纹未决被拒（不等首个完成）。
+	// PG 下两 call 各自走多次独立事务、先后不再由单连接排队，先等第二个结果再放行首个，
+	// 保证判定发生在首个仍未决时（首个完成后再发同指纹请求按设计允许）。
+	select {
+	case <-results:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second call did not return while first request unresolved")
+	}
 	close(release)
-	for i := 0; i < callers; i++ {
+	for i := 1; i < callers; i++ {
 		<-results
 	}
 	if count.Load() != 1 {

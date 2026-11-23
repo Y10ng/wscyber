@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // 全局漏洞列表与全局报告列表（U2a）：只读。见 native/OVERVIEW.md。
@@ -72,25 +75,20 @@ func globalVulnFrom(view *AssetVuln, kind string, asset *TaskAssetRef, events ma
 // globalVulns 计算全局漏洞条目（未排序）。assetID 非空时只取该资产（归档资产为空），不含无资产任务候选。
 // 每个未归档资产先按 C3 加锁同步，再复用 assetVulns 派生状态。
 func (c *Capability) globalVulns(ctx context.Context, assetID string) ([]*GlobalVuln, error) {
-	query, args := `SELECT id, name FROM webapi_assets WHERE archived = 0`, []any{}
+	query, args := `SELECT id, name FROM webapi_assets WHERE NOT archived`, []any{}
 	if assetID != "" {
 		query += ` AND id = ?`
 		args = append(args, assetID)
 	}
-	rows, err := c.store.db.QueryContext(ctx, query+` ORDER BY id`, args...)
-	if err != nil {
-		return nil, err
-	}
 	assets := []TaskAssetRef{}
-	for rows.Next() {
+	if err := c.store.queryRows(ctx, func(rows *sql.Rows) error {
 		var ref TaskAssetRef
 		if err := rows.Scan(&ref.ID, &ref.Name); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		assets = append(assets, ref)
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, query+` ORDER BY id COLLATE "C"`, args...); err != nil {
 		return nil, err
 	}
 	out := []*GlobalVuln{}
@@ -131,30 +129,25 @@ func (c *Capability) syncedAssetVulns(ctx context.Context, assetID string) ([]*A
 // standaloneFindingVulns：未关联资产的任务中每个候选单独一条，状态用 C3 的 buildAssetVuln 对单成员计算；
 // “最近一次任务”取候选自己的任务（独立任务即其唯一一轮），故存在类结论为 new。
 func (s *taskStore) standaloneFindingVulns(ctx context.Context) ([]*GlobalVuln, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT f.id, f.task_id, f.number, r.title, f.current_revision_id, f.created_at, t.initial_session_id, r.payload_json
-		FROM webapi_findings f
-		JOIN webapi_finding_revisions r ON r.id = f.current_revision_id
-		JOIN webapi_tasks t ON t.id = f.task_id
-		WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = f.task_id)`)
-	if err != nil {
-		return nil, err
-	}
 	type standalone struct {
 		member  vulnMemberRow
 		payload string
 	}
 	found := []standalone{}
-	for rows.Next() {
+	if err := s.queryRows(ctx, func(rows *sql.Rows) error {
 		var item standalone
 		m := &item.member
 		if err := rows.Scan(&m.FindingID, &m.TaskID, &m.Number, &m.Title, &m.RevisionID, &m.CreatedAt, &m.InitialSessionID, &item.payload); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		m.Link = VulnLinkAuto
 		found = append(found, item)
-	}
-	if err := closeRows(rows); err != nil {
+		return nil
+	}, `SELECT f.id, f.task_id, f.number, r.title, f.current_revision_id, f.created_at, t.initial_session_id, r.payload_json
+		FROM webapi_findings f
+		JOIN webapi_finding_revisions r ON r.id = f.current_revision_id
+		JOIN webapi_tasks t ON t.id = f.task_id
+		WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = f.task_id)`); err != nil {
 		return nil, err
 	}
 	if len(found) == 0 {
@@ -183,31 +176,32 @@ func (s *taskStore) standaloneFindingVulns(ctx context.Context) ([]*GlobalVuln, 
 func (s *taskStore) standaloneEvents(ctx context.Context) (map[string][]vulnEvent, error) {
 	out := map[string][]vulnEvent{}
 	queries := []struct{ kind, sql string }{
-		{FollowupVerify, `SELECT v.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.verdict'), ''), r.created_at,
-			COALESCE(json_extract(r.payload_json, '$.payload.suggested_severity'), '')
+		{FollowupVerify, `SELECT v.finding_id, COALESCE(r.payload_json::jsonb #>> '{payload,verdict}', ''), r.created_at,
+			COALESCE(r.payload_json::jsonb #>> '{payload,suggested_severity}', '')
 			FROM webapi_verifications v JOIN webapi_verification_results r ON r.verification_id = v.id
 			WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = v.task_id)`},
-		{FollowupRetest, `SELECT t.finding_id, COALESCE(json_extract(r.payload_json, '$.payload.conclusion'), ''), r.created_at, ''
+		{FollowupRetest, `SELECT t.finding_id, COALESCE(r.payload_json::jsonb #>> '{payload,conclusion}', ''), r.created_at, ''
 			FROM webapi_retests t JOIN webapi_retest_results r ON r.retest_id = t.id
 			WHERE NOT EXISTS (SELECT 1 FROM webapi_asset_tasks l WHERE l.task_id = t.task_id)`},
 	}
-	for _, query := range queries {
-		rows, err := s.db.QueryContext(ctx, query.sql)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			event := vulnEvent{Kind: query.kind}
-			if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
-				rows.Close()
-				return nil, err
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		for _, query := range queries {
+			if err := scanRows(db.QueryContext(ctx, query.sql))(func(rows *sql.Rows) error {
+				event := vulnEvent{Kind: query.kind}
+				if err := rows.Scan(&event.FindingID, &event.Value, &event.At, &event.Suggested); err != nil {
+					return err
+				}
+				event.at = parseAt(event.At)
+				out[event.FindingID] = append(out[event.FindingID], event)
+				return nil
+			}); err != nil {
+				return err
 			}
-			event.at = parseAt(event.At)
-			out[event.FindingID] = append(out[event.FindingID], event)
 		}
-		if err := closeRows(rows); err != nil {
-			return nil, err
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -387,8 +381,8 @@ type GlobalReport struct {
 
 func (s *taskStore) globalReports(ctx context.Context, assetID string) ([]*GlobalReport, error) {
 	query := `SELECT r.id, r.task_id, t.objective, COALESCE(a.id, ''), COALESCE(a.name, ''), r.session_id,
-		COALESCE(json_array_length(r.items_json), 0), r.created_at, d.report_id IS NOT NULL,
-		COALESCE(json_extract(d.payload_json, '$.payload.title'), ''), COALESCE(d.created_at, '')
+		COALESCE(jsonb_array_length(r.items_json::jsonb), 0), r.created_at, d.report_id IS NOT NULL,
+		COALESCE(d.payload_json::jsonb #>> '{payload,title}', ''), COALESCE(d.created_at, '')
 		FROM webapi_reports r
 		JOIN webapi_tasks t ON t.id = r.task_id
 		LEFT JOIN webapi_asset_tasks l ON l.task_id = r.task_id
@@ -399,18 +393,13 @@ func (s *taskStore) globalReports(ctx context.Context, assetID string) ([]*Globa
 		query += ` WHERE l.asset_id = ?`
 		args = append(args, assetID)
 	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
 	out := []*GlobalReport{}
-	for rows.Next() {
+	err := s.queryRows(ctx, func(rows *sql.Rows) error {
 		item := &GlobalReport{}
 		var assetRefID, assetName, draftAt string
 		if err := rows.Scan(&item.ReportID, &item.TaskID, &item.objective, &assetRefID, &assetName, &item.SessionID,
 			&item.ItemCount, &item.CreatedAt, &item.HasDraft, &item.Title, &draftAt); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		item.TaskTitle = usageTitle(item.objective)
 		if assetRefID != "" {
@@ -422,8 +411,12 @@ func (s *taskStore) globalReports(ctx context.Context, assetID string) ([]*Globa
 		}
 		item.createdAt = parseAt(item.CreatedAt)
 		out = append(out, item)
+		return nil
+	}, query, args...)
+	if err != nil {
+		return nil, err
 	}
-	return out, closeRows(rows)
+	return out, nil
 }
 
 // handleGlobalReportList: GET /api/webapi/report-list?q=&asset_id=&limit=&cursor=，按 created_at 倒序。

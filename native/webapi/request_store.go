@@ -39,7 +39,9 @@ func newRequestID() string { return "we_" + newSessionID() + newSessionID() }
 
 func (s *taskStore) taskForSession(ctx context.Context, sessionID string) (*Task, error) {
 	var model taskModel
-	err := s.orm.NewSelect().Model(&model).Where("initial_session_id = ?", sessionID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("initial_session_id = ?", sessionID).Limit(1).Scan(ctx)
+	})
 	if err == nil {
 		return model.toTask()
 	}
@@ -69,7 +71,7 @@ func (s *taskStore) taskForSession(ctx context.Context, sessionID string) (*Task
 	return s.Get(ctx, sub.TaskID)
 }
 
-// claim 在单个先INSERT取得SQLite写锁的事务里回读同call并检查同指纹未决项。
+// claim 在持全局写锁的写事务里先 INSERT、再回读同call并检查同指纹未决项。
 // 并发新call只能串行通过此判断，不依赖进程mutex或整任务锁。
 func (s *taskStore) claim(ctx context.Context, inv operation.Invocation, taskID string, spec requestSpec, status, reason string) (*requestModel, bool, error) {
 	authorized, err := s.taskForSession(ctx, inv.SessionID)
@@ -105,7 +107,7 @@ func (s *taskStore) claimRequest(ctx context.Context, inv operation.Invocation, 
 		model.CompletedAt = sql.NullString{String: now, Valid: true}
 	}
 	var inserted int64
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewInsert().Model(model).On("CONFLICT(task_id,turn_id,call_id) DO NOTHING").Exec(ctx)
 		if err != nil {
 			return err
@@ -126,7 +128,7 @@ func (s *taskStore) claimRequest(ctx context.Context, inv operation.Invocation, 
 			return nil
 		}
 		var unresolved requestModel
-		err = tx.NewSelect().Model(&unresolved).Where("task_id = ? AND fingerprint = ? AND id != ? AND status IN (?, ?, ?)", taskID, spec.fingerprint, model.ID, "claimed", requestUnknown, requestCaptureFailed).Order("created_at ASC").Limit(1).Scan(ctx)
+		err = tx.NewSelect().Model(&unresolved).Where("task_id = ? AND fingerprint = ? AND id != ? AND status IN (?, ?, ?)", taskID, spec.fingerprint, model.ID, "claimed", requestUnknown, requestCaptureFailed).OrderExpr(`created_at COLLATE "C" ASC`).Limit(1).Scan(ctx)
 		if err == nil {
 			model = &unresolved
 			return errUnknownReplay // 回滚刚插入的候选行。
@@ -142,7 +144,9 @@ func (s *taskStore) claimRequest(ctx context.Context, inv operation.Invocation, 
 		}
 		if errors.Is(err, errCallConflict) {
 			var existing requestModel
-			if getErr := s.orm.NewSelect().Model(&existing).Where("task_id = ? AND turn_id = ? AND call_id = ?", taskID, inv.TurnID, inv.CallID).Limit(1).Scan(ctx); getErr == nil {
+			if getErr := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+				return db.NewSelect().Model(&existing).Where("task_id = ? AND turn_id = ? AND call_id = ?", taskID, inv.TurnID, inv.CallID).Limit(1).Scan(ctx)
+			}); getErr == nil {
 				return &existing, false, errCallConflict
 			}
 		}
@@ -165,7 +169,7 @@ func (s *taskStore) finish(ctx context.Context, id, status, reason string, previ
 	}
 	var model requestModel
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewUpdate().Model(&requestModel{
 			Status: status, Reason: reason, Sent: sql.NullBool{Bool: statusCode != nil, Valid: statusCode != nil}, Preview: preview,
 			PreviewTruncated: previewTruncated, CaptureTruncated: captureTruncated,
@@ -185,9 +189,11 @@ func (s *taskStore) finish(ctx context.Context, id, status, reason string, previ
 
 func (s *taskStore) unresolvedTurn(ctx context.Context, sessionID, turnID string) (bool, error) {
 	var id string
-	err := s.orm.NewSelect().Model((*requestModel)(nil)).Column("id").
-		Where("session_id = ? AND turn_id = ? AND status IN (?, ?, ?, ?)", sessionID, turnID, "claimed", requestUnknown, requestCaptureFailed, "review_required").
-		Limit(1).Scan(ctx, &id)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model((*requestModel)(nil)).Column("id").
+			Where("session_id = ? AND turn_id = ? AND status IN (?, ?, ?, ?)", sessionID, turnID, "claimed", requestUnknown, requestCaptureFailed, "review_required").
+			Limit(1).Scan(ctx, &id)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -196,7 +202,9 @@ func (s *taskStore) unresolvedTurn(ctx context.Context, sessionID, turnID string
 
 func (s *taskStore) evidenceByID(ctx context.Context, taskID, evidenceID string) (*requestModel, error) {
 	var model requestModel
-	err := s.orm.NewSelect().Model(&model).Where("task_id = ? AND id = ?", taskID, evidenceID).Limit(1).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		return db.NewSelect().Model(&model).Where("task_id = ? AND id = ?", taskID, evidenceID).Limit(1).Scan(ctx)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -205,11 +213,13 @@ func (s *taskStore) evidenceByID(ctx context.Context, taskID, evidenceID string)
 
 func (s *taskStore) evidenceList(ctx context.Context, taskID string, limit int, afterCreatedAt, afterID string) ([]requestModel, error) {
 	var models []requestModel
-	query := s.orm.NewSelect().Model(&models).Column("id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "created_at", "completed_at").
-		Where("task_id = ?", taskID)
-	if afterCreatedAt != "" {
-		query = query.Where("(created_at < ? OR (created_at = ? AND id < ?))", afterCreatedAt, afterCreatedAt, afterID)
-	}
-	err := query.Order("created_at DESC", "id DESC").Limit(int64(limit + 1)).Scan(ctx)
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&models).Column("id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "created_at", "completed_at").
+			Where("task_id = ?", taskID)
+		if afterCreatedAt != "" {
+			query = query.Where(`(created_at COLLATE "C" < ? OR (created_at = ? AND id COLLATE "C" < ?))`, afterCreatedAt, afterCreatedAt, afterID)
+		}
+		return query.OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(int64(limit + 1)).Scan(ctx)
+	})
 	return models, err
 }

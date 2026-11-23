@@ -15,6 +15,8 @@ import (
 
 	"github.com/chainreactors/cyber/core/types"
 	"github.com/chainreactors/cyber/pkg/rpc"
+
+	"wscyber/native/internal/testdb"
 )
 
 type runningHub struct {
@@ -132,7 +134,10 @@ func TestServeEndToEnd(t *testing.T) {
 		t.Setenv(name, "")
 	}
 	t.Setenv("HOME", home)
-	t.Setenv(envDatabaseURL, "postgres://wscyber:synthetic-dsn-pass@db.example.test/wscyber")
+	database := testdb.New(t).URL
+	dsn, password := database.DSN(), databasePassword(t, database)
+	// 第一次经环境变量取连接串（读后删除），第二次经 --database-url-file。
+	t.Setenv(envDatabaseURL, dsn)
 	oldUI, oldNotices := embeddedUI, notices
 	t.Cleanup(func() { embeddedUI, notices = oldUI, oldNotices })
 	embedded := syntheticEmbeddedUI(t)
@@ -150,6 +155,9 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 	if _, ok := ready["browser"].(string); !ok {
 		t.Fatal("ready lacks browser")
+	}
+	if db, _ := ready["database"].(map[string]any); db["database"] != database.Database() || db["user"] != database.User() || ready["schema"] != float64(1) {
+		t.Fatalf("ready database/schema: %v %v", ready["database"], ready["schema"])
 	}
 	if _, set := os.LookupEnv(envDatabaseURL); set {
 		t.Fatal("WSCYBER_DATABASE_URL still in environment")
@@ -182,14 +190,16 @@ func TestServeEndToEnd(t *testing.T) {
 	if names := hub.stop(t); strings.Join(names, ",") != "model-node-closed,stopped" {
 		t.Fatalf("shutdown events: %v", names)
 	}
-	if !strings.Contains(noticeText.String(), "已生成访问密钥文件") || !strings.Contains(noticeText.String(), "已读取数据库连接串（来源：env）") {
+	if !strings.Contains(noticeText.String(), "已生成访问密钥文件") || !strings.Contains(noticeText.String(), "来源 "+envDatabaseURL) {
 		t.Fatalf("notices: %s", noticeText.String())
 	}
+	firstNotices := noticeText.String()
+	assertNoHubConnections(t, database)
 
 	// 第二次启动：同一 state 复用密钥；--ui-dir 优先于嵌入前端。
 	noticeText.Reset()
 	uiDir := syntheticUI(t)
-	hub = startRun(t, "serve", "--listen", "127.0.0.1:0", "--ui-dir", uiDir)
+	hub = startRun(t, "serve", "--listen", "127.0.0.1:0", "--ui-dir", uiDir, "--database-url-file", writeDatabaseURLFile(t, database))
 	ready = hub.next(t)
 	if ready["frontend"] != true || ready["access_key_file"] != keyFile {
 		t.Fatalf("second ready: %v", ready)
@@ -202,11 +212,12 @@ func TestServeEndToEnd(t *testing.T) {
 		t.Fatal("reused key rejected")
 	}
 	hub.stop(t)
-	if strings.Contains(noticeText.String(), "已生成") {
-		t.Fatal("key regenerated")
+	if strings.Contains(noticeText.String(), "已生成") || !strings.Contains(noticeText.String(), "来源 --database-url-file") {
+		t.Fatalf("second notices: %s", noticeText.String())
 	}
-	for _, text := range []string{noticeText.String(), body} {
-		if strings.Contains(text, key) || strings.Contains(text, "synthetic-dsn-pass") {
+	assertNoHubConnections(t, database)
+	for _, text := range []string{firstNotices, noticeText.String(), body} {
+		if strings.Contains(text, key) || strings.Contains(text, dsn) || strings.Contains(text, password) {
 			t.Fatal("secret exposed")
 		}
 	}
@@ -218,6 +229,7 @@ func TestServeRejectsBadInputBeforeSideEffects(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv(envStateDir, "")
 	t.Setenv(envDatabaseURL, "")
+	t.Setenv(envDatabaseURLFile, "")
 	dbFile := filepath.Join(home, "db.url")
 	mustWrite(t, dbFile, []byte("postgres://u@db.example.test/d"))
 	if err := os.Chmod(dbFile, 0644); err != nil {
@@ -227,7 +239,7 @@ func TestServeRejectsBadInputBeforeSideEffects(t *testing.T) {
 		{"serve", "--listen", "localhost:8080"},
 		{"serve", "--listen", "[fe80::1%eth0]:8080"},
 		{"serve", "--database-url-file", dbFile},
-		{"serve", "--state-dir", filepath.Join(home, "s?mode=memory")},
+		{"serve"}, // 没有任何连接串
 	} {
 		if err := run(t.Context(), args, io.Discard); err == nil {
 			t.Fatalf("%v accepted", args)
@@ -238,16 +250,17 @@ func TestServeRejectsBadInputBeforeSideEffects(t *testing.T) {
 	}
 }
 
-// 旧旗标形式：ready 只多 version/browser；即便二进制有嵌入前端也不启用；版本 API 可用。
+// 旧旗标形式：ready 只多 version/browser/database/schema；即便二进制有嵌入前端也不启用；版本 API 可用。
 func TestLegacyFlagsUnchanged(t *testing.T) {
 	oldUI := embeddedUI
 	t.Cleanup(func() { embeddedUI = oldUI })
 	embedded := syntheticEmbeddedUI(t)
 	embeddedUI = func() fs.FS { return embedded }
 	opts, key := testOptions(t)
-	hub := startRun(t, "--local-hub", "--listen", "127.0.0.1:0", "--access-key-file", opts.keyFile, "--state-dir", opts.stateDir)
+	hub := startRun(t, "--local-hub", "--listen", "127.0.0.1:0", "--access-key-file", opts.keyFile, "--state-dir", opts.stateDir,
+		"--database-url-file", writeDatabaseURLFile(t, opts.database))
 	ready := hub.next(t)
-	want := []string{"address", "browser", "event", "execution_node", "fixture_node_configured", "frontend", "mode", "model_config_management", "model_node_configured", "version"}
+	want := []string{"address", "browser", "database", "event", "execution_node", "fixture_node_configured", "frontend", "mode", "model_config_management", "model_node_configured", "schema", "version"}
 	if len(ready) != len(want) || ready["mode"] != "local-hub" || ready["frontend"] != false {
 		t.Fatalf("legacy ready: %v", ready)
 	}

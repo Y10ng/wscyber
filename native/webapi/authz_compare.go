@@ -100,11 +100,13 @@ func authzCompareItem(model authzCompareModel) AuthzCompareItem {
 
 func (s *taskStore) listAuthzCompares(ctx context.Context, taskID, originalEvidenceID string) ([]AuthzCompareItem, error) {
 	var rows []authzCompareModel
-	query := s.orm.NewSelect().Model(&rows).Where("task_id = ?", taskID)
-	if originalEvidenceID != "" {
-		query = query.Where("original_evidence_id = ?", originalEvidenceID)
-	}
-	if err := query.OrderExpr("created_at DESC, id DESC").Limit(authzCompareListLimit).Scan(ctx); err != nil {
+	if err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewSelect().Model(&rows).Where("task_id = ?", taskID)
+		if originalEvidenceID != "" {
+			query = query.Where("original_evidence_id = ?", originalEvidenceID)
+		}
+		return query.OrderExpr(`created_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(authzCompareListLimit).Scan(ctx)
+	}); err != nil {
 		return nil, err
 	}
 	items := make([]AuthzCompareItem, 0, len(rows))
@@ -261,7 +263,7 @@ func (t *authzCompareTool) Execute(ctx context.Context, arguments string) (*aop.
 		if result.HTTPStatus != nil {
 			row.HTTPStatus = sql.NullInt64{Int64: *result.HTTPStatus, Valid: true}
 		}
-		if _, err := t.store.orm.NewInsert().Model(row).Exec(ctx); err != nil {
+		if err := t.store.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.NewInsert().Model(row).Exec(ctx); return err }); err != nil {
 			message := fmt.Sprintf("变体 %s 已处理（证据 %s），但越权对比记录保存失败；停止后续变体，不要重发已形成证据的请求", result.Label, result.EvidenceID)
 			return fail(message)
 		}

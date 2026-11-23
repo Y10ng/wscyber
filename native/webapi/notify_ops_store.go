@@ -49,13 +49,13 @@ type notificationOpsModel struct {
 }
 
 func (s *taskStore) notifyOpsSettings(ctx context.Context) (*notifyOpsSettingsModel, error) {
-	return findOptional[notifyOpsSettingsModel](ctx, s.orm, "id = ?", notifyChannelWeCom)
+	return readOptional[notifyOpsSettingsModel](ctx, s, "id = ?", notifyChannelWeCom)
 }
 
 // putNotifySettingsAll 单事务写推送配置与运营通知开关。
 func (s *taskStore) putNotifySettingsAll(ctx context.Context, model *notifySettingsModel, ops *notifyOpsSettingsModel) error {
 	model.ID, ops.ID = notifyChannelWeCom, notifyChannelWeCom
-	return s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewInsert().Model(model).On("CONFLICT (id) DO UPDATE").
 			Set("webhook_cipher = EXCLUDED.webhook_cipher, enabled = EXCLUDED.enabled, require_confirm = EXCLUDED.require_confirm, base_url = EXCLUDED.base_url, updated_at = EXCLUDED.updated_at").
 			Exec(ctx); err != nil {
@@ -75,8 +75,8 @@ func (s *taskStore) insertOpsNotification(ctx context.Context, model *notificati
 
 func (s *taskStore) insertOpsNotificationIf(ctx context.Context, model *notificationModel, ops *notificationOpsModel, valid func() bool) (bool, error) {
 	inserted := false
-	err := s.orm.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// IMMEDIATE 事务已在 Begin 取得写锁；等待期间审批可能已决，不能迟到补登记。
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// 写事务开头已取得全局写锁；等锁期间审批可能已决，不能迟到补登记。
 		if valid != nil && !valid() {
 			return nil
 		}
@@ -98,34 +98,42 @@ func (s *taskStore) insertOpsNotificationIf(ctx context.Context, model *notifica
 }
 
 func (s *taskStore) notificationOps(ctx context.Context, id string) (*notificationOpsModel, error) {
-	return findOptional[notificationOpsModel](ctx, s.orm, "notification_id = ?", id)
+	return readOptional[notificationOpsModel](ctx, s, "notification_id = ?", id)
 }
 
 func (s *taskStore) notificationKeyExists(ctx context.Context, key string) (bool, error) {
-	return s.orm.NewSelect().Model((*notificationModel)(nil)).Where("dedupe_key = ?", key).Exists(ctx)
+	return readValue(ctx, s, func(ctx context.Context, db bun.IDB) (bool, error) {
+		return db.NewSelect().Model((*notificationModel)(nil)).Where("dedupe_key = ?", key).Exists(ctx)
+	})
 }
 
 // dismissUnsentNotifications：去重键下仍在 pending_confirm/queued 的通知改为 dismissed（已决的审批不再发送）。
 func (s *taskStore) dismissUnsentNotifications(ctx context.Context, key, kind string) error {
-	_, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyDismissed).Set("next_attempt_at = NULL").
-		Where("dedupe_key = ? AND kind = ? AND status IN (?)", key, kind, bun.In([]string{NotifyPendingConfirm, NotifyQueued})).Exec(ctx)
-	return err
+	return s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyDismissed).Set("next_attempt_at = NULL").
+			Where("dedupe_key = ? AND kind = ? AND status IN (?)", key, kind, bun.In([]string{NotifyPendingConfirm, NotifyQueued})).Exec(ctx)
+		return err
+	})
 }
 
 // dismissQueuedNotification queued → dismissed（投递前发现审批已决）；返回是否更新。
 func (s *taskStore) dismissQueuedNotification(ctx context.Context, id string) (bool, error) {
-	res, err := s.orm.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyDismissed).Set("next_attempt_at = NULL").
-		Where("id = ? AND status = ?", id, NotifyQueued).Exec(ctx)
-	if err != nil {
-		return false, err
-	}
-	affected, err := res.RowsAffected()
+	var affected int64
+	err := s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*notificationModel)(nil)).Set("status = ?", NotifyDismissed).Set("next_attempt_at = NULL").
+			Where("id = ? AND status = ?", id, NotifyQueued).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err = res.RowsAffected()
+		return err
+	})
 	return affected > 0, err
 }
 
 // scheduleRunAt 按 (asset_id, scheduled_for) 取运行记录（recordScheduleRun 冲突不插入时取已有那条）。
 func (s *taskStore) scheduleRunAt(ctx context.Context, assetID, scheduledFor string) (*scheduleRunModel, error) {
-	return findOptional[scheduleRunModel](ctx, s.orm, "asset_id = ? AND scheduled_for = ?", assetID, scheduledFor)
+	return readOptional[scheduleRunModel](ctx, s, "asset_id = ? AND scheduled_for = ?", assetID, scheduledFor)
 }
 
 func opsKeySuffix(key, prefix string) string {

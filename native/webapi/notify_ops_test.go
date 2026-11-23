@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +11,7 @@ import (
 
 	aop "github.com/chainreactors/cyber/aop"
 	"github.com/chainreactors/cyber/core/operation"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 // 运营通知（V4）测试：临时库 + httptest 模拟企业微信，数据全部为 example.test 合成内容，不向任何真实地址发送。
@@ -89,36 +88,6 @@ func TestNotifyOpsSettingsAPI(t *testing.T) {
 	last := audits[len(audits)-1]
 	if !strings.Contains(last.Summary, "待审批通知启用 → 停用") || !strings.Contains(last.Summary, "每周摘要启用 → 停用") || !strings.Contains(last.DetailJSON, `"notify_approval":false`) {
 		t.Fatalf("audit = %+v", last)
-	}
-}
-
-func TestNotifyOpsSchemaUpgradeFromM5bStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(42, 39))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.putNotifySettings(t.Context(), &notifySettingsModel{Enabled: true, RequireConfirm: true, BaseURL: "https://hub.example.test", UpdatedAt: nowRFC3339()}); err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare M5b stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full schema after upgrade: %v", err)
-	}
-	_ = complete.Close()
-	f := openAssetFixture(t, database)
-	status, value, raw := f.do("GET", "/api/webapi/notify/wecom", "")
-	if status != 200 || value["enabled"] != true || value["require_confirm"] != true || value["base_url"] != "https://hub.example.test" || value["notify_approval"] != false || value["notify_weekly_digest"] != false {
-		t.Fatalf("upgraded settings = %d %s", status, raw)
 	}
 }
 
@@ -273,7 +242,10 @@ func TestNotifyOpsApprovalSubagentAndSwitchOff(t *testing.T) {
 	f, task, h := opsApprovalFixture(t, false, `"notify_approval":true`)
 	child := &taskSubsessionModel{SessionID: "child-ops", TaskID: task.ID, ParentSessionID: task.InitialSessionID, ParentCallID: "parent-call",
 		OracleID: "synthetic", AgentName: OracleExplorerName, Status: subsessionRunning, CreatedAt: nowRFC3339()}
-	if _, err := f.capability.store.orm.NewInsert().Model(child).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(child).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	done := startReview(t, h, t.Context(), child.SessionID, "child-1", "webapi_http", `{"method":"DELETE","url":"https://api.example.test/items/7"}`)
@@ -320,10 +292,10 @@ func TestNotifyOpsScheduleFailed(t *testing.T) {
 	f.createAsset("a5") // 归档 → skipped，不通知
 	f.putSchedule("a5", `{"cron":"0 * * * *"}`)
 	f.do("PUT", "/api/webapi/assets/a5", `{"name":"演示库存系统","origins":["http://example.test"],"archived":true}`)
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_asset_schedules SET cron = 'bad cron' WHERE asset_id = 'a3'`); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_asset_schedules SET cron = 'bad cron' WHERE asset_id = 'a3'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.capability.store.db.ExecContext(t.Context(), `UPDATE webapi_asset_schedules SET next_run_at = '0000-broken' WHERE asset_id = 'a4'`); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), `UPDATE webapi_asset_schedules SET next_run_at = '0000-broken' WHERE asset_id = 'a4'`); err != nil {
 		t.Fatal(err)
 	}
 	f.setNow("2026-11-19T07:00:10Z")

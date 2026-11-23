@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -19,25 +18,16 @@ import (
 	coretool "github.com/chainreactors/cyber/core/tool"
 	"github.com/chainreactors/cyber/exts/guardrail"
 	"github.com/chainreactors/cyber/pkg/profile"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 	"google.golang.org/protobuf/proto"
 
+	"wscyber/native/internal/testdb"
 	"wscyber/native/webapi"
 )
 
 // 真实模型节点 Harness：bash 高危命令经原生 tool.before 挂起，等待超过终端 5s 超时后批准仍能执行；
 // 变量拼出、无法静态核对的命令同样挂起，拒绝后不执行。不调用模型。
 func TestModelNodeApprovalThroughNativeBash(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	schema, err := webservice.NewSQLiteStore(database, webapi.SchemaModule())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = schema.Close()
-	capability, err := webapi.NewCapability(database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	capability := newSchemaCapability(t)
 	defer capability.Close(context.Background())
 	handlers := map[string]http.Handler{}
 	for _, route := range capability.Routes(nil) {
@@ -186,15 +176,10 @@ func approvalOffSession(t *testing.T, capability *webapi.Capability) string {
 	return saved.Task.InitialSessionID
 }
 
+// newSchemaCapability 用独立测试库（已迁移的模板克隆）与专属 state-dir 建 webapi 能力。
 func newSchemaCapability(t *testing.T) *webapi.Capability {
 	t.Helper()
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	schema, err := webservice.NewSQLiteStore(database, webapi.SchemaModule())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = schema.Close()
-	capability, err := webapi.NewCapability(database)
+	capability, err := webapi.NewCapability(testdb.New(t).URL, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

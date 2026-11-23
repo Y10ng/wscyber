@@ -18,7 +18,6 @@ import (
 	coretool "github.com/chainreactors/cyber/core/tool"
 	toolhooks "github.com/chainreactors/cyber/core/tool/hooks"
 	"github.com/chainreactors/cyber/exts/guardrail"
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -75,49 +74,6 @@ func TestWebAPITaskPolicyPutGetDefaults(t *testing.T) {
 	// 映射不到任务的会话按默认值。
 	if policy, task, err := capability.store.policyForSession(t.Context(), "unmapped"); err != nil || task != nil || !policy.IsDefault || policy.Approval != ApprovalHighRisk {
 		t.Fatalf("unmapped session policy = %+v %v", policy, err)
-	}
-}
-
-func TestWebAPITaskPolicySchemaUpgradeFromRetestStage(t *testing.T) {
-	database := t.TempDir() + "/hub.sqlite"
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(10, 12))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stage.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outcome, err := store.Save(t.Context(), "retest-stage-task", "旧任务", "保留复测阶段行", []string{"http://example.test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = store.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare retest stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	reopened, err := openTaskStore(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	policy, err := reopened.policyForTask(t.Context(), outcome.Task.ID)
-	if err != nil || !policy.IsDefault || policy.Scope != ScopeOrigins {
-		t.Fatalf("old task policy = %+v %v", policy, err)
-	}
-	if _, err := reopened.setPolicy(t.Context(), outcome.Task.ID, ScopeOrigins, ApprovalOff); err != nil {
-		t.Fatal(err)
-	}
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("complete schema not accepted: %v", err)
 	}
 }
 

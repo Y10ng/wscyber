@@ -1,12 +1,12 @@
 package webapi
 
 import (
+	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 
-	webservice "github.com/chainreactors/cyber/pkg/web/service"
+	"github.com/uptrace/bun"
 )
 
 // 资产漏洞库（C3）测试：全部为合成数据（example.test 演示资产、虚构候选与证据）。
@@ -131,10 +131,13 @@ func TestWebAPIVulnSyncAndStatus(t *testing.T) {
 	// 已入库成员不再重新计算：f1 改修订换了端点也不挪动。
 	newRev := newFindingRevisionID()
 	payload, _ := json.Marshal(storedFindingPayload{Canonical: "{}", Content: findingContent{Title: "订单接口越权读取（改）"}, Evidence: evidenceAt("GET", "https://api.example.test/other")})
-	if _, err := f.capability.store.orm.NewInsert().Model(&findingRevisionModel{ID: newRev, FindingID: f1, TaskID: "t1", Number: 1, Revision: 2, SessionID: "s", TurnID: "t", CallID: "c2-" + f1, PayloadJSON: string(payload), Title: "订单接口越权读取（改）", CreatedAt: nowRFC3339()}).Exec(t.Context()); err != nil {
+	if err := f.capability.store.write(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.NewInsert().Model(&findingRevisionModel{ID: newRev, FindingID: f1, TaskID: "t1", Number: 1, Revision: 2, SessionID: "s", TurnID: "t", CallID: "c2-" + f1, PayloadJSON: string(payload), Title: "订单接口越权读取（改）", CreatedAt: nowRFC3339()}).Exec(ctx)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.capability.store.db.ExecContext(t.Context(), "UPDATE webapi_findings SET current_revision = 2, current_revision_id = ? WHERE id = ?", newRev, f1); err != nil {
+	if _, err := f.capability.store.db().ExecContext(t.Context(), "UPDATE webapi_findings SET current_revision = 2, current_revision_id = ? WHERE id = ?", newRev, f1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,10 +178,10 @@ func TestWebAPIVulnSyncAndStatus(t *testing.T) {
 	}
 	// 同步幂等：重复 GET 不增成员行。
 	var members int
-	_ = f.capability.store.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_vuln_members").Scan(&members)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_vuln_members").Scan(&members)
 	f.vulns("a1", "")
 	var again int
-	_ = f.capability.store.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_vuln_members").Scan(&again)
+	_ = f.capability.store.db().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webapi_asset_vuln_members").Scan(&again)
 	if members != 5 || again != 5 {
 		t.Fatalf("members %d → %d", members, again)
 	}
@@ -360,30 +363,5 @@ func TestWebAPIVulnScheduleRetestDedup(t *testing.T) {
 	}
 	if vulnOf(list, c1).Status != VulnFixed || vulnOf(list, e1).Status != VulnUnconfirmed || vulnOf(list, a1).Status != VulnPresent {
 		t.Fatalf("statuses = %+v", list)
-	}
-}
-
-func TestWebAPIVulnSchemaUpgradeFromFollowupStage(t *testing.T) {
-	database := filepath.Join(t.TempDir(), "hub.sqlite")
-	stage, err := webservice.NewSQLiteStore(database, webapiSchemaStage(20, 17))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = stage.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare followup stage: %v", err)
-	}
-	complete, err := webservice.NewSQLiteStore(database, SchemaModule())
-	if err != nil {
-		t.Fatalf("full native validation after prepare: %v", err)
-	}
-	_ = complete.Close()
-	if err := PrepareWebAPISchema(database); err != nil {
-		t.Fatalf("prepare complete: %v", err)
-	}
-	f := openAssetFixture(t, database)
-	f.createAsset("a1")
-	if status, value, raw := f.do("GET", "/api/webapi/assets/a1/vulns", ""); status != 200 || len(value["vulns"].([]any)) != 0 || value["latest_task_id"] != nil {
-		t.Fatalf("vulns after upgrade = %d %s", status, raw)
 	}
 }

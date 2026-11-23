@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uptrace/bun"
 
 	"wscyber/native/pgschema"
@@ -221,10 +222,42 @@ func createDatabase(ctx context.Context, admin pgschema.DatabaseURL, name, templ
 func dropDatabase(ctx context.Context, admin pgschema.DatabaseURL, name string) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	return withAdmin(ctx, admin, func(db *bun.DB) error {
-		_, err := db.ExecContext(ctx, `DROP DATABASE IF EXISTS ? WITH (FORCE)`, bun.Ident(name))
-		return err
+	return retryDrop(ctx, dropRetryAttempts, dropRetryDelay, func() error {
+		return withAdmin(ctx, admin, func(db *bun.DB) error {
+			_, err := db.ExecContext(ctx, `DROP DATABASE IF EXISTS ? WITH (FORCE)`, bun.Ident(name))
+			return err
+		})
 	})
+}
+
+// 删库重试参数。PG18 起终止 autovacuum worker 需要 pg_signal_autovacuum_worker，
+// 非超级用户执行 DROP DATABASE … WITH (FORCE) 时若恰有 autovacuum worker 连在
+// 新库上，会报 42501（permission denied to terminate process）。worker 很快结束，
+// 短暂重试即可；其它错误不重试。
+const (
+	dropRetryAttempts = 10
+	dropRetryDelay    = 200 * time.Millisecond
+)
+
+// retryDrop 执行 drop，遇 42501 时最多共尝试 attempts 次、每次间隔 delay。
+func retryDrop(ctx context.Context, attempts int, delay time.Duration, drop func() error) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		err = drop()
+		if err == nil || !isInsufficientPrivilege(err) || attempt >= attempts {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(err, ctx.Err())
+		case <-time.After(delay):
+		}
+	}
+}
+
+func isInsufficientPrivilege(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42501"
 }
 
 func withAdmin(ctx context.Context, admin pgschema.DatabaseURL, fn func(*bun.DB) error) error {
