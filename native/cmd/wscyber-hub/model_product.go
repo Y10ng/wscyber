@@ -45,6 +45,7 @@ type productModelProfile struct {
 	processes  *coreproc.Manager
 	desired    func() (provider.ProviderConfig, error)
 
+	closeMu  sync.Mutex // 串行整个 Load/Close，避免关闭后继续发布资源。
 	mu       sync.Mutex
 	closing  bool
 	closed   bool
@@ -75,6 +76,14 @@ func newProductModelProfile(request profile.Request, directory string, capabilit
 }
 
 func (p *productModelProfile) Load(ctx context.Context) error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+	p.mu.Lock()
+	closing := p.closing
+	p.mu.Unlock()
+	if closing {
+		return errProductModelNodeClosed
+	}
 	if err := p.Harness.Load(ctx); err != nil {
 		return err
 	}
@@ -177,6 +186,8 @@ func (p *productModelProfile) ReloadProvider(ctx context.Context, config provide
 }
 
 func (p *productModelProfile) Close(ctx context.Context) error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
 	p.mu.Lock()
 	p.closing = true
 	closed := p.closed
@@ -259,6 +270,10 @@ func serveProductModelNode(ctx context.Context, config host.Config, stateDir, ke
 		return nodeErr
 	}
 	resultErr = errors.Join(host.Serve(ctx, config), nodeErr)
+	return errors.Join(resultErr, closeProductModelProfiles(profiles, report))
+}
+
+func closeProductModelProfiles(profiles []*productModelProfile, report *modelNodeReport) (resultErr error) {
 	report.Profiles, report.NoActiveProcesses = len(profiles), true
 	for _, p := range profiles {
 		err := p.Close(context.Background())
@@ -270,8 +285,9 @@ func serveProductModelNode(ctx context.Context, config host.Config, stateDir, ke
 		report.ClientsCreated += len(p.clients)
 		report.ClientsReleased += p.released
 		p.mu.Unlock()
+		// 未加载/加载失败时 Manager 尚未发布；Close 的错误仍向上传递，
+		// 不能将 nil 本身当作活跃资源。已发布的 Manager 仍逐项检查。
 		if p.processes == nil {
-			report.NoActiveProcesses = false
 			continue
 		}
 		for _, entry := range p.processes.List() {

@@ -109,7 +109,7 @@ func httpGet(t *testing.T, url, key string) (int, string) {
 	return res.StatusCode, string(body)
 }
 
-// waitModelNode 等进程内正式节点登记；立即停止会撞上节点 Profile 尚未 Load 的收尾竞态（既有行为）。
+// waitModelNode 核验进程内正式节点成功回连登记，不是停止前的时序规避。
 func waitModelNode(t *testing.T, base, key string) {
 	t.Helper()
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second}
@@ -204,7 +204,6 @@ func TestServeEndToEnd(t *testing.T) {
 	if ready["frontend"] != true || ready["access_key_file"] != keyFile {
 		t.Fatalf("second ready: %v", ready)
 	}
-	waitModelNode(t, "http://"+ready["address"].(string), key)
 	if again, _ := readPrivateKey(keyFile, true); again != key {
 		t.Fatal("access key changed on restart")
 	}

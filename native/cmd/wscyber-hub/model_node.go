@@ -154,7 +154,7 @@ type modelNodeProfile struct {
 	// desired只读唯一ConfigStore，装配后不变；不是第二份期望状态。
 	desired  func() (provider.ProviderConfig, error)
 	mu       sync.Mutex // 发布与开始关闭共用；不在此锁内等待session排空。
-	closeMu  sync.Mutex
+	closeMu  sync.Mutex // 串行整个 Load/Close，避免关闭后继续发布资源。
 	closing  bool
 	closed   bool
 	clients  []modelNodeClient
@@ -189,6 +189,14 @@ func newModelNodeProfile(request profile.Request, directory, endpoint string, ca
 }
 
 func (p *modelNodeProfile) Load(ctx context.Context) error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+	p.mu.Lock()
+	closing := p.closing
+	p.mu.Unlock()
+	if closing {
+		return errModelNodeClosed
+	}
 	if err := p.Harness.Load(ctx); err != nil {
 		return err
 	}
@@ -340,6 +348,9 @@ func (p *modelNodeProfile) Close(ctx context.Context) error {
 	if err := p.Harness.Close(ctx); err != nil {
 		// Active=false不证明排空；关闭失败保留所有client供后续Close重试。
 		return err
+	}
+	if p.processes != nil {
+		p.processes.Shutdown()
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -496,6 +507,10 @@ func serveModelNode(ctx context.Context, config host.Config, stateDir, key, endp
 	}
 	resultErr = errors.Join(host.Serve(ctx, config), nodeErr)
 	// host已取消并等待StartNode；这里再核原生关闭，失败可重试排空，不提前关client。
+	return errors.Join(resultErr, closeModelNodeProfiles(profiles, report))
+}
+
+func closeModelNodeProfiles(profiles []*modelNodeProfile, report *modelNodeReport) (resultErr error) {
 	report.Profiles, report.NoActiveProcesses = len(profiles), true
 	for _, p := range profiles {
 		err := p.Close(context.Background())
@@ -507,9 +522,8 @@ func serveModelNode(ctx context.Context, config host.Config, stateDir, key, endp
 		report.ClientsCreated += len(p.clients)
 		report.ClientsReleased += p.released
 		p.mu.Unlock()
-		if p.processes == nil {
-			report.NoActiveProcesses = false
-		} else {
+		// 未加载/加载失败时 Manager 尚未发布；Close 的错误仍向上传递。
+		if p.processes != nil {
 			for _, entry := range p.processes.List() {
 				if entry.State.Active() {
 					report.NoActiveProcesses = false

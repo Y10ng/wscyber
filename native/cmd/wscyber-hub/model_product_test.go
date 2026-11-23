@@ -123,9 +123,6 @@ func TestProductModelNativeEntryAndReopen(t *testing.T) {
 	ready, done := make(chan string, 1), make(chan error, 1)
 	go func() { done <- serveLocalHub(ctx, opts, func(addr string) { ready <- addr }) }()
 	address := <-ready
-	// 先等节点登记并应用配置再停止：立即停止会撞上节点 Profile 尚未 Load 的收尾竞态（既有行为，
-	// 见 serve_e2e_test.go waitModelNode）；PG 下启动时序变化后此竞态更易出现。
-	providerCount(address)
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second}
 	defer client.CloseIdleConnections()
 	configuration := rpc.NewConfigServiceClient(client, "http://"+address)
