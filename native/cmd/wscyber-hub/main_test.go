@@ -238,6 +238,7 @@ func TestLocalHubNativeAPIAndShutdown(t *testing.T) {
 	}
 	assertNoStateFD(t, opts.stateDir)
 	assertNoHubConnections(t, opts.database)
+	// NewSQLiteStore 经 overlay 实际连接 PostgreSQL；保留上游名字以缩小补丁。
 	store, err := webservice.NewSQLiteStore(opts.database.DSN(), webapitasks.SchemaModule())
 	if err != nil {
 		t.Fatal(err)

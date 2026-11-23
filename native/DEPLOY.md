@@ -4,6 +4,8 @@
 
 上游路径相对固定版本 `cyber-harness@f4b1fb2f`（模块缓存 `~/go/pkg/mod/github.com/chainreactors/cyber-harness@v0.0.0-20261109041610-f4b1fb2f3315`）；本项目路径相对仓库根，行号以 HEAD `a2e8060` 为准。
 
+实施补记（2026-11-23）：D1 与 P1–P4 已完成，Hub 已迁 PG，必须配置连接串；构建/存储相关段落已校正。其余部署、更新、登录条目仍为设计，当前可运行用法以 `RUNNING.md` 为准。
+
 本文 §1 是调查事实，§2–§9 是设计，§10 是给运维看的操作手册草案（实现后随片校正），§11–§13 是衔接、拆片与待决。
 
 ---
@@ -14,10 +16,10 @@
 
 | 事实 | 位置 |
 |---|---|
-| Hub 必须经 overlay 脚本构建（应用 SQLite `_txlock` 补丁）；RUNNING 的命令带 `GOTOOLCHAIN=local GOPROXY=off`，即**假定模块缓存已热** | `native/RUNNING.md:5-13` |
-| 脚本从 `Path.home()/go/pkg/mod/...@<固定伪版本>` 取上游源（**硬编码，不读 `go env GOMODCACHE`**；官方 `golang` 镜像 `GOPATH=/go`、`HOME=/root`，路径会对不上） | `scripts/cyber-go-overlay.py:10,25-28` |
-| 复制只读副本到 `var/cyber-sqlite-overlay/module-current/`，持 `var/heavy.lock`，派生 modfile `-replace` 指向副本，`go build -mod=readonly -modfile -overlay` | `cyber-go-overlay.py:32-54` |
-| P2 计划把脚本改为“清单驱动整文件替换” | `native/POSTGRES.md` §2 |
+| Hub 必须经 overlay 脚本构建（应用 PostgreSQL 存储 overlay）；RUNNING 的命令带 `GOTOOLCHAIN=local GOPROXY=off`，即**假定模块缓存已热** | `native/RUNNING.md:5-13` |
+| 脚本通过 `go env GOMODCACHE` 定位固定上游源（P2 已实现，支持自定义模块缓存） | `scripts/cyber-go-overlay.py:10,25-28` |
+| 复制只读副本到 `var/cyber-overlay/module-current/`，持 `var/heavy.lock`，派生 modfile `-replace` 指向副本，`go build -mod=readonly -modfile -overlay` | `cyber-go-overlay.py:32-54` |
+| P2 已实现“清单驱动整文件替换”，上游源和派生副本均作哈希校验 | `native/POSTGRES.md` §2 |
 | Go 1.26（go.mod `go 1.26.0`，本机 go1.26.4）；模块来自公开代理并校验 `go.sum`；本机 `proxy.golang.org` 直连不可达，M5c 用 `goproxy.cn`（`GOSUMDB` 仍为 sum.golang.org） | `native/go.mod:3`、`native/DEPENDENCIES.md:20,173` |
 | 现有二进制：`CGO_ENABLED=1` 动态链接 glibc（`ldd`：libc.so.6）；依赖闭包内用 cgo 的只有 `runtime/cgo`、`net`、`os/user`（`go list -deps` 实测），即 `CGO_ENABLED=0` 可得静态二进制（待实施验证 DNS/用户查询行为） | 本机 `var/wscyber-hub`、`go version -m` |
 | 体积约 124 MB（未 strip，含 debug_info） | `DEPENDENCIES.md:189` |
@@ -40,7 +42,7 @@
 | `--listen` **只允许 loopback** | `main.go:117-120` |
 | 访问密钥文件：不跟随符号链接、普通文件、**权限必须恰为 0600**、≤4096 字节 | `main.go:205-227` |
 | state-dir：正式模式 `MkdirAll`+`chmod 0700` 可重开；其它模式要求新目录 | `main.go:143-153` |
-| state-dir 内容：`hub.sqlite`（P4 删）、`webapi-secrets.key`（测试账号/Webhook 加密密钥，**缺失则已存密文无法解密、不会重新生成**）、`egress-ca/`（出口 MITM CA，0700，缺失时上游 ProxyHub 生成）、`model-config/cyber.yaml`（模型配置，含 API key）、`tool-config/`（katana goflags 配置，未设 `XDG_CONFIG_HOME` 时）、`model-node-*`（节点工作区，正常停止时删除，崩溃会残留） | `main.go:161`、`webapi/asset_secret.go:18-27`、`webapi/egress.go:35,380-395`、`model_config.go:29-40`、`webapi/browser.go:452-461`、`model_product.go:219-230` |
+| state-dir 只保存运行文件，业务数据在 PostgreSQL。文件包括：`webapi-secrets.key`（测试账号/Webhook 加密密钥，**缺失则已存密文无法解密、不会重新生成**）、`egress-ca/`（出口 MITM CA，0700，缺失时上游 ProxyHub 生成）、`model-config/cyber.yaml`（模型配置，含 API key）、`tool-config/`（katana goflags 配置，未设 `XDG_CONFIG_HOME` 时）、`model-node-*`（节点工作区，正常停止时删除，崩溃会残留） | `main.go:161`、`webapi/asset_secret.go:18-27`、`webapi/egress.go:35,380-395`、`model_config.go:29-40`、`webapi/browser.go:452-461`、`model_product.go:219-230` |
 | 上游 logger 一律 `NopLogger`（上游会把 AccessKey 打到 Infof） | `main.go:154-158`、上游 `pkg/web/host/host.go:64` |
 | 日志：stdout 是 JSON 行事件 `ready`（含 address、frontend、模式字段）→ 停止时 `model-node-closed` → `stopped`；错误到 stderr `wscyber-hub: …` 且 exit 1；ProxyHub 每次拒绝向 stderr 打一条 logrus | `main.go:43-46,85-104`、`native/BROWSER.md:57` |
 | 健康检查：上游 `GET /health` 返回 `{"status":"ok"}`，**不需鉴权**，只表示进程在监听；`/api/auth/{session,login,logout}` 也免鉴权；其余 `/api/` 需密钥 | 上游 `pkg/web/handler.go:32-35`、`pkg/web/service/auth.go:45-66` |
@@ -73,7 +75,7 @@
 | AGPL-3.0 文本 | Cyber、AOP（上游根 LICENSE sha256 `8d56b405…`） | AGPL 含网络交互条款；组合作品源代码提供义务未处理（`DEPENDENCIES.md:36,47`） |
 | GPL-3.0 文本 | `chainreactors/proxyclient`、`proxyclient/extra`、`sagernet/sing`、`sing-vmess`、`anytls/sing-anytls` | 二进制分发通常伴随源代码/许可文本义务，未处理（`DEPENDENCIES.md:30,139-142,157`） |
 | MPL-2.0（文件级） | `hashicorp/golang-lru/v2`、`hashicorp/go-version`、`projectdiscovery/retryablehttp-go` | 文件级 copyleft（`DEPENDENCIES.md:191`） |
-| **UNKNOWN**（根无许可文本） | `chainreactors/logs`、`utils`、`utils/parsers`、`utils/proc`、`utils/mitmproxy`、`utils/cert`、`neutron`；cyber-ui 归档；`react-arborist` 未采得通知；carapace `LICENSE.appendix` 含义 UNKNOWN；`modernc.org/memory` LOGO（P4 移除 SQLite 后若不可达则消失） | 无法确认是否允许再分发（`DEPENDENCIES.md:40-47,119,137-138,180`、`ui/README.md`） |
+| **UNKNOWN**（根无许可文本） | `chainreactors/logs`、`utils`、`utils/parsers`、`utils/proc`、`utils/mitmproxy`、`utils/cert`、`neutron`；cyber-ui 归档；`react-arborist` 未采得通知；carapace `LICENSE.appendix` 含义 UNKNOWN | 无法确认是否允许再分发（`DEPENDENCIES.md:40-47,119,137-138,180`、`ui/README.md`） |
 | 镜像额外内容 | Debian 包：Chromium（BSD-3 系 + 大量第三方）、PostgreSQL 客户端（PostgreSQL License）、python3（PSF）、tini（MIT）、字体（Apache-2.0）等 | 由各包 `/usr/share/doc/*/copyright` 承载（Debian slim 保留 copyright 文件），镜像不得删这些文件 |
 
 结论只到工程层：发布物**随包附带全部许可清单与通知**（§8.3）；“能否公开分发”取决于用户/法务对上表的核对，与镜像仓库可见性绑定（待决 §13-1）。
@@ -293,8 +295,8 @@ WantedBy=multi-user.target
 ### 8.2 固定构建环境 `native/deploy/builder/Dockerfile`
 
 - `golang:1.26.4-bookworm`（digest 固定）+ Node **v24.16.0** 官方二进制包（sha256 校验）装到 `/usr/local/node` 并**软链到 `/usr/bin/node`、`/usr/bin/npm`**（`cyber-ui-build.py` 的子进程 PATH 固定 `/usr/bin:/bin`，§1.1）+ `npm install -g npm@11.16.0`（脚本要求恰为此版本）+ `python3`（≥3.11）、`git`。
-- 需要修的两处脚本事实（D2 处理，若 P2 已改 `cyber-go-overlay.py` 则在其基础上改）：
-  - `cyber-go-overlay.py:25` 改用 `go env GOMODCACHE`，否则官方 golang 镜像（`GOPATH=/go`）找不到上游源。
+- 构建环境注意事项：
+  - `cyber-go-overlay.py` 已在 P2 改用 `go env GOMODCACHE`，无需再为官方 golang 镜像调整模块缓存路径。
   - 本机网络：`proxy.golang.org` 直连不可达时由调用方给 `GOPROXY=https://goproxy.cn,direct`（`GOSUMDB` 不变）；`cyber-ui-build.py` 下载/npm 一律不走代理（设计如此），本机若直连不通，`prepare` 用 `--root-repo /root/桌面/cyber-harness` + `--ui-archive <已校验缓存>`（仍校验固定哈希）。CI（GitHub 托管 runner）可直连，走公网分支——这也是 root 公网归档分支的首次实跑。
 - **可复现的含义**：输入全部锁定（go.sum、sources.lock.json、实际构建 package-lock、构建镜像 digest、工具链精确版本），任何人可在同一构建镜像里重建并核对 `release.json`；**不承诺逐字节一致**（Vite/Go 输出未做逐字节复现验证）。
 
@@ -412,12 +414,12 @@ CREATE DATABASE wscyber OWNER wscyber ENCODING 'UTF8' TEMPLATE template0;
 
 ## 11. 与 P 阶段的衔接
 
-| 现在即可做（不依赖 PG） | 须等 P3（Hub 接 PG） | 须等 P4（删 SQLite） | 须等 P5/P6 |
+| D1 已完成 / 部署线待做 | PG 已接入后的部署工作 | P4 已清理、发布时复核 | 须等 P5/P6 |
 |---|---|---|---|
-| 版本注入与 `version`；`/api/wscyber/version` + 前端显示；前端 embed；`serve` 子命令（listen/默认值/环境变量/自动 access.key/权限放宽/通配地址回连）；`healthcheck`（/health）；ready 事件加字段 | `serve --database-url-file` 接入（P3 本身做）；`db status/migrate/backup`；`/readyz`；compose `trial` profile 与 initdb；`wscyber.sh`/`wscyber-upgrade`/`self-update` 的备份与 schema 判定；首次部署全流程实测 | 许可清单与 SBOM 去掉 SQLite 相关模块；文档去掉 `hub.sqlite`；`--state-dir` 校验更新 | RLS 下 `pg_dump/pg_restore` 实测（P5）；`user add --admin` 与口令登录写入首次部署步骤（P6a/P6b）；打 `v0.1.0` |
-| 发布构建脚本、构建镜像、运行镜像、tar 包骨架、systemd 单元、install.sh、CI 工作流（用 SQLite 版 Hub 即可验证镜像/包能跑） | | | |
+| 版本注入与 `version`；`/api/wscyber/version` + 前端显示；前端 embed；`serve` 子命令（listen/默认值/环境变量/自动 access.key/权限放宽/通配地址回连）；`healthcheck`（/health）；ready 事件加字段 | `serve --database-url-file` 已接入；待做：`db status/migrate/backup`；`/readyz`；compose `trial` profile 与 initdb；`wscyber.sh`/`wscyber-upgrade`/`self-update` 的备份与 schema 判定；首次部署全流程实测 | 当前许可清单已按 PG Hub 闭包核对；发布时生成 SBOM 并复核，state-dir 只含运行文件 | RLS 下 `pg_dump/pg_restore` 实测（P5）；`user add --admin` 与口令登录写入首次部署步骤（P6a/P6b）；打 `v0.1.0` |
+| 发布构建脚本、构建镜像、运行镜像、tar 包骨架、systemd 单元、install.sh、CI 工作流（用 PG 版 Hub 加独立测试库验证镜像/包能跑） | | | |
 
-冲突约束：D1 改 `native/cmd/wscyber-hub/**`，P3 也改它 → **D1 须在 P3 开始前完成**（与 P1/P2 可并行：P1 写 `native/pgschema/**`、P2 写 `native/patches/**` 与 overlay 脚本）。D2 若改 `cyber-go-overlay.py` 须排在 P2 之后或只做 `GOMODCACHE` 一行改动并与 P2 协调。
+冲突约束：D1 改 `native/cmd/wscyber-hub/**`，P3 也改它 → **D1 须在 P3 开始前完成**（与 P1/P2 可并行：P1 写 `native/pgschema/**`、P2 写 `native/patches/**` 与 overlay 脚本）。D1、P2、P3 已完成；D2 复用现有 overlay 脚本，不再重复修改模块缓存定位。
 
 ---
 
@@ -427,7 +429,7 @@ CREATE DATABASE wscyber OWNER wscyber ENCODING 'UTF8' TEMPLATE template0;
 |---|---|---|---|---|---|
 | **D1** 单二进制运行形态 | `internal/buildinfo`；`version`/`healthcheck`/`serve` 子命令（§2 全部：默认值、环境变量、`WSCYBER_DATABASE_URL` 读后 unset 的占位接口、自动 `access.key`、0600/0400 放宽、非 loopback、通配地址回连 127.0.0.1）；前端 embed（`internal/uiembed` + `ui.go` 改 fs.FS 校验，`--ui-dir` 优先）；ready 加 `version`/`browser`；`GET /api/wscyber/version`；`.gitignore` 加 embed 目录 | `native/cmd/wscyber-hub/**`、`native/internal/buildinfo/**`、`native/internal/uiembed/**`、`.gitignore`、`native/RUNNING.md` | 定向 Go 测试（子命令解析、旧旗标不变、embed 清单校验正/反例、权限、通配回连、密钥自动生成与复用、版本 JSON）；用现有 `var/ui-work/release/public` 复制进 embed 目录构建，`serve` 无 `--ui-dir` 起在临时 state：`/health`、`/`、`healthcheck`、SIGTERM→`stopped`；`demo-stack.py up/selftest` 不回退 | 无（须在 P3 前完成） | 后端核心（o-latest） |
 | **D1-ui** 版本显示 | 侧栏底部显示 `/api/wscyber/version` 的版本与短提交 | `native/ui/source-overlay/**` | tsc/Vite；演示环境截图 | D1 | 前端（ds-flash） |
-| **D2** 发布构建与封装 | `scripts/release-build.py`；构建镜像、运行镜像 Dockerfile；compose 骨架（无 trial）；tar 包、`install.sh`、systemd 单元、`wscyber.env.example`；`SHA256SUMS`/`release.json`/许可目录/SBOM；`cyber-go-overlay.py` 改 `go env GOMODCACHE`；`.github/workflows/release.yml`（快照模式可本地 `act` 不要求） | `scripts/release-build.py`、`scripts/cyber-go-overlay.py`（一行）、`native/deploy/**`、`.github/workflows/**` | 本机在构建镜像内出 `v0.0.0-dev+<sha>` 快照；`docker build` 运行镜像；`docker run` 起容器（SQLite 版，临时卷）→ healthy、`/` 返回 index、容器内 `chromium --version`、非 root；宿主直接跑 tar 包里的二进制；`install.sh` 在**一次性容器**（systemd 镜像）内安装/卸载，不动宿主 | D1；P2 后再合 overlay 改动 | 后端核心（o-latest） |
+| **D2** 发布构建与封装 | `scripts/release-build.py`；构建镜像、运行镜像 Dockerfile；compose 骨架（无 trial）；tar 包、`install.sh`、systemd 单元、`wscyber.env.example`；`SHA256SUMS`/`release.json`/许可目录/SBOM；复用已支持 `go env GOMODCACHE` 的 overlay 脚本；`.github/workflows/release.yml`（快照模式可本地 `act` 不要求） | `scripts/release-build.py`、`scripts/cyber-go-overlay.py`（按需）、`native/deploy/**`、`.github/workflows/**` | 本机在构建镜像内出 `v0.0.0-dev+<sha>` 快照；`docker build` 运行镜像；`docker run` 起容器（PG 版，独立测试库与临时卷）→ healthy、`/` 返回 index、容器内 `chromium --version`、非 root；宿主直接跑 tar 包里的二进制；`install.sh` 在**一次性容器**（systemd 镜像）内安装/卸载，不动宿主 | D1、P3（已完成） | 后端核心（o-latest） |
 | **D3** 数据库运维与升级 | `db status/migrate/backup`；`/readyz`；DB 启动等待（`--database-wait`，默认 60 s）；compose `trial` profile + `initdb/10-wscyber.sh`；`wscyber.sh`（init/upgrade/rollback/backup/status）；`wscyber-upgrade`；`self-update`（发布渠道 URL + 可选 token 文件） | `native/cmd/wscyber-hub/**`、`native/deploy/**`、`scripts/release-build.py` | 本机 docker + 本机 PG18（`wscyber_dev` 建临时库，演示数据）：compose 外部库首次部署 → 造演示数据 → 升级到第二个快照（含一个只在测试构建里的空迁移 `0002`）→ 备份目录内容核对 → 故意让新版本启动失败验证两种回滚分支 → `--restore` 恢复后数据一致；trial profile 首次部署；`self-update` 指向本地 HTTP 目录 | P3、D2 | 后端核心（o-latest） |
 | **D4** 首发收尾 | P4/P5/P6 后：更新许可清单与 SBOM、RLS 下备份/恢复实测（必要时备份角色退路）、首次部署步骤接 `user add --admin`、§10 手册定稿进 `native/RUNNING.md`/本文、打 `v0.1.0-rc.1` 并在 CI 实跑一次 | `native/*.md`、`native/*licenses.json`、`native/deploy/**`、`scripts/**` | CI 实跑出镜像与包；本机按 §10.1/§10.2 从零走一遍并升级到 `rc.2` | P4、P5、P6、待决 §13-1 | 后端一般（gpt-6-astra；只用演示/合成数据） |
 

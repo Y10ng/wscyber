@@ -1,7 +1,7 @@
 {
-  "scope": "2026-11-13 Linux/amd64 H2-B cmd/wscyber-hub 实际可达增量",
+  "scope": "2026-11-13 Linux/amd64 H2-B cmd/wscyber-hub 实际可达增量；2026-11-23 P4 按 overlay 后 PG Hub 闭包过滤，计数为过滤后的累计登记范围（历史原始计数见 git）",
   "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
-  "reachable_module_count": 93,
+  "reachable_module_count": 85,
   "new_module_count": 12,
   "baseline": {
     "files": [
@@ -11,7 +11,7 @@
       },
       {
         "file": "hub-dependency-licenses.json",
-        "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+        "sha256": "2bc50e6bd26eafeea73a9f9a5fcab5fef3c042bbefde59455a577755b0d956c6"
       }
     ],
     "same_version_modules": [
@@ -42,7 +42,6 @@
       "github.com/creack/pty",
       "github.com/dlclark/regexp2/v2",
       "github.com/dop251/goja",
-      "github.com/dustin/go-humanize",
       "github.com/facebookincubator/nvdtools",
       "github.com/go-dedup/megophone",
       "github.com/go-dedup/simhash",
@@ -51,7 +50,6 @@
       "github.com/go-viper/mapstructure/v2",
       "github.com/goccy/go-yaml",
       "github.com/google/pprof",
-      "github.com/google/uuid",
       "github.com/gookit/config/v2",
       "github.com/gookit/goutil",
       "github.com/gorilla/css",
@@ -67,7 +65,6 @@
       "github.com/muesli/termenv",
       "github.com/pb33f/ordered-map/v2",
       "github.com/puzpuzpuz/xsync/v3",
-      "github.com/remyoudompheng/bigfft",
       "github.com/rivo/uniseg",
       "github.com/santhosh-tekuri/jsonschema/v6",
       "github.com/spf13/cobra",
@@ -76,7 +73,6 @@
       "github.com/twmb/murmur3",
       "github.com/u-root/u-root",
       "github.com/uptrace/bun",
-      "github.com/uptrace/bun/dialect/sqlitedialect",
       "github.com/vmihailenco/msgpack/v5",
       "github.com/vmihailenco/tagparser/v2",
       "github.com/xo/terminfo",
@@ -91,10 +87,6 @@
       "golang.org/x/text",
       "google.golang.org/protobuf",
       "gopkg.in/yaml.v3",
-      "modernc.org/libc",
-      "modernc.org/mathutil",
-      "modernc.org/memory",
-      "modernc.org/sqlite",
       "mvdan.cc/sh/v3"
     ]
   },

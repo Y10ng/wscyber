@@ -55,7 +55,7 @@
 
 ## 6. 运行与资源
 
-- 构建/运行入口：`native/RUNNING.md`（Hub 必须用 `scripts/cyber-go-overlay.py` 构建以应用 SQLite 补丁；前端用 `scripts/cyber-ui-build.py rebuild`）。
+- 构建/运行入口：`native/RUNNING.md`（Hub 必须用 `scripts/cyber-go-overlay.py` 构建以应用 PostgreSQL 存储 overlay；前端用 `scripts/cyber-ui-build.py rebuild`）。
 - `var/` 是本地运行现场（git 忽略）。只放当前需要的东西，不为每轮复制源码/构建/哈希归档。
 - 外网按需代理：`HTTPS_PROXY=http://192.168.1.2:9567`，仅按命令注入。
 - 真实模型调用、真实目标测试、部署、外部投递需用户对应授权；开发模型调用不需要。

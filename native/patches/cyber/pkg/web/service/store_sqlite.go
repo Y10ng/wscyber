@@ -10,7 +10,7 @@
 //   - pgx/v5 stdlib + pgdialect；连接参数与 native/pgschema.OpenDB 一致；
 //   - 不建表、不迁移，只校验迁移已应用且声明的表/列存在（store_schema.go）；
 //   - 每个读写方法在自己的事务里先 set_config 身份（store_pg_identity.go）；
-//   - instr → strpos；文本排序显式 COLLATE "C"（等价 SQLite BINARY 比较）；
+//   - instr → strpos；文本排序显式 COLLATE "C"（按字节比较）；
 //   - 事件游标与制品游标写入额外持事务级 advisory lock（见各处注释）。
 
 package service
@@ -301,7 +301,7 @@ func (s *SQLiteStore) ListSessionPage(ctx context.Context, offset, limit int, fi
 	var sessions []*types.SessionRecord
 	var hasMore bool
 	err := s.read(ctx, func(ctx context.Context, tx bun.Tx) error {
-		// COLLATE "C" keeps SQLite's byte-wise text ordering regardless of the
+		// COLLATE "C" keeps byte-wise text ordering regardless of the
 		// database's default collation.
 		query := tx.NewSelect().Model((*sessionModel)(nil)).Column("session_json").
 			OrderExpr(`updated_at COLLATE "C" DESC, id COLLATE "C" DESC`).Limit(int64(limit + 1)).Offset(int64(offset))
@@ -758,8 +758,8 @@ func artifactEventModels(appended []*aop.Event) ([]*rawArtifactModel, error) {
 
 // insertArtifactModels inserts with the identity cursor left to the database.
 // Readers page by "cursor > after", which is only gap-safe if rows become
-// visible in cursor order; SQLite's single writer guaranteed that, so under
-// PostgreSQL inserters hold one advisory lock until commit. Identity values
+// visible in cursor order. PostgreSQL inserters hold one advisory lock until
+// commit to guarantee that order. Identity values
 // burned by ON CONFLICT DO NOTHING leave harmless gaps.
 func insertArtifactModels(ctx context.Context, tx bun.Tx, models []*rawArtifactModel) error {
 	if len(models) == 0 {

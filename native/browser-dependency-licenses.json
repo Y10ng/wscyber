@@ -1,7 +1,7 @@
 {
- "scope": "2026-11-22 Linux/amd64 M5c 浏览器与爬虫 cmd/wscyber-hub 实际 go list -deps 增量（引入上游 tools/playwright、tools/katana 及其依赖 go-rod、katana fork）；不代表全模块图/扫描发行版/UI",
+ "scope": "2026-11-22 Linux/amd64 M5c 浏览器与爬虫 cmd/wscyber-hub 实际 go list -deps 增量（引入上游 tools/playwright、tools/katana 及其依赖 go-rod、katana fork）；不代表全模块图/扫描发行版/UI；2026-11-23 P4 按 overlay 后 PG Hub 闭包过滤，计数为过滤后的累计登记范围（历史原始计数见 git）",
  "upstream_commit": "f4b1fb2f33158a1a3c382de9c1cb63807a6b55cf",
- "reachable_module_count": 220,
+ "reachable_module_count": 212,
  "new_module_count": 107,
  "baseline": {
   "files": [
@@ -11,19 +11,19 @@
    },
    {
     "file": "hub-dependency-licenses.json",
-    "sha256": "b8ccef61faee4a9c2a96c16deaac46fa8035af0a66b3839260032f98f3e716f3"
+    "sha256": "2bc50e6bd26eafeea73a9f9a5fcab5fef3c042bbefde59455a577755b0d956c6"
    },
    {
     "file": "node-dependency-licenses.json",
-    "sha256": "a01642fcc776ecab4f62847f3143a8776575daad7e3c209a9c1a368a215ca674"
+    "sha256": "829ec052d30d28817dd778cccb9d7e5c6ea256499065be82bdf94740f6848081"
    },
    {
     "file": "egress-dependency-licenses.json",
-    "sha256": "e87ef3dc3b3149fd5a5eb246af6800fac5706f95a600ed2c295fea246ec4ea0d"
+    "sha256": "436cc55545bf96037cbafcfe81474a82ceb72677e44a278dbf51885b1ddb3cb6"
    },
    {
     "file": "evidence-image-dependency-licenses.json",
-    "sha256": "72efb2d752d79bb103704b418117d62f5b82ba37df609cdd2a108240fb269565"
+    "sha256": "5430cb00669dbb4648245ac49f352aa480e69cd65dfd5e04259b411c0a84d27b"
    }
   ],
   "same_version_modules": [
@@ -68,7 +68,6 @@
    "github.com/creack/pty",
    "github.com/dlclark/regexp2/v2",
    "github.com/dop251/goja",
-   "github.com/dustin/go-humanize",
    "github.com/facebookincubator/nvdtools",
    "github.com/go-dedup/megophone",
    "github.com/go-dedup/simhash",
@@ -79,7 +78,6 @@
    "github.com/gofrs/uuid/v5",
    "github.com/golang/groupcache",
    "github.com/google/pprof",
-   "github.com/google/uuid",
    "github.com/gookit/config/v2",
    "github.com/gookit/goutil",
    "github.com/gorilla/css",
@@ -100,7 +98,6 @@
    "github.com/pb33f/ordered-map/v2",
    "github.com/puzpuzpuz/xsync/v3",
    "github.com/quic-go/qpack",
-   "github.com/remyoudompheng/bigfft",
    "github.com/rivo/uniseg",
    "github.com/sagernet/sing",
    "github.com/sagernet/sing-vmess",
@@ -116,7 +113,6 @@
    "github.com/twmb/murmur3",
    "github.com/u-root/u-root",
    "github.com/uptrace/bun",
-   "github.com/uptrace/bun/dialect/sqlitedialect",
    "github.com/vmihailenco/msgpack/v5",
    "github.com/vmihailenco/tagparser/v2",
    "github.com/xo/terminfo",
@@ -135,10 +131,6 @@
    "golang.org/x/text",
    "google.golang.org/protobuf",
    "gopkg.in/yaml.v3",
-   "modernc.org/libc",
-   "modernc.org/mathutil",
-   "modernc.org/memory",
-   "modernc.org/sqlite",
    "mvdan.cc/sh/v3"
   ]
  },

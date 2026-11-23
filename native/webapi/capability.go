@@ -326,7 +326,7 @@ type Capability struct {
 }
 
 // NewCapability 创建能力。database 是已迁移的 PostgreSQL 库（与原生存储同库、分池）；
-// stateDir 存放凭据/Webhook 加密密钥与出口 CA（原先取 hub.sqlite 所在目录）。
+// stateDir 存放凭据/Webhook 加密密钥与出口 CA。
 func NewCapability(database pgschema.DatabaseURL, stateDir string) (*Capability, error) {
 	if stateDir == "" {
 		return nil, fmt.Errorf("webapi state-dir 不能为空")

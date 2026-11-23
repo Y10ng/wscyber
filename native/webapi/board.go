@@ -247,8 +247,8 @@ func boardEndpointID(taskID, key string) string { return namespacedUUID(boardEnd
 func newBoardOracleID() string { return "bo_" + newSessionID() + newSessionID() }
 
 // newBoardEventID 生成按插入序递增的事件 ID："boe_" + 16 位十六进制时间戳（纳秒，进程内严格递增）
-// + 16 位随机。事件列表按 (at, id) 排序：SQLite 时代第二键是 rowid（插入序），PG 无 rowid，
-// 用可排序 ID 等价复现（写事务持全局写锁，插入顺序即 ID 生成顺序；长度与旧格式相同）。
+// + 16 位随机。事件列表按 (at, id) 排序，用可排序 ID 保持插入序
+// （写事务持全局写锁，插入顺序即 ID 生成顺序；长度与旧格式相同）。
 func newBoardEventID() string { return "boe_" + boardEventSeq() + newSessionID() }
 
 var boardEventClock struct {

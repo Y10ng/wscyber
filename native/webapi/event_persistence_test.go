@@ -14,8 +14,6 @@ import (
 
 // PostgreSQL 下原生存储与 webapi 分池、互不共享写锁：webapi 写事务（持全局写锁、已写入
 // 未提交）期间，原生事件追加不等待、立即落库；webapi 随后读得到该事件。
-// SQLite 时代两者共用一个文件写锁，这里测的是“事件等业务写锁释放 / 超过 busy_timeout 有界报错”，
-// PG 无此耦合，改为验证不阻塞与可见性。
 func TestAOPEventNotBlockedByWebAPIWriteLock(t *testing.T) {
 	database := newTestHub(t)
 	native, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())

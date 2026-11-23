@@ -29,6 +29,7 @@ type assetFixture struct {
 func newAssetFixture(t *testing.T) *assetFixture {
 	t.Helper()
 	database := newTestHub(t)
+	// NewSQLiteStore 经 overlay 实际连接 PostgreSQL；保留上游名字以缩小补丁。
 	schema, err := webservice.NewSQLiteStore(database.DSN(), SchemaModule())
 	if err != nil {
 		t.Fatal(err)

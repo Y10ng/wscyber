@@ -14,6 +14,8 @@ env GOMAXPROCS=2 GOGC=30 GOTOOLCHAIN=local GOPROXY=off \
   -o "$PWD/var/wscyber-hub" ./cmd/wscyber-hub
 ```
 
+overlay 由清单驱动，派生文件只放在 `var/cyber-overlay/`；原生存储为 PostgreSQL（见 `native/patches/README.md`）。
+
 普通 `go build` 不会应用 `native/patches/` 的替换文件（会编译失败），正式运行必须用上面的入口。定向测试同理，且需要测试库：`source ~/.config/wscyber/pg-test.env` 后 `python3 -I scripts/cyber-go-overlay.py -- test -p 1 ./webapi -run '^TestWebAPIVerification' -count=1`。
 
 ## 2. 构建前端

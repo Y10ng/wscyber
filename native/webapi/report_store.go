@@ -142,7 +142,7 @@ func (s *taskStore) saveReport(ctx context.Context, id, taskID string, items []R
 	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		result, err := tx.NewInsert().Model(model).On("CONFLICT(id) DO NOTHING").Exec(ctx)
 		if isMissingParent(err) {
-			return errReportNotFound // 任务不存在：同 SQLite 时代“插入后按归属不符回滚”。
+			return errReportNotFound // 任务不存在：保持报告未找到的对外语义。
 		}
 		if err != nil {
 			return err

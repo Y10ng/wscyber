@@ -1,6 +1,8 @@
 # H1 / H2-A / H2-B 固定依赖、来源及许可边界
 
-核验日期：2026-11-13。仅 Linux/amd64 原生 CLI 与本机空 Web Hub 小片；不是完整 Cyber 扫描发行版或 Web UI 许可审查。完整模块约束和校验和在 `go.mod` / `go.sum`。H1 的 61 个可达外部模块及模块根许可文件 SHA-256 在 [dependency-licenses.json](dependency-licenses.json)；H2-A 的 81 个可达模块（原 61 个版本不变 + 新增 20 个）见 [hub-dependency-licenses.json](hub-dependency-licenses.json)，增量说明见本文末节。许可分类只依据核对过的固定模块根文本/补充通知，不替代完整嵌套文件/字体/二进制资产和组合审查。
+当前闭包核验日期：2026-11-23（P4）。Linux/amd64 的 PostgreSQL Hub 经 overlay 构建后有 **214 个可达外部模块**，分片许可记录合集与之完全相等；核验方法与变化见末尾 P4 节。完整模块图约束和校验和在 `go.mod` / `go.sum`，它们不等于实际链接清单。H1 的 61 条根许可记录在 [dependency-licenses.json](dependency-licenses.json)，后续记录分布在各 `*-dependency-licenses.json`。
+
+下文 H1–P1 是各阶段的历史核验背景（已迁 PG），历史模块总数不代表当前 Hub。JSON 已过滤不可达模块、更新累计计数与基线哈希；旧记录可从 git 获取。许可分类只依据核对过的固定模块根文本/补充通知，不替代完整嵌套文件/字体/二进制资产和组合审查，既有 AGPL/GPL/MPL/UNKNOWN 缺口不因存储迁移而消除。
 
 ## Cyber / AOP：同一固定提交，公开 Go 模块可复现
 
@@ -71,15 +73,7 @@ H2-A 继续使用相同 Cyber/AOP 固定提交/公开模块，不修改上游。
 | 新增实际可达模块 | 固定版本 | 用途 / 根许可文本 |
 |---|---|---|
 | `connectrpc.com/connect` | `v1.21.1` | 原生 typed routes / 生成测试客户端；Apache-2.0 |
-| `github.com/uptrace/bun` | `v1.3.0` | 原生 SQLiteStore ORM；BSD-2-Clause |
-| `github.com/uptrace/bun/dialect/sqlitedialect` | `v1.3.0` | 原生 SQLite 方言；BSD-2-Clause |
-| `modernc.org/sqlite` | `v1.60.1` | 原生纯 Go SQLite driver；BSD-3-Clause，另有 SQLite public-domain、sqlite-vec MIT 与第三方通知 |
-| `modernc.org/libc` | `v1.77.1` | SQLite 传递依赖；BSD-3-Clause，另有第三方通知（含 musl MIT 等） |
-| `modernc.org/mathutil` | `v1.7.1` | SQLite 传递依赖；BSD-3-Clause |
-| `modernc.org/memory` | `v1.12.1` | SQLite 传递依赖；BSD-3-Clause，多个根通知及仅归属链接的 logo 文件 |
-| `github.com/dustin/go-humanize` | `v1.0.1` | SQLite 传递依赖；MIT |
-| `github.com/google/uuid` | `v1.6.0` | SQLite 传递依赖；BSD-3-Clause |
-| `github.com/remyoudompheng/bigfft` | `v0.0.0-20230129092748-24d4a6f8daec` | SQLite 传递依赖；BSD-3-Clause |
+| `github.com/uptrace/bun` | `v1.3.0` | 原生 PostgreSQL ORM（已迁 PG）；BSD-2-Clause |
 | `github.com/jinzhu/inflection` | `v1.0.0` | Bun 传递依赖；MIT |
 | `github.com/puzpuzpuz/xsync/v3` | `v3.5.1` | Bun 传递依赖；Apache-2.0 |
 | `github.com/tmthrgd/go-hex` | `v0.0.0-20190904060850-447a3041c3bc` | Bun 传递依赖；BSD-3-Clause |
@@ -91,7 +85,7 @@ H2-A 继续使用相同 Cyber/AOP 固定提交/公开模块，不修改上游。
 | `github.com/google/pprof` | `v0.0.0-20260802141513-ef3492d7dac3` | Goja 引用 profile 包；根 Apache-2.0，不是新增 profiling 服务 |
 | `github.com/santhosh-tekuri/jsonschema/v6` | `v6.0.3` | exts/jev JSON Schema；Apache-2.0 |
 
-来源和根许可全文哈希在增量 JSON 中，公开模块来源链接使用 `pkg.go.dev/<module>@<固定版本>`。SQLite/libc 的 `LICENSE-3RD-PARTY.md` 已核对汇总并记录哈希，**不把它们的全模块图清单误当本入口全部链接内容，也不称逐文件组合许可审查完成**。`modernc.org/memory/LICENSE-LOGO` 只有外部归属链接，明确保留 UNKNOWN；本轮未使用/发布 logo。sqlite-vec/vfs 未被此入口导入，不据打包许可推断功能已采用。
+来源和根许可全文哈希在增量 JSON 中，公开模块来源链接使用 `pkg.go.dev/<module>@<固定版本>`。此表已移除 P4 后不再链接的 8 个模块，JSON 当前为 H1 61 条 + 本片 12 条；历史 20 条增量可从 git 查阅。
 
 H1 四个模块的缺根许可文本 UNKNOWN、AGPL/GPL 组合及对应源代码/通知义务仍然存在；H2-A 不消除这些缺口，未部署或分发。固定新模块根许可证存在不等于所有嵌套代码/资产均已审查；后续网络部署/分发仍须完成相应核验。
 
@@ -120,7 +114,7 @@ H2-A 的 build、4 项定向测试、编译 CLI 的 HTTP/原生 JSON API 与 SIG
 
 已有四个缺根文本 UNKNOWN、Cyber/AOP AGPL、proxyclient GPL、源代码与通知义务继续存在；本增量不作法律结论或可部署声明。新模块根文本存在也不代表嵌套代码/资产/商标全审查完成。
 
-真实链路/净环境CLI/14条原生持久事件/关闭与有限验收见 NODE.md（见 tag legacy-snapshot）。原生SQLite事件重开仅证明记录落盘可读，不是完整执行恢复；原生WebSocket回流不是生产UI验收。
+真实链路/净环境CLI/14条原生持久事件/关闭与有限验收见 NODE.md（见 tag legacy-snapshot）。原生事件重开仅证明持久化记录可读（已迁 PG），不是完整执行恢复；原生WebSocket回流不是生产UI验收。
 
 ## H3-A / H3-A2：固定原生UI与补充依赖（已验本机构建/资源HTTP）
 
@@ -192,7 +186,7 @@ CJK 回退字体只在运行时从系统读取（`WSCYBER_EVIDENCE_FONT` → `/u
 
 ## P1：PostgreSQL 基础设施（pgdialect / pgx）的可达依赖增量
 
-核验日期：2026-11-22。同一固定 Cyber/AOP 版本；新增本项目包 `native/pgschema`（连接配置、角色检查、单实例锁、`bun/migrate` 迁移运行器与基线）与 `native/internal/testdb`（测试库助手），设计见 [POSTGRES.md](POSTGRES.md)。这两个包的 `go list -deps` 共 **15 个外部模块：13 个已在既有清单且版本不变，新增 2 个**；版本、公开来源与根许可 SHA-256 见 [pg-dependency-licenses.json](pg-dependency-licenses.json)。P1 中 Hub 入口尚未导入 `pgschema`，Hub 可达模块集不变（P3 接入后按 Hub 闭包重核；P4 删除 SQLite 时同步删 modernc/sqlitedialect 记录）。
+核验日期：2026-11-22。同一固定 Cyber/AOP 版本；新增本项目包 `native/pgschema`（连接配置、角色检查、单实例锁、`bun/migrate` 迁移运行器与基线）与 `native/internal/testdb`（测试库助手），设计见 [POSTGRES.md](POSTGRES.md)。这两个包的 `go list -deps` 共 **15 个外部模块：13 个已在既有清单且版本不变，新增 2 个**；版本、公开来源与根许可 SHA-256 见 [pg-dependency-licenses.json](pg-dependency-licenses.json)。P1 当时 Hub 尚未导入 `pgschema`；P3 已接入，P4 已按 Hub 闭包重核并移除不再链接的模块记录。
 
 模块获取：`proxy.golang.org` 直连被拒、指定代理 `192.168.1.2:9567` 不可达，改用 `goproxy.cn` 镜像，`GOSUMDB` 仍为 `sum.golang.org`。新增 `go.sum` 4 行；上游 f4b1fb2 的 `go.sum` 不含这两个模块。`go mod tidy` 需全模块图，镜像/直连不全时无法完成，`go.mod` 按 tidy 规则手工整理（`pgx/v5`、`pgdialect` 为直接依赖，`puddle/v2` 为 indirect）。
 
@@ -202,3 +196,12 @@ CJK 回退字体只在运行时从系统读取（`WSCYBER_EVIDENCE_FONT` → `/u
 | `github.com/jackc/puddle/v2` | `v2.2.2` | `pgx/v5/stdlib` 经 `pgxpool` 可达的资源池（pgx v5.7.2 要求的最小版本）；MIT |
 
 `github.com/jackc/pgx/v5 v5.7.2`（及 pgpassfile、pgservicefile）此前已因上游 titus 校验器在 Hub 闭包内，版本不变，本片起由本项目直接导入。既有许可缺口不因本增量改变；不作法律结论或可部署声明。
+
+## P4：按 PostgreSQL Hub 的实际闭包收敛（2026-11-23）
+
+- `python3 -I scripts/cyber-dependency-check.py`：调用 overlay 的 `list -deps -json ./cmd/wscyber-hub`，核对 **1136 包、214 个外部模块、214 条许可记录**；缺失 0、多余 0、版本差异 0，分片计数与基线 SHA-256 全部一致。清单累计范围为 H1 61 → Hub 73 → node 85 → egress 104 → evidence-image 105 → browser 212 → PG 214。不把整张 Go 模块图当作链接清单。
+- 从各分片的模块记录/基线引用中删除 8 个不可达模块：`bun/dialect/sqlitedialect`、`modernc.org/sqlite`、`modernc.org/libc`、`modernc.org/mathutil`、`modernc.org/memory`、`dustin/go-humanize`、`google/uuid`、`remyoudompheng/bigfft`。本次闭包中 `google/uuid` 也没有其它使用者；既有其他 UUID 实现不受影响。
+- `pgdialect v1.3.0`、`puddle/v2 v2.2.2` 仍在 `pg-dependency-licenses.json`；`pgx/v5 v5.7.2`、`pgpassfile`、`pgservicefile` 在 browser 分片，版本未变。新增缺口 0；移除 `modernc.org/memory` 的 LOGO 未决项不影响其余许可未决项。
+- `GOPROXY=https://goproxy.cn GOSUMDB=sum.golang.org go -C native mod tidy` 已成功。`sqlitedialect` 与 `modernc.org/sqlite` 不再是直接依赖，但 **tidy 不支持 overlay**，会按固定上游原始存储文件的 import 把它们保留为 indirect，其传递依赖与校验和也仍在模块图里。无需手删后再被 tidy 加回；overlay Hub 闭包明确不含这两个包及 `modernc.org/libc`。这是模块图残留，不是运行时兼容层。
+- tidy 另外补齐跨平台/依赖测试所需的 15 个 indirect 要求，并将本项目测试直接导入的 `gorilla/websocket` 标为直接依赖；既有要求版本未升级。实际 Hub 许可记录没有因此增加模块。
+- 历史根许可哈希与限制保留；本次仅确认登记范围与链接范围一致，不声称完成逐文件/组合授权审查。

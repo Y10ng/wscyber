@@ -162,7 +162,7 @@ def main():
                 raise RuntimeError('不是原生Hub manifest')
             request('/cyber.rpc.chat.SessionService/ListSessions', 401, method='POST', media='application/json')
             request('/cyber.rpc.chat.SessionService/ListSessions', 200, token=key, method='POST', media='application/json')
-            for path in ('/cyber.rpc.scan.ScanService/ListScans','/cyber.rpc.missing.Service/Missing','/ioa/missing','/assets/missing.js','/.wscyber-ui.json','/test.key','/state/hub.sqlite'):
+            for path in ('/cyber.rpc.scan.ScanService/ListScans','/cyber.rpc.missing.Service/Missing','/ioa/missing','/assets/missing.js','/.wscyber-ui.json','/test.key','/state/webapi-secrets.key'):
                 request(path,404,token=key)
             result['success'] = True
         except Exception as exc:

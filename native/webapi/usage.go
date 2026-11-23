@@ -190,7 +190,7 @@ func (s *taskStore) usageSessions(ctx context.Context, taskID string) (map[strin
 		{"subagent", `SELECT task_id, session_id, '', '' FROM webapi_task_subsessions`},
 	}
 	// 各表 session_id 唯一（验证/报告/复测有唯一索引，子会话为主键），同表内顺序不影响“首个角色”；
-	// SQLite 时代的 rowid 次序键改为 session_id，只为结果确定。
+	// 使用 session_id 作次序键，保证结果确定。
 	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
 		if err := scanRows(db.QueryContext(ctx, `SELECT id, objective, initial_session_id FROM webapi_tasks`+taskFilter, args...))(func(rows *sql.Rows) error {
 			var id, objective, session string

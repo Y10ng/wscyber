@@ -102,7 +102,7 @@ func (s *taskStore) claimPinnedRevision(ctx context.Context, want pinnedSource, 
 	err = s.write(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		inserted, err := insert(ctx, tx)
 		if isMissingParent(err) {
-			return errFindingNotFound // 任务不存在：同 SQLite 时代“插入后按候选不存在回滚”。
+			return errFindingNotFound // 任务不存在：保持候选未找到的对外语义。
 		}
 		if err != nil {
 			return err

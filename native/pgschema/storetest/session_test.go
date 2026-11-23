@@ -152,7 +152,7 @@ func TestListSessionPagePaginationAndFilters(t *testing.T) {
 	}
 }
 
-// 中文标题与 Unicode 大小写；同一 updated_at 时按 id 字节序倒序（SQLite BINARY 等价）。
+// 中文标题与 Unicode 大小写；同一 updated_at 时按 id 字节序倒序。
 func TestListSessionPageSearchUnicodeAndTieOrder(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

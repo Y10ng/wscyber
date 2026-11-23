@@ -15,8 +15,8 @@ import (
 	"github.com/chainreactors/cyber/core/operation"
 )
 
-// PostgreSQL 并发语义（native/POSTGRES.md §5.3）：SQLite 单连接 + BEGIN IMMEDIATE 使所有
-// webapi 写事务全局串行；PG 下由 write 助手的全局 advisory lock 复现。以下测试用真实并发
+// PostgreSQL 并发语义（native/POSTGRES.md §5.3）：write 助手的全局 advisory lock
+// 保证所有 webapi 写事务串行。以下测试用真实并发
 // （多个 goroutine、各自连接）验证依赖该串行的业务不变量。
 
 func openPGTestStore(t *testing.T) (*taskStore, testHub) {

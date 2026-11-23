@@ -11,8 +11,7 @@ import (
 	"github.com/chainreactors/cyber/exts/guardrail"
 )
 
-// 运营通知登记与 webapi 全局写锁（PostgreSQL 版）。SQLite 时代这里测的是 BUSY / BUSY_SNAPSHOT
-// 与 busy_timeout；PG 下写事务开头取全局 advisory lock 排队，不会“立即失败”，所以这里保留的是
+// 运营通知登记与 webapi 全局写锁：写事务开头取全局 advisory lock 排队，验证以下
 // 业务断言：持锁期间 PENDING 事件不被阻塞、登记等锁后恰好一次、审批已决不迟到补登记、
 // 短尝试超时保留重试。另一写者用独立连接持有同一把锁模拟。
 

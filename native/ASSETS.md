@@ -6,7 +6,7 @@
 - `PUT /assets/{id}`（id 由客户端生成，规则同任务 id）`{name, owner, environment, known_info, objective, origins[], forbidden, scope?, approval?, archived?}`：整份覆盖、保存即生效，新建 201、更新 200（保留 `created_at`）。校验：name 去首尾空白后必填、≤128 字；origins ≥1，规范化/去重/排序同任务；scope/approval 枚举同 `POLICY.md`，空＝`origins`/`high_risk`。未知字段忽略。
 - Asset = 以上字段 + `id, created_at, updated_at, credentials:[{id,label,username,has_secret,note,updated_at}]`；**任何响应都不含 secret**。
 - `PUT /assets/{id}/credentials/{cid}` `{label, username, secret?, note}`（未知字段 400）：secret 省略或 `""` 保留原值；`cid` 已属其他资产 409。`DELETE` 同路径，不存在 404。两者返回资产视图。
-- 密文：AES-256-GCM（AAD 绑定 asset_id+credential_id），列存 `v1:base64(nonce‖密文)`。密钥 `<state-dir>/webapi-secrets.key`（与 hub.sqlite 同目录，64 位 hex，0600 普通文件，首次写 secret 时 `O_EXCL` 生成）。库中已有密文而密钥缺失：写新 secret 与发起任务均报“密钥文件缺失…不会生成新密钥覆盖”，原密文保留；权限非 0600 拒用。
+- 密文：AES-256-GCM（AAD 绑定 asset_id+credential_id），列存 `v1:base64(nonce‖密文)`。密钥 `<state-dir>/webapi-secrets.key`（独立于 PostgreSQL 数据库，64 位 hex，0600 普通文件，首次写 secret 时 `O_EXCL` 生成）。库中已有密文而密钥缺失：写新 secret 与发起任务均报“密钥文件缺失…不会生成新密钥覆盖”，原密文保留；权限非 0600 拒用。
 - `PUT /assets/{id}/tasks/{task_id}` `{objective?, scope?, approval?}`（可空体）= Go `(*Capability).LaunchAssetTask(ctx, assetID, taskID, AssetLaunchOptions)`：
   1. 单事务建任务（known_info＝资产已知信息 + “环境：/负责人：”行，三者都为空时为 `资产：<名称>`；objective 缺省用资产；origins 用资产）+ 写策略（缺省资产默认，含变更记录）+ `webapi_asset_tasks` 关联。task_id 已被非本资产任务占用 409。
   2. 首条消息 = 前端 `webApiFirstMessage` 原文 + “测试账号”块（只给 credential id、用户名与 `{{cred:<id>.secret}}` 占位符；发起时仍解密校验一次，但明文不进 Run 输入，也不写 webapi_tasks）+ “禁止行为（提示词约束，非拦截）”块。占位符发送与结果回替见 `AUTHZ.md`。

@@ -24,7 +24,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（�
 | `native/cmd/wscyber-native/` | 早期 CLI fixture（原生会话/工具最小链），仅测试参考 |
 | `native/webapi/` | Web Capability：任务、HTTP 工具与证据、候选、验证的存储/工具/HTTP API；`policy.go` 授权检查；`egress*.go` 全工具出口扩展与记录；`browser*.go` 浏览器/爬虫命令包装与出口中继（见 `native/BROWSER.md`）；`notify*.go` 企业微信推送（配置、登记、后台投递）；`audit.go` 审计记录（只追加表、写操作生效后登记、查询）；`triage.go` 漏洞处置（严重度/处置/负责人/修复期限 SLA，逾期读时派生）；`board*.go` 任务黑板（地图/事实/Oracle，流量增量摄取，`boardDigest` 摘要）；`subagent.go` 命名子 Agent `oracle_explorer`（研究会话派出、认领一个 Oracle 并行探索，准入/预占/子会话→任务归属/结束释放，`GET /tasks/{id}/subsessions`，见 `native/SUBAGENT.md`） |
 | `native/modeltransport/` | 本机测试用的模型连接目的地约束 |
-| `native/patches/` | 上游 SQLite 事务锁一行补丁（`_txlock=immediate`），经 `scripts/cyber-go-overlay.py` 构建时应用；Web/API 自有连接同样使用 `_txlock=immediate`，在事务开始时取得写锁并按既有 `_busy_timeout=5000` 等待，避免先读后写升级立即 BUSY，保持 WAL 与其他一致性设置不变 |
+| `native/patches/` | 清单驱动的上游 PostgreSQL 存储整文件 overlay，经 `scripts/cyber-go-overlay.py` 核对上游哈希后应用；原生池与 Web/API 池各自设置事务身份，Web/API 写事务持全局 advisory lock，锁等待上限 10s；表结构与迁移由 `native/pgschema/` 管理 |
 | `native/ui/source-overlay/` | 对原生前端的覆盖文件（App、任务/候选/证据/验证面板、配置、i18n）；清单 `source-overlay.json` |
 | `native/ui/` 其他 | 固定来源锁、依赖覆盖、构建说明 |
 | `scripts/` | `cyber-go-overlay.py`（带补丁构建 Go）、`cyber-ui-build.py`（prepare/rebuild 前端）及其自检 |

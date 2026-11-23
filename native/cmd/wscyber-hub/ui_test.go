@@ -128,7 +128,7 @@ func TestUIAssetsBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "unlisted-file":
-				mustWrite(t, filepath.Join(dir, "private.sqlite"), []byte("not public"))
+				mustWrite(t, filepath.Join(dir, "private.db"), []byte("not public"))
 			case "project-root":
 				dir = filepath.Dir(dir)
 			}
@@ -216,7 +216,7 @@ func TestUIStaticNativeRoutes(t *testing.T) {
 		{"GET", "/assets/missing.css", "", "text/plain", 404},
 		{"GET", "/" + uiManifest, "", "text/plain", 404},
 		{"GET", "/access.key", "", "text/plain", 404},
-		{"GET", "/state/hub.sqlite", "", "text/plain", 404},
+		{"GET", "/state/webapi-secrets.key", "", "text/plain", 404},
 		{"GET", "/api/missing", key, "text/plain", 404},
 		{"GET", "/api/auth/session", "", "application/json", 200},
 		{"GET", "/health", "", "application/json", 200},

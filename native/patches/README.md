@@ -32,6 +32,8 @@ python3 -I scripts/cyber-go-overlay.py -- <build|test|vet|list> [go 参数...]
 
 不修改模块缓存、上游源码、正式 `go.mod`/`go.sum`。
 
+依赖登记以 overlay 后 Hub 的实际包闭包为准：`python3 -I scripts/cyber-dependency-check.py` 核对许可记录、版本及基线哈希。普通 `go mod tidy` 不支持 overlay，会按上游原实现保留未链接驱动的间接模块记录；这不表示 Hub 仍使用旧驱动（详见 `../DEPENDENCIES.md` 的 P4 节）。
+
 ## 上游升级
 
 上游三文件变化时脚本会报哈希不符：对旧上游、新上游、本目录替换文件做三方 diff，重新移植后更新清单哈希，再跑 `cyber-go-overlay.py -- test ./pgschema/storetest -count=1`。`--manifest PATH` 可指定另一份清单（演示/调试用）。

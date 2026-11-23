@@ -21,9 +21,8 @@ import (
 // 事务有效，连接归还池后不残留。ctx 无身份时与上游 overlay 存储一致，视为
 // system + 默认租户 "default"（P5 收紧）。
 //
-// 并发语义：SQLite 时代 webapi 池只有一条连接且写事务 BEGIN IMMEDIATE，所有
-// webapi 写事务全局串行，读也与写串行；业务代码（claim 的同指纹未决检查、
-// MAX(number)+1 取号等）以此为正确性前提。PG READ COMMITTED 下并发事务互不阻塞，
+// 并发语义：业务代码（claim 的同指纹未决检查、MAX(number)+1 取号等）
+// 以所有 webapi 写事务全局串行为正确性前提。PG READ COMMITTED 下并发事务互不阻塞，
 // 所以 write 默认先取全局事务级 advisory lock webapiWriteLock，精确复现单写者
 // 串行；取锁后的每条语句都看得到之前所有已提交写事务。读不加锁，走 READ ONLY
 // 事务（每条语句读最新已提交数据，与原先“读排在写之前或之后”可观察等价）。
@@ -149,8 +148,7 @@ func scanRows(rows *sql.Rows, err error) func(scan func(*sql.Rows) error) error 
 }
 
 // isMissingParent 判断插入被基线租户继承触发器以“父行不存在”（WT003）拒绝。
-// SQLite 时代 webapi 表之间没有外键，子行插入总能成功，随后由业务检查发现父不存在并
-// 回滚为“未找到”；PG 触发器在 BEFORE INSERT 即拒绝（ON CONFLICT DO NOTHING 也先触发），
+// PG 触发器在 BEFORE INSERT 即拒绝（ON CONFLICT DO NOTHING 也先触发），
 // 调用处据此映射回原来的未找到错误，保持对外行为（404）不变。
 func isMissingParent(err error) bool {
 	var pgErr *pgconn.PgError

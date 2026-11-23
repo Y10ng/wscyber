@@ -350,7 +350,7 @@ func TestEmbeddedUI(t *testing.T) {
 	mutations := map[string]func(fstest.MapFS){
 		"changed-asset":    func(m fstest.MapFS) { m["assets/fixture.js"] = &fstest.MapFile{Data: []byte("changed")} },
 		"missing-asset":    func(m fstest.MapFS) { delete(m, "assets/fixture.js") },
-		"unlisted-file":    func(m fstest.MapFS) { m["private.sqlite"] = &fstest.MapFile{Data: []byte("x")} },
+		"unlisted-file":    func(m fstest.MapFS) { m["private.db"] = &fstest.MapFile{Data: []byte("x")} },
 		"missing-manifest": func(m fstest.MapFS) { delete(m, uiManifest) },
 		"extra-dir":        func(m fstest.MapFS) { m["state/x.js"] = &fstest.MapFile{Data: []byte("x")} },
 		"wrong-commit": func(m fstest.MapFS) {
