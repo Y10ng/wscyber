@@ -96,6 +96,10 @@ env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C.UTF-8 var/wscyber-hub --local
 
 **P3a 已完成（1b0aa7e，分支 pg-migration）**：webapi 存储迁 PG——read/write 助手（每事务身份 GUC、写事务全局 advisory lock 复现单写者）、SQLite 方言全部改写、99 处 `COLLATE "C"`、删阶段机制与 19 个升级测试、busy 测试改写为 PG 锁语义、新增并发测试；`./webapi` 全过（主会话复跑 90s 通过）。行为变化：读不再排在写后面；等锁上限 10s；父行不存在的子行插入被触发器拒绝（验证/复测/报告 PUT 已映射回 404）；Oracle 事件 ID 改为可排序格式代替 rowid。
 
+**P4 已完成（5cc49f0）**：SQLite 残留清理（Hub 闭包已无 sqlite/libc，`go mod tidy` 补跑；许可清单删 8 个不可达模块，新增 `scripts/cyber-dependency-check.py` 核对 214 模块完全相等），文档改为 PG 现状。**迁 PG（P1–P4）完成。**
+
+**平台功能与打磨阶段（进行中，并行）**：F1 节点未加载完即停止时以 1 退出（`var/f1-node-shutdown`，gpt-6-astra，测试偶发失败的根因）；R2 审批记录与运营通知登记持久化（`var/r2-approval-persist`，o-latest，新增迁移 0002）；U2e 前端走查 9 项小打磨（`var/u2e-polish`，ds-flash）。
+
 **P3b 已完成（03181d8），pg-migration 已合回 main（d993f54）**：Hub 两种启动形式都经 `pgschema.Start`，无连接串即失败，单实例锁看门狗；演示环境每次 up 重建 `wscyber_demo`，五个剧本在 PG 上全部通过；主会话演示环境复核（selftest --chain、approval-demo 后总览/漏洞/审计/任务执行视图正常，数据均 tenant=default）。**预览已切到 PG**（`wscyber_preview` 库，全新开始；旧 SQLite 数据随 state 备份在 `var/preview/state.bak-sqlite-*`，旧二进制 `var/wscyber-hub.prev-sqlite`）。
 
 **D1 单二进制运行形态已完成（4da5710）**：`wscyber-hub serve`（前端已嵌入、默认 127.0.0.1:8080、自动生成 access.key、连接串文件只解析不连接）/`version`/`healthcheck`，旧旗标形式不变，可出静态二进制（strip 后约 103MB）；部署线到此暂停（用户定）。D1 记下：正式模型节点在 ready 后、节点 Profile 未加载完就收到停止信号时以 1 退出（既有问题，未修）；P3 接 PG 时连接串文件读取/权限只保留 cmd 层 `loadDatabaseURL` 一份，未配置连接串须启动失败，`buildinfo.SchemaVersion` 接迁移最大版本。
@@ -118,4 +122,6 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 ## 执行会话
 
-- （无）
+- `f1-node`（gpt-6-astra，日志 `var/f1-node-shutdown/exec.log`）
+- `r2-approval`（wangsu-o-latest，日志 `var/r2-approval-persist/exec.log`）
+- `u2e`（wangsu-ds-flash-latest，日志 `var/u2e-polish/exec.log`）
