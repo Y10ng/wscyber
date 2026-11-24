@@ -563,17 +563,18 @@ func (s *taskStore) setVulnTitle(ctx context.Context, assetID, vulnID, title str
 }
 
 // deleteEmptyManualVuln：成员被移空的人工条目（endpoint_key 为空）删除（连同其处置记录）；auto 条目保留行与处置。
-func deleteEmptyManualVuln(ctx context.Context, tx bun.Tx, vulnID string) error {
+// 返回是否删除了条目（任务删除据此计 orphan_vulns_removed）。
+func deleteEmptyManualVuln(ctx context.Context, tx bun.Tx, vulnID string) (bool, error) {
 	res, err := tx.NewDelete().Model((*assetVulnModel)(nil)).
 		Where("id = ? AND endpoint_key = '' AND NOT EXISTS (SELECT 1 FROM webapi_asset_vuln_members m WHERE m.vuln_id = ?)", vulnID, vulnID).Exec(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if deleted, err := res.RowsAffected(); err != nil || deleted == 0 {
-		return err
+		return false, err
 	}
 	_, err = tx.NewDelete().Model((*vulnTriageModel)(nil)).Where("vuln_key = ?", vulnID).Exec(ctx)
-	return err
+	return err == nil, err
 }
 
 // moveVulnMember 把候选移入 vulnID（不存在则新建人工条目 = 拆分），link=manual。返回是否新建条目。
@@ -621,7 +622,8 @@ func (s *taskStore) moveVulnMember(ctx context.Context, assetID, vulnID, finding
 		if _, err := tx.NewUpdate().Model((*assetVulnModel)(nil)).Set("updated_at = ?", now).Where("id IN (?)", bun.In([]string{vulnID, member.VulnID})).Exec(ctx); err != nil {
 			return err
 		}
-		return deleteEmptyManualVuln(ctx, tx, member.VulnID)
+		_, err := deleteEmptyManualVuln(ctx, tx, member.VulnID)
+		return err
 	})
 	return created, err
 }
@@ -651,7 +653,8 @@ func (s *taskStore) mergeVulns(ctx context.Context, assetID, into, from string) 
 		if err := mergeTriage(ctx, tx, into, from); err != nil {
 			return err
 		}
-		return deleteEmptyManualVuln(ctx, tx, from)
+		_, err := deleteEmptyManualVuln(ctx, tx, from)
+		return err
 	})
 }
 

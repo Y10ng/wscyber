@@ -265,6 +265,11 @@ type fakeLauncher struct {
 	runningErr error
 	// ended 标记事件里已有 TurnEnded 的会话（TurnEnded 替身）。
 	ended map[string]bool
+	// deleted 记录 DeleteSession 调用顺序；deleteErr 中的会话删除时报错（任务删除失败路径）。
+	deleted   []string
+	deleteErr map[string]error
+	// deleteHook 在一次 DeleteSession 记录后（释放锁后）调用，模拟删除期间的并发写入。
+	deleteHook func(sessionID string)
 }
 
 func newFakeLauncher(agents ...*types.AgentView) *fakeLauncher {
@@ -324,6 +329,23 @@ func (l *fakeLauncher) TurnEnded(_ context.Context, sessionID string) (bool, err
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.ended[sessionID], nil
+}
+
+func (l *fakeLauncher) DeleteSession(_ context.Context, sessionID string) (bool, error) {
+	l.mu.Lock()
+	if err := l.deleteErr[sessionID]; err != nil {
+		l.mu.Unlock()
+		return false, err
+	}
+	l.deleted = append(l.deleted, sessionID)
+	_, existed := l.sessions[sessionID]
+	delete(l.sessions, sessionID)
+	hook := l.deleteHook
+	l.mu.Unlock()
+	if hook != nil {
+		hook(sessionID)
+	}
+	return existed, nil
 }
 
 func runText(run fakeRun) string {

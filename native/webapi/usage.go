@@ -183,6 +183,21 @@ func (s *taskStore) usageSessions(ctx context.Context, taskID string) (map[strin
 
 // nil taskIDs 表示全局；任务列表传本页 ID，一次读取每类会话。
 func (s *taskStore) usageSessionsForTasks(ctx context.Context, taskIDs []string) (map[string]usageSessionRef, map[string]string, error) {
+	var sessions map[string]usageSessionRef
+	var titles map[string]string
+	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
+		var err error
+		sessions, titles, err = usageSessionsTx(ctx, db, taskIDs)
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return sessions, titles, nil
+}
+
+// usageSessionsTx 是 usageSessionsForTasks 的事务内形式（任务删除在写事务里复核会话集合时复用）。
+func usageSessionsTx(ctx context.Context, db bun.IDB, taskIDs []string) (map[string]usageSessionRef, map[string]string, error) {
 	sessions := map[string]usageSessionRef{}
 	titles := map[string]string{}
 	filter, args := "", []any{}
@@ -200,40 +215,34 @@ func (s *taskStore) usageSessionsForTasks(ctx context.Context, taskIDs []string)
 	}
 	// 各表 session_id 唯一（验证/报告/复测有唯一索引，子会话为主键），同表内顺序不影响“首个角色”；
 	// 使用 session_id 作次序键，保证结果确定。
-	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
-		if err := scanRows(db.QueryContext(ctx, `SELECT id, objective, initial_session_id FROM webapi_tasks`+taskFilter, args...))(func(rows *sql.Rows) error {
-			var id, objective, session string
-			if err := rows.Scan(&id, &objective, &session); err != nil {
+	if err := scanRows(db.QueryContext(ctx, `SELECT id, objective, initial_session_id FROM webapi_tasks`+taskFilter, args...))(func(rows *sql.Rows) error {
+		var id, objective, session string
+		if err := rows.Scan(&id, &objective, &session); err != nil {
+			return err
+		}
+		titles[id] = usageTitle(objective)
+		if _, seen := sessions[session]; session != "" && !seen {
+			sessions[session] = usageSessionRef{taskID: id, role: "research"}
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+	for _, q := range queries {
+		if err := scanRows(db.QueryContext(ctx, q.query+filter+` ORDER BY created_at COLLATE "C", session_id COLLATE "C"`, args...))(func(rows *sql.Rows) error {
+			var ref usageSessionRef
+			var session string
+			if err := rows.Scan(&ref.taskID, &session, &ref.findingID, &ref.reportID); err != nil {
 				return err
 			}
-			titles[id] = usageTitle(objective)
+			ref.role = q.role
 			if _, seen := sessions[session]; session != "" && !seen {
-				sessions[session] = usageSessionRef{taskID: id, role: "research"}
+				sessions[session] = ref
 			}
 			return nil
 		}); err != nil {
-			return err
+			return nil, nil, err
 		}
-		for _, q := range queries {
-			if err := scanRows(db.QueryContext(ctx, q.query+filter+` ORDER BY created_at COLLATE "C", session_id COLLATE "C"`, args...))(func(rows *sql.Rows) error {
-				var ref usageSessionRef
-				var session string
-				if err := rows.Scan(&ref.taskID, &session, &ref.findingID, &ref.reportID); err != nil {
-					return err
-				}
-				ref.role = q.role
-				if _, seen := sessions[session]; session != "" && !seen {
-					sessions[session] = ref
-				}
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
 	}
 	return sessions, titles, nil
 }

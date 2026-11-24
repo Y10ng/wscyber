@@ -15,7 +15,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// 审计记录（B3）：平台自己的写操作实际生效后追加一行；只追加，无更新/删除代码路径。契约见 native/AUDIT.md。
+// 审计记录（B3）：平台自己的写操作实际生效后追加一行；只追加，无删除代码路径；唯一的更新是任务删除时置空旧行 task_id（task_delete.go）。契约见 native/AUDIT.md。
 
 const (
 	auditActorUser   = "user"   // 经原生鉴权的 HTTP 请求（单访问密钥，无用户名）

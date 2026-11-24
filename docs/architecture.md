@@ -34,6 +34,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（�
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | PUT/GET | `/tasks/{id}`、`/tasks` | 保存/读取任务（两输入 + origins + 初始 session）；保存不启动，启动走原生 Open/Run；响应带 `policy:{scope,approval,is_default,updated_at}` 与 `asset:{id,name}\|null` |
+| DELETE | `/tasks/{id}`（空 body） | 不可恢复删除任务（`webapi/task_delete.go`）：运行中 409 `in_flight`；先经原生 `DeleteSession` 删全部任务会话，再单写事务删任务业务表、置空审计/推送/计划运行/审批记录的 `task_id`、删本任务漏洞成员与被移空的人工条目及无资产候选（`finding:<id>`）的处置，同事务登记 `task.delete`；200 `{task_id, deleted:{…计数}, orphan_vulns_removed}`；见 `native/TASK_DELETE.md` |
 | PUT | `/tasks/{id}/policy` | 设置测试策略 `{scope: origins\|unrestricted, approval: off\|high_risk\|all}`，写当前值＋变更记录，保存即生效；见 `native/POLICY.md` |
 | GET/PUT | `/scenarios`（GET 选项）、`/tasks/{id}/scenario`（PUT `{scenario?, done_criteria?, max_rounds?}`） | 研究场景（`webapi_pentest` 默认 \| `autonomous`）与完成标准：任务/任务列表/资产响应带 `scenario`，资产默认场景在发起与计划发起时拷贝到任务；研究会话每次 Run 经 `BeforeRun` 替换身份段并追加边界/黑板纪律/证据标准/方法/完成标准；持续探索（M3，`webapi/explore.go`）：研究会话 RunTurn 带 `AgentRunOptions{EvalCriteria=生效完成标准, EvalRounds=max_rounds}` 走上游 Goal 评估循环（本机受控模型节点、验证/复测/报告会话不带），评估请求经 `EvaluatorRequest` Contribution 追加平台黑板段；见 `native/SCENARIO.md` |
 | GET | `/tasks/{id}/evidence[/{evidence_id}]` | HTTP 证据列表与原件 |

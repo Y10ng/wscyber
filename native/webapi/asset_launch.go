@@ -41,6 +41,8 @@ type sessionLauncher interface {
 	SessionRunning(ctx context.Context, sessionID string) (bool, error)
 	// TurnEnded 判断会话事件里是否至少有一个 TurnEnded（计划后续“研究已结束”判定用）。
 	TurnEnded(ctx context.Context, sessionID string) (bool, error)
+	// DeleteSession 删除原生会话（连带其事件）；会话已不存在返回 (false, nil)，便于失败后重试续删。
+	DeleteSession(ctx context.Context, sessionID string) (deleted bool, err error)
 }
 
 type apiLauncher struct{ api *managementapi.API }
@@ -75,6 +77,26 @@ func (l apiLauncher) RunTurn(ctx context.Context, requestID string, request *aop
 		return nil, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
 	}
 	return l.api.Sessions.RunTurn(ctx, requestID, request)
+}
+
+func (l apiLauncher) DeleteSession(ctx context.Context, sessionID string) (bool, error) {
+	if l.api.Sessions == nil {
+		return false, managementapi.Errorf(managementapi.CodeFailedPrecondition, "会话服务不可用")
+	}
+	response, err := l.api.Sessions.DeleteSession(ctx, &types.DeleteSessionRequest{RequestId: randomRequestID("wa-delete-"), SessionId: sessionID})
+	if err != nil {
+		return false, err
+	}
+	if rejected := response.GetRejected(); rejected != nil {
+		if rejected.GetCode() == "NOT_FOUND" {
+			return false, nil
+		}
+		return false, fmt.Errorf("删除会话被拒绝（%s：%s）", rejected.GetCode(), rejected.GetMessage())
+	}
+	if response.GetAccepted() == nil {
+		return false, errors.New("删除会话无结果")
+	}
+	return true, nil
 }
 
 // 首条用户消息在 Run 接受时先于 Agent 执行持久化，位于会话最前部。

@@ -373,6 +373,7 @@ func (c *Capability) Routes(api *managementapi.API) []web.Route {
 	}
 	return []web.Route{
 		{Pattern: "PUT /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handlePutTask)},
+		{Pattern: "DELETE /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handleDeleteTask)},
 		{Pattern: "GET /api/webapi/tasks", Handler: http.HandlerFunc(c.handleGetTaskBySession)},
 		{Pattern: "GET /api/webapi/tasks/{id}", Handler: http.HandlerFunc(c.handleGetTask)},
 		{Pattern: "PUT /api/webapi/tasks/{id}/policy", Handler: http.HandlerFunc(c.handlePutPolicy)},

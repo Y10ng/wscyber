@@ -18,7 +18,7 @@
 
 索引：`(at, id)`、`(action)`、`(task_id)`、`(asset_id)`。
 
-**只追加**：仅有 `INSERT ... ON CONFLICT (id) DO NOTHING`；没有更新/删除接口或代码路径。
+**只追加**：仅有 `INSERT ... ON CONFLICT (id) DO NOTHING`；没有删除接口或代码路径。唯一的更新是任务删除（`native/TASK_DELETE.md`）：同一写事务内把该任务旧审计行的 `task_id` 置空（行与其余列不变，`target_id`/`detail` 里的任务 id 仍可追查），再追加 `task.delete`。
 
 登记规则：业务操作**实际生效后**登记；幂等重放、未变化的保存、失败（4xx/5xx）不登记；登记失败只 `log.Printf`，不影响业务响应（登记用脱离请求取消的 5s 上下文）。
 
@@ -27,6 +27,7 @@
 | action | 触发（文件） | actor | detail |
 |---|---|---|---|
 | `task.create` | `PUT /tasks/{id}` 新建（`capability.go`）；从资产发起新建任务（`asset_launch.go`，HTTP 与调度共用） | user / 调度发起为 system | `origins`、`policy{scope,approval}`、`session_id`；从资产发起另带 `asset_id` |
+| `task.delete` | `DELETE /tasks/{id}` 删除成功（`task_delete.go`，与业务数据删除同一写事务；400/404/409/500 不登记） | user | `task_id`、`title`（objective 首行摘要）、`requests`/`findings`/`verifications`/`reports`/`retests`/`egress_flows`/`board_endpoints`/`board_facts`/`board_oracles`/`authz_compares`/`subsessions`/`sessions` 计数、`orphan_vulns_removed`；行 `task_id`/`asset_id` 为空、target_id = 任务 id；summary 如“删除任务：检查越权” |
 | `task.policy` | `PUT /tasks/{id}/policy` 值有变化 | user | `from`/`to` `{scope, approval}`；summary 如“修改任务测试策略：仅授权 origins/仅高危 → 不限制/仅高危” |
 | `verification.start` / `retest.start` | 新建验证/复测（HTTP PUT 201；计划后续新建为 system） | user / system | `finding_id`、`finding_number`、`session_id` |
 | `report.start` | 新建报告（PUT 201） | user | `finding_numbers`、`session_id` |

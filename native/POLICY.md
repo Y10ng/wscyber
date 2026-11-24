@@ -46,6 +46,8 @@
 - 响应 `{items:[ApprovalView], pending_count, has_more, next_cursor}`；`pending_count` 是同一 `task_id`/`session_id` 范围内 `status=pending` 的总数（不受 `status` 过滤与分页影响），可直接作“待审批 N”计数。
 - `ApprovalView = {id, operation_id, task_id, session_id, parent_session_id, review_session_id（Resolve 应使用的会话：子 Agent 为父研究会话，否则同 session_id）, turn_id, call_id, tool, summary, reason, status, decided_by, status_reason, created_at, expires_at, decided_at|null, actionable}`；`actionable` = pending 且仍在本进程挂起（可经 guardrail Resolve 处理）。
 
+**任务删除**：`DELETE /tasks/{id}` 保留该任务的审批记录、把 `task_id` 置空（见 `native/TASK_DELETE.md`）。
+
 **已知限制**：PENDING 事件先于落库发出，落库等待全局写锁期间列表暂时查不到该项（Pending 协议可见）；Hub 在落库成功前崩溃则该次挂起无记录。终态补写成功前进程退出时，该行在下次启动会按“Hub 重启”记为 canceled（实际结果以当时的终态事件与工具记录为准）。
 
 ## 全工具出口（B2）
