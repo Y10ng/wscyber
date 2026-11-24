@@ -171,17 +171,17 @@ func TestWebAPIRetestSourceSessionAndProtection(t *testing.T) {
 		t.Fatalf("retest session modified candidate: %+v %s", result, message)
 	}
 	retestInv.CallID = "retest-verification"
-	if result, message := executeVerification(t, &verificationTool{store: store}, retestInv, verificationArguments("supported", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "不是已保存的独立验证") {
+	if result, message := executeVerification(t, &verificationTool{store: store}, retestInv, verificationArguments("supported", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "当前是研究或其它会话，不能保存验证判读") {
 		t.Fatalf("retest session wrote verification result: %+v %s", result, message)
 	}
 	retestInv.CallID = "retest-draft"
-	if result, message := executeReportDraft(t, store, retestInv, `{"title":"t","overview":"o","items":[]}`); result != nil || !strings.Contains(message, "不是已保存的报告会话") {
+	if result, message := executeReportDraft(t, store, retestInv, `{"title":"t","overview":"o","items":[]}`); result != nil || !strings.Contains(message, "当前不是报告会话，不能保存报告草稿") {
 		t.Fatalf("retest session wrote report draft: %+v %s", result, message)
 	}
-	if result, message := executeRetest(t, store, operation.Invocation{SessionID: verification.SessionID, TurnID: "v", CallID: "v"}, retestArguments("reproducible", verifyEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "不是已保存的复测") {
+	if result, message := executeRetest(t, store, operation.Invocation{SessionID: verification.SessionID, TurnID: "v", CallID: "v"}, retestArguments("reproducible", verifyEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "当前不是复测会话，不能保存复测结论") {
 		t.Fatalf("verification session wrote retest result: %+v %s", result, message)
 	}
-	if result, message := executeRetest(t, store, operation.Invocation{SessionID: task.InitialSessionID, TurnID: "o", CallID: "o"}, retestArguments("reproducible", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "不是已保存的复测") {
+	if result, message := executeRetest(t, store, operation.Invocation{SessionID: task.InitialSessionID, TurnID: "o", CallID: "o"}, retestArguments("reproducible", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "当前不是复测会话，不能保存复测结论") {
 		t.Fatalf("ordinary session wrote retest result: %+v %s", result, message)
 	}
 	if result, message := executeRetest(t, store, operation.Invocation{SessionID: retest.SessionID}, retestArguments("reproducible", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "缺少可信") {
@@ -271,16 +271,14 @@ func TestWebAPIRetestResultEvidenceAndImmutability(t *testing.T) {
 	if result, message := executeRetest(t, store, oneInv, retestArguments("bogus", evidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "conclusion仅支持") {
 		t.Fatalf("bogus conclusion accepted: %+v %s", result, message)
 	}
-	if result, message := executeRetest(t, store, oneInv, `{"conclusion":"inconclusive","method":"m","summary":"s","verdict":"supported"}`); result != nil || !strings.Contains(message, "strict JSON") {
-		t.Fatalf("unknown field accepted: %+v %s", result, message)
-	}
 	if result, message := executeRetest(t, store, oneInv, retestArguments("fixed_in_scope", evidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "缺少对应relation") {
 		t.Fatalf("fixed_in_scope without counterevidence accepted: %+v %s", result, message)
 	}
 	if result, message := executeRetest(t, store, oneInv, retestArguments("reproducible", originalEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "本复测session") {
 		t.Fatalf("original candidate evidence accepted: %+v %s", result, message)
 	}
-	arguments := retestArguments("reproducible", evidence.EvidenceID, "supporting")
+	// 放宽：未知字段（如自报 verdict/retest_id）被忽略，结论与归属仍取自参数与可信会话。
+	arguments := strings.Replace(retestArguments("reproducible", evidence.EvidenceID, "supporting"), `{"conclusion"`, `{"verdict":"supported","retest_id":"x","conclusion"`, 1)
 	result, message := executeRetest(t, store, oneInv, arguments)
 	if result == nil || result["conclusion"] != "reproducible" || result["retest_id"] != one.RetestID {
 		t.Fatalf("HTTP500 valid reproducible evidence rejected: %+v %s", result, message)

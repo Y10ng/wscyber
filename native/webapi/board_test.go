@@ -310,7 +310,16 @@ func TestBoardToolsPermissionsMapAndFacts(t *testing.T) {
 	f.toolError(read, operation.Invocation{}, `{"section":"summary"}`, "缺少可信原生session/turn/call上下文")
 	f.toolError(read, f.inv, `{"section":"endpoints","status":"open"}`, "status 仅支持 untested")
 	f.toolError(read, f.inv, `{"section":"oracles","limit":101}`, "limit 须为 1..100")
-	f.toolError(read, f.inv, `{"section":"facts","extra":1}`, `含未知字段 "extra"`)
+	// 放宽：未知字段与本 section 用不到的字段忽略，不报错；字段值非法仍报错（上两行）。
+	if text, isError := f.tool(read, f.inv, `{"section":"facts","extra":1}`); isError || !strings.Contains(text, "事实") {
+		t.Fatalf("facts with unknown field = %v %s", isError, text)
+	}
+	if text, isError := f.tool(read, f.inv, `{"section":"summary","status":"active","category":"authz","limit":5}`); isError {
+		t.Fatalf("summary with status/category/limit = %v %s", isError, text)
+	}
+	if text, isError := f.tool(read, f.inv, `{"section":"endpoints","category":"authz"}`); isError || !strings.Contains(text, "端点") {
+		t.Fatalf("endpoints with category = %v %s", isError, text)
+	}
 
 	// 地图：模型补充未请求接口；ID 段归一，已存在的键不重复。
 	mapped := f.mustTool(mapTool, `{"endpoints":[{"method":"get","url":"https://api.example.test/api/admin/export?fmt=csv","note":"main.js 中出现"},{"method":"GET","url":"https://api.example.test/api/users/77"}]}`)
@@ -410,11 +419,11 @@ func TestBoardOracleLifecycleAndDigest(t *testing.T) {
 	f.toolError(oracleTool, f.inv, `{"action":"propose","items":[{"question":"x","category":"rce","endpoint_keys":[],"priority":"low"}]}`, "items[0].category 仅支持")
 	f.toolError(oracleTool, f.inv, `{"action":"propose","items":[{"question":"x","category":"authz","endpoint_keys":["/api/users"],"priority":"low"}]}`, "items[0].endpoint_keys[0] 须为 `METHOD URL` 形式")
 	f.toolError(oracleTool, f.inv, `{"action":"propose","items":[{"question":"","category":"authz","endpoint_keys":[],"priority":"low"}]}`, "items[0].question 必填为空")
-	f.toolError(oracleTool, f.inv, `{"action":"claim","number":"O-001","items":[{"question":"x","category":"authz","endpoint_keys":[],"priority":"low"}]}`, "action=claim 不接受字段 items")
 	f.toolError(oracleTool, f.inv, `{"action":"claim","number":"O-099"}`, "Oracle 不存在")
 	f.toolError(oracleTool, f.inv, `{"action":"claim"}`, "number 必填")
 
-	if claimed := f.mustTool(oracleTool, `{"action":"claim","number":"O-001"}`); claimed["status"] != oracleInProgress || claimed["changed"] != true {
+	// 放宽：claim 用不到的 items/summary/evidence_ids 被忽略（items 内容即使不合法也不校验）。
+	if claimed := f.mustTool(oracleTool, `{"action":"claim","number":"O-001","summary":"无关","evidence_ids":["we_none"],"items":[{"question":"","category":"bad","endpoint_keys":[],"priority":"low"}]}`); claimed["status"] != oracleInProgress || claimed["changed"] != true {
 		t.Fatalf("claim = %+v", claimed)
 	}
 	if again := f.mustTool(oracleTool, `{"action":"claim","number":"o-1"}`); again["status"] != oracleInProgress || again["changed"] != false {
@@ -432,8 +441,11 @@ func TestBoardOracleLifecycleAndDigest(t *testing.T) {
 	f.toolError(oracleTool, f.inv, `{"action":"close","number":"O-001","status":"refuted","summary":"x","evidence_ids":["we_users1"]}`, "冲突（409）：O-001 已是终态 holds")
 	f.toolError(oracleTool, f.inv, `{"action":"claim","number":"O-001"}`, "冲突（409）")
 	f.toolError(oracleTool, f.inv, `{"action":"close","number":"O-002","status":"refuted","summary":"注入无效"}`, "status=refuted 的 evidence_ids 数量不足")
-	f.toolError(oracleTool, f.inv, `{"action":"close","number":"O-002","status":"refuted","summary":"注入无效","evidence_ids":["we_login"],"finding_id":"wf_mine"}`, "finding_id 只用于 status=holds")
-	f.mustTool(oracleTool, `{"action":"close","number":"O-002","status":"refuted","summary":"单引号与布尔载荷均返回 302 到登录页","evidence_ids":["we_login"]}`)
+	// 放宽：非 holds 结论带 finding_id 被忽略（不报错、不写入）。
+	f.mustTool(oracleTool, `{"action":"close","number":"O-002","status":"refuted","summary":"单引号与布尔载荷均返回 302 到登录页","evidence_ids":["we_login"],"finding_id":"wf_mine"}`)
+	if refuted := f.oracle(2); refuted.Status != oracleRefuted || refuted.FindingID != "" || refuted.FindingNumber != "" {
+		t.Fatalf("O-002 kept ignored finding_id: %+v", refuted)
+	}
 	f.mustTool(oracleTool, `{"action":"close","number":"O-003","status":"blocked","summary":"需要第二个测试账号"}`)
 	f.toolError(oracleTool, f.inv, `{"action":"drop","number":"O-004"}`, "summary 必填为空")
 	f.mustTool(oracleTool, `{"action":"drop","number":"O-004","summary":"文档已标注下线"}`)

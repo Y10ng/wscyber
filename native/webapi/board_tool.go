@@ -169,23 +169,14 @@ func (t *boardReadTool) Execute(ctx context.Context, arguments string) (*aop.Too
 	}
 	switch args.Section {
 	case "summary":
-		if args.Status != "" || args.Category != "" || args.Limit != 0 {
-			for _, field := range []struct {
-				name    string
-				present bool
-			}{{"status", args.Status != ""}, {"category", args.Category != ""}, {"limit", args.Limit != 0}} {
-				if field.present {
-					problems.add(fmt.Errorf("%s: section=summary 不接受 status/category/limit；请省略该字段", field.name))
-				}
-			}
-		}
+		// summary 用不到 status/category/limit：传了就忽略（limit 取值本身仍按上面校验）。
+		args.Status, args.Category = "", ""
 	case "endpoints":
 		if args.Status != "" && args.Status != "untested" {
 			problems.add(errors.New("section=endpoints 的 status 仅支持 untested（尚无 Oracle 引用）"))
 		}
-		if args.Category != "" {
-			problems.add(errors.New("section=endpoints 不接受 category"))
-		}
+		// endpoints 不按 category 过滤：传了就忽略。
+		args.Category = ""
 	case "facts":
 		if args.Status != "" && args.Status != factActive && args.Status != factRetracted {
 			problems.add(errors.New("section=facts 的 status 仅支持 active/retracted（默认 active）"))
@@ -481,16 +472,27 @@ func (*boardOracleTool) Definition() *aop.ToolDefinition {
 	return coretool.Def("webapi_board_oracle", "管理任务黑板 Oracle（具体可证伪的待证明问题）：propose 提出（编号由平台生成，重复问题返回已有编号）、claim 认领、close 结论（holds 需同任务候选 finding_id + ≥1 证据；refuted 需 ≥1 证据；blocked 只需 summary）、drop 放弃。成立≠漏洞确认，候选仍需独立验证。", boardOracleArguments{})
 }
 
-func (args boardOracleArguments) unexpected(allowed ...string) error {
-	present := map[string]bool{"items": len(args.Items) > 0, "number": args.Number != "", "status": args.Status != "", "summary": args.Summary != "",
-		"evidence_ids": len(args.EvidenceIDs) > 0, "finding_id": args.FindingID != ""}
-	var problems toolValidationErrors
-	for _, field := range []string{"items", "number", "status", "summary", "evidence_ids", "finding_id"} {
-		if present[field] && !slices.Contains(allowed, field) {
-			problems.add(fmt.Errorf("%s: action=%s 不接受字段 %s；请省略该字段", field, args.Action, field))
-		}
+// withoutUnused 清空本 action 用不到的字段：模型多传的无关字段直接忽略，不报错、不参与校验。
+func (args boardOracleArguments) withoutUnused(allowed ...string) boardOracleArguments {
+	if !slices.Contains(allowed, "items") {
+		args.Items = nil
 	}
-	return problems.err()
+	if !slices.Contains(allowed, "number") {
+		args.Number = ""
+	}
+	if !slices.Contains(allowed, "status") {
+		args.Status = ""
+	}
+	if !slices.Contains(allowed, "summary") {
+		args.Summary = ""
+	}
+	if !slices.Contains(allowed, "evidence_ids") {
+		args.EvidenceIDs = nil
+	}
+	if !slices.Contains(allowed, "finding_id") {
+		args.FindingID = ""
+	}
+	return args
 }
 
 func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.ToolResult, error) {
@@ -502,17 +504,13 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 	var number int64
 	switch args.Action {
 	case "propose":
-		if err := args.unexpected("items"); err != nil {
-			problems.add(err)
-		}
+		args = args.withoutUnused("items")
 		if len(args.Items) < 1 || len(args.Items) > 20 {
 			problems.add(errors.New(fmt.Sprintf("items 数量须为 1..20：实际 %d", len(args.Items))))
 		}
 	case "claim", "close", "drop":
 		allowed := map[string][]string{"claim": {"number"}, "close": {"number", "status", "summary", "evidence_ids", "finding_id"}, "drop": {"number", "summary"}}[args.Action]
-		if err := args.unexpected(allowed...); err != nil {
-			problems.add(err)
-		}
+		args = args.withoutUnused(allowed...)
 		value, ok := parseOracleNumber(args.Number)
 		if !ok {
 			problems.add(errors.New("number 必填，须为 Oracle 编号（如 O-001）"))
@@ -530,6 +528,10 @@ func (t *boardOracleTool) Execute(ctx context.Context, arguments string) (*aop.T
 		proposals = append(proposals, proposal)
 	}
 	if args.Action == "close" {
+		// finding_id 只用于 holds：其它结论带了就忽略，不写入。
+		if args.Status != oracleHolds {
+			args.FindingID = ""
+		}
 		if err := validateOracleClose(args); err != nil {
 			problems.add(err)
 		}
@@ -642,9 +644,6 @@ func validateOracleClose(args boardOracleArguments) error {
 		if len(args.EvidenceIDs) == 0 {
 			problems.add(errors.New("status=refuted 的 evidence_ids 数量不足：至少 1 条本任务已发送的 evidence_id"))
 		}
-	}
-	if args.FindingID != "" && args.Status != oracleHolds {
-		problems.add(errors.New("finding_id 只用于 status=holds"))
 	}
 	if len(args.FindingID) > 128 {
 		problems.add(errors.New("finding_id 超长：上限 128 字节"))

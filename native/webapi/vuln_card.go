@@ -988,8 +988,9 @@ func (c *Capability) handleVulnCardCurl(w http.ResponseWriter, r *http.Request) 
 	step := 1
 	if raw := query.Get("step"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 || parsed > maxReproSteps {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("step 必须是 1..%d 的整数", maxReproSteps))
+		// 上界按该条目最小复现的实际步数，由 locateReproStep 判定。
+		if err != nil || parsed < 1 {
+			writeError(w, http.StatusBadRequest, "step 必须是从 1 开始的整数")
 			return
 		}
 		step = parsed
@@ -1057,8 +1058,8 @@ func (c *Capability) locateReproStep(ctx context.Context, key string, step int) 
 		return nil, http.StatusNotFound, "该漏洞尚无最小复现"
 	}
 	steps := chosen.stored.Payload.KeySteps
-	if step > len(steps) {
-		return nil, http.StatusBadRequest, fmt.Sprintf("step 超出范围：最小复现共 %d 步", len(steps))
+	if step < 1 || step > len(steps) {
+		return nil, http.StatusBadRequest, fmt.Sprintf("step 必须是 1..%d 的整数", len(steps))
 	}
 	keyStep := steps[step-1]
 	model, err := c.store.evidenceByID(ctx, chosen.model.TaskID, keyStep.EvidenceID)

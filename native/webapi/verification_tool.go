@@ -27,7 +27,7 @@ type verificationEvidenceInput struct {
 
 // verificationKeyStep 是最小复现的一个关键请求（K1）：引用本验证会话的完整新证据，marks 只用于高亮。
 type verificationKeyStep struct {
-	Title         string   `json:"title" jsonschema:"required,description=本步做什么（不超过80字）"`
+	Title         string   `json:"title" jsonschema:"required,description=本步做什么"`
 	EvidenceID    string   `json:"evidence_id" jsonschema:"required,description=本验证会话的完整新HTTP证据ID"`
 	RequestMarks  []string `json:"request_marks,omitempty" jsonschema:"description=请求原件中需高亮的单行文本片段（最多5个）"`
 	ResponseMarks []string `json:"response_marks,omitempty" jsonschema:"description=响应原件中需高亮的单行文本片段（最多5个）"`
@@ -37,7 +37,7 @@ type verificationKeyStep struct {
 type verificationContrast struct {
 	NormalEvidenceID   string `json:"normal_evidence_id" jsonschema:"required"`
 	AbnormalEvidenceID string `json:"abnormal_evidence_id" jsonschema:"required"`
-	Note               string `json:"note,omitempty" jsonschema:"description=差异摘要（不超过200字）"`
+	Note               string `json:"note,omitempty" jsonschema:"description=差异摘要"`
 }
 
 type verificationToolPayload struct {
@@ -48,13 +48,13 @@ type verificationToolPayload struct {
 	Limitations   string                      `json:"limitations,omitempty"`
 	Evidence      []verificationEvidenceInput `json:"evidence,omitempty"`
 	// 最小复现与 AI 建议等级（K1）：仅 verdict=supported 时填写，supported 时 impact 与 key_steps 必填。
-	Impact            string                `json:"impact,omitempty" jsonschema:"description=仅supported：一句话影响（谁、什么条件下、能做什么），不超过200字"`
-	KeySteps          []verificationKeyStep `json:"key_steps,omitempty" jsonschema:"description=仅supported：最小复现1到3个关键请求，删去非必要步骤"`
+	Impact            string                `json:"impact,omitempty" jsonschema:"description=仅supported：一句话影响（谁、什么条件下、能做什么）"`
+	KeySteps          []verificationKeyStep `json:"key_steps,omitempty" jsonschema:"description=仅supported：最小复现的关键请求，删去非必要步骤"`
 	Contrast          *verificationContrast `json:"contrast,omitempty" jsonschema:"description=仅supported：正常对照，越权类应提供"`
-	Remediation       []string              `json:"remediation,omitempty" jsonschema:"description=仅supported：修复要点，最多3条，每条不超过160字"`
-	RetestMethod      string                `json:"retest_method,omitempty" jsonschema:"description=仅supported：复测方法（重放哪一步、期望什么结果），不超过300字"`
+	Remediation       []string              `json:"remediation,omitempty" jsonschema:"description=仅supported：修复要点"`
+	RetestMethod      string                `json:"retest_method,omitempty" jsonschema:"description=仅supported：复测方法（重放哪一步、期望什么结果）"`
 	SuggestedSeverity string                `json:"suggested_severity,omitempty" jsonschema:"enum=critical,enum=high,enum=medium,enum=low,enum=info,description=仅supported：AI建议等级，不等于人工定级"`
-	SeverityReason    string                `json:"severity_reason,omitempty" jsonschema:"description=建议等级理由，不超过200字"`
+	SeverityReason    string                `json:"severity_reason,omitempty" jsonschema:"description=建议等级理由"`
 }
 
 // hasRepro：结果带最小复现（supported 且 key_steps 非空）。
@@ -62,26 +62,16 @@ func (p verificationToolPayload) hasRepro() bool {
 	return p.Verdict == "supported" && len(p.KeySteps) > 0
 }
 
-const (
-	maxReproSteps        = 3
-	maxReproImpactRunes  = 200
-	maxReproTitleRunes   = 80
-	maxReproNoteRunes    = 200
-	maxReproRemediation  = 3
-	maxReproRemedyRunes  = 160
-	maxReproRetestRunes  = 300
-	maxReproReasonRunes  = 200
-	maxReproMarksPerSide = evidenceMaxMarks
-)
+const maxReproMarksPerSide = evidenceMaxMarks
 
 type verificationTool struct{ store *taskStore }
 
 func (*verificationTool) Name() string { return "webapi_verification_result" }
 func (*verificationTool) Description() string {
-	return "Save an immutable model assessment for the current verification session using only new HTTP evidence from this session. This does not confirm the original candidate. When verdict=supported, also give a minimal reproduction (impact, 1-3 key_steps, contrast for access-control issues) and a suggested severity."
+	return "Save an immutable model assessment for the current verification session using only new HTTP evidence from this session. This does not confirm the original candidate. When verdict=supported, also give a minimal reproduction (impact, key_steps, contrast for access-control issues) and a suggested severity."
 }
 func (*verificationTool) Definition() *aop.ToolDefinition {
-	return coretool.Def("webapi_verification_result", "保存当前独立验证的模型判读；只引用本会话新HTTP证据，支持/反证须完整响应，状态码不判资格，不修改原候选。verdict=supported 时须给出最小复现（impact 一句话影响；key_steps 删去非必要步骤、只留能证明问题的 1–3 个请求；越权类给 contrast 正常对照）与建议等级（suggested_severity、severity_reason）。", verificationToolPayload{})
+	return coretool.Def("webapi_verification_result", "保存当前独立验证的模型判读；只引用本会话新HTTP证据，支持/反证须完整响应，状态码不判资格，不修改原候选。verdict=supported 时须给出最小复现（impact 一句话影响；key_steps 删去非必要步骤、只留能证明问题的请求；越权类给 contrast 正常对照）与建议等级（suggested_severity、severity_reason）。", verificationToolPayload{})
 }
 
 func jsonTypeName(valueType reflect.Type) string {
@@ -223,7 +213,7 @@ func strictToolJSONError(err error, arguments string) error {
 	return errors.New("$: 参数不是strict JSON：无法解码；期望 JSON 对象")
 }
 
-// decodeStrictToolPayload 是验证/复测结果共用的strict单对象JSON解码；label为“验证”或“复测”。
+// decodeStrictToolPayload 是验证/复测结果共用的单对象JSON解码；label为“验证”或“复测”。
 func decodeStrictToolPayload(arguments string, target any, label string) error {
 	return decodeStrictToolPayloadLimit(arguments, target, label, maxVerificationPayloadBytes)
 }
@@ -232,14 +222,9 @@ func decodeStrictToolPayloadLimit(arguments string, target any, label string, ma
 	if len(arguments) > maximum {
 		return fmt.Errorf("$: %s载荷超过%dKiB；期望不超过此字节上限的 JSON 对象", label, maximum>>10)
 	}
+	// 模型工具（验证/复测/报告草稿/候选/黑板）忽略未知字段；人用 HTTP 管理接口各自严格解码，不走这里。
 	decoder := json.NewDecoder(strings.NewReader(arguments))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		if strings.HasPrefix(err.Error(), "json: unknown field ") {
-			if fields := unknownToolFields(arguments, target); fields != nil {
-				return fields
-			}
-		}
 		return strictToolJSONError(err, arguments)
 	}
 	var trailing any
@@ -268,9 +253,6 @@ func validateResultBody(method, preconditions, summary, limitations string, evid
 		if err := findingTextError(field.path, field.value, 4096, field.required); err != nil {
 			problems.add(fmt.Errorf("%s参数校验失败：%w", label, err))
 		}
-	}
-	if len(evidence) > 16 {
-		problems.add(fmt.Errorf("%s参数 evidence 数量过多：实际 %d，上限 16", label, len(evidence)))
 	}
 	seen := map[string]bool{}
 	for index, item := range evidence {
@@ -305,6 +287,9 @@ func validateVerificationArguments(arguments string) (verificationToolPayload, [
 	if err := decodeStrictToolPayload(arguments, &args, "验证"); err != nil {
 		return args, nil, err
 	}
+	if args.Verdict != "supported" {
+		args = args.withoutRepro()
+	}
 	var problems toolValidationErrors
 	if args.Verdict != "supported" && args.Verdict != "counterevidence" && args.Verdict != "inconclusive" {
 		problems.add(errors.New("verdict仅支持supported/counterevidence/inconclusive"))
@@ -322,13 +307,10 @@ func validateVerificationArguments(arguments string) (verificationToolPayload, [
 	return args, canonical, err
 }
 
-// reproTextError 校验最小复现文字字段：有效 UTF-8、无 NUL、按字数（rune）限长；required 时去空白后非空。
-func reproTextError(path, value string, maximum int, required bool) error {
+// reproTextError 校验最小复现文字字段：有效 UTF-8、无 NUL；required 时去空白后非空。不限字数（整体载荷字节上限兜底）。
+func reproTextError(path, value string, required bool) error {
 	if !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
 		return fmt.Errorf("验证参数 %s 必须是有效UTF8且不含NUL", path)
-	}
-	if count := utf8.RuneCountInString(value); count > maximum {
-		return fmt.Errorf("验证参数 %s 超长：实际 %d 字，上限 %d 字", path, count, maximum)
 	}
 	if required && strings.TrimSpace(value) == "" {
 		return fmt.Errorf("验证参数 %s 必填为空；期望非空值", path)
@@ -354,8 +336,10 @@ func reproMarksError(path string, marks []string) error {
 	}
 	for index, mark := range marks {
 		item := fmt.Sprintf("%s[%d]", path, index)
-		if err := reproTextError(item, mark, evidenceMaxMarkRunes, true); err != nil {
+		if err := reproTextError(item, mark, true); err != nil {
 			problems.add(err)
+		} else if count := utf8.RuneCountInString(mark); count > evidenceMaxMarkRunes {
+			problems.add(fmt.Errorf("验证参数 %s 超长：实际 %d 字，上限 %d 字", item, count, evidenceMaxMarkRunes))
 		}
 		if strings.ContainsAny(mark, "\r\n") {
 			problems.add(fmt.Errorf("验证参数 %s 必须是单行文本片段", item))
@@ -364,55 +348,30 @@ func reproMarksError(path string, marks []string) error {
 	return problems.err()
 }
 
-// reproFieldsPresent 返回已填写的最小复现/建议等级字段名（按参数顺序）。
-func reproFieldsPresent(args verificationToolPayload) []string {
-	present := []string{}
-	for _, field := range []struct {
-		name string
-		set  bool
-	}{
-		{"impact", args.Impact != ""}, {"key_steps", args.KeySteps != nil}, {"contrast", args.Contrast != nil},
-		{"remediation", args.Remediation != nil}, {"retest_method", args.RetestMethod != ""},
-		{"suggested_severity", args.SuggestedSeverity != ""}, {"severity_reason", args.SeverityReason != ""},
-	} {
-		if field.set {
-			present = append(present, field.name)
-		}
-	}
-	return present
+// withoutRepro 清空最小复现与建议等级字段：非 supported 时模型多填的这些字段直接忽略，不报错、不保存。
+func (p verificationToolPayload) withoutRepro() verificationToolPayload {
+	p.Impact, p.KeySteps, p.Contrast, p.Remediation = "", nil, nil, nil
+	p.RetestMethod, p.SuggestedSeverity, p.SeverityReason = "", "", ""
+	return p
 }
 
 // validateReproFields 校验最小复现与 AI 建议等级的形状（证据归属在 Execute 中按会话核对）。
-// 非 supported 填写任一字段即拒绝；supported 时 impact 与 key_steps 必填。
+// 非 supported 时这些字段已被 withoutRepro 清空，不校验；supported 时 impact 与 key_steps 必填。
 func validateReproFields(args verificationToolPayload) error {
 	if args.Verdict != "supported" {
-		var problems toolValidationErrors
-		present := reproFieldsPresent(args)
-		for index, field := range present {
-			// Preserve the existing combined restriction on the first line; each
-			// offending field still has its own correction and error-budget slot.
-			if index == 0 {
-				problems.add(fmt.Errorf("验证参数 %s 仅在 verdict=supported 时填写（最小复现与建议等级只描述已支持的问题）；%s: 当前 verdict 下请省略该字段", strings.Join(present, "、"), field))
-			} else {
-				problems.add(fmt.Errorf("验证参数 %s 仅在 verdict=supported 时填写；当前 verdict 下请省略该字段", field))
-			}
-		}
-		return problems.err()
+		return nil
 	}
 	var problems toolValidationErrors
-	if err := reproTextError("impact", args.Impact, maxReproImpactRunes, true); err != nil {
+	if err := reproTextError("impact", args.Impact, true); err != nil {
 		problems.add(err)
 	}
 	if len(args.KeySteps) == 0 {
-		problems.add(errors.New("验证参数 key_steps 必填为空：supported 须给出最小复现（只留能证明问题的 1–3 个请求）"))
-	}
-	if len(args.KeySteps) > maxReproSteps {
-		problems.add(fmt.Errorf("验证参数 key_steps 数量过多：实际 %d，上限 %d（删去非必要步骤）", len(args.KeySteps), maxReproSteps))
+		problems.add(errors.New("验证参数 key_steps 必填为空：supported 须给出最小复现（只留能证明问题的请求）"))
 	}
 	seen := map[string]int{}
 	for index, step := range args.KeySteps {
 		path := fmt.Sprintf("key_steps[%d]", index)
-		if err := reproTextError(path+".title", step.Title, maxReproTitleRunes, true); err != nil {
+		if err := reproTextError(path+".title", step.Title, true); err != nil {
 			problems.add(err)
 		}
 		if err := reproEvidenceIDError(path+".evidence_id", step.EvidenceID); err != nil {
@@ -439,19 +398,16 @@ func validateReproFields(args verificationToolPayload) error {
 		if contrast.NormalEvidenceID == contrast.AbnormalEvidenceID {
 			problems.add(errors.New("验证参数 contrast.normal_evidence_id 与 contrast.abnormal_evidence_id 不能相同"))
 		}
-		if err := reproTextError("contrast.note", contrast.Note, maxReproNoteRunes, false); err != nil {
+		if err := reproTextError("contrast.note", contrast.Note, false); err != nil {
 			problems.add(err)
 		}
-	}
-	if len(args.Remediation) > maxReproRemediation {
-		problems.add(fmt.Errorf("验证参数 remediation 数量过多：实际 %d，上限 %d", len(args.Remediation), maxReproRemediation))
 	}
 	for index, item := range args.Remediation {
-		if err := reproTextError(fmt.Sprintf("remediation[%d]", index), item, maxReproRemedyRunes, true); err != nil {
+		if err := reproTextError(fmt.Sprintf("remediation[%d]", index), item, true); err != nil {
 			problems.add(err)
 		}
 	}
-	if err := reproTextError("retest_method", args.RetestMethod, maxReproRetestRunes, false); err != nil {
+	if err := reproTextError("retest_method", args.RetestMethod, false); err != nil {
 		problems.add(err)
 	}
 	if args.SuggestedSeverity != "" && !triageSeveritySet[args.SuggestedSeverity] {
@@ -460,7 +416,7 @@ func validateReproFields(args verificationToolPayload) error {
 	if args.SuggestedSeverity == "" && args.SeverityReason != "" {
 		problems.add(errors.New("验证参数 severity_reason 须与 suggested_severity 一起填写"))
 	}
-	problems.add(reproTextError("severity_reason", args.SeverityReason, maxReproReasonRunes, args.SuggestedSeverity != ""))
+	problems.add(reproTextError("severity_reason", args.SeverityReason, args.SuggestedSeverity != ""))
 	return problems.err()
 }
 
@@ -540,7 +496,7 @@ func (t *verificationTool) Execute(ctx context.Context, arguments string) (*aop.
 	}
 	verification, err := t.store.verificationForSession(ctx, inv.SessionID)
 	if err != nil || verification == nil {
-		return coretool.ErrorResult("当前session不是已保存的独立验证，结果未保存"), nil
+		return coretool.ErrorResult("当前是研究或其它会话，不能保存验证判读；把发现写成候选（webapi_finding）即可，独立验证由用户在任务页对候选发起，结果未保存"), nil
 	}
 	args, canonical, err := validateVerificationArguments(arguments)
 	if err != nil {

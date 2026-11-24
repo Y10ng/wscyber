@@ -23,7 +23,7 @@ PUT 回包 `{report,created,idempotent}`：首次 201；同 ID 同 items 200 回
 
 ## 草稿工具 `webapi_report_draft`
 
-参数 `title, overview, items[{finding_id, description, reproduction, remediation?, evidence_ids[]}], limitations?`，strict JSON、未知字段拒绝（不接受自报 report/session），≤128KiB。
+参数 `title, overview, items[{finding_id, description, reproduction, remediation?, evidence_ids[]}], limitations?`，单个 JSON 对象，未知字段忽略（自报 report/session 不生效），≤128KiB；`evidence_ids` 条数不限。
 
 - 归属取自原生 Invocation 的 session；非报告 session 拒绝。
 - items 与报告固定 items 一一对应（同数量、每个 finding 恰一次）。

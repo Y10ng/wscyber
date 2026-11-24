@@ -118,14 +118,8 @@ func validateFindingArguments(arguments string) (findingToolArguments, []byte, e
 	if len(content.Steps) < 1 {
 		problems.add(fmt.Errorf("content.steps数量不足：实际 %d，至少 1", len(content.Steps)))
 	}
-	if len(content.Steps) > 16 {
-		problems.add(fmt.Errorf("content.steps数量过多：实际 %d，上限 16", len(content.Steps)))
-	}
 	if len(content.Evidence) < 1 {
 		problems.add(fmt.Errorf("content.evidence数量不足：实际 %d，至少 1", len(content.Evidence)))
-	}
-	if len(content.Evidence) > 16 {
-		problems.add(fmt.Errorf("content.evidence数量过多：实际 %d，上限 16", len(content.Evidence)))
 	}
 	seenEvidence := make(map[string]bool, len(content.Evidence))
 	for index, evidence := range content.Evidence {
@@ -148,9 +142,6 @@ func validateFindingArguments(arguments string) (findingToolArguments, []byte, e
 		path := fmt.Sprintf("content.steps[%d]", index)
 		if err := findingTextError(path+".text", step.Text, 1024, true); err != nil {
 			problems.add(err)
-		}
-		if len(step.EvidenceIndices) > 16 {
-			problems.add(fmt.Errorf("%s.evidence_indices数量过多：实际 %d，上限 16", path, len(step.EvidenceIndices)))
 		}
 		seenIndices := make(map[int]bool, len(step.EvidenceIndices))
 		for evidenceIndex, index := range step.EvidenceIndices {

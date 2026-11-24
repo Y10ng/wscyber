@@ -156,8 +156,9 @@ func TestWebAPIFindingRejectsFakeCrossTaskAndAuthority(t *testing.T) {
 	}
 	findingInv.CallID = "authority"
 	bad := strings.TrimSuffix(findingArguments(evidence.EvidenceID, "未知权威字段"), "}}") + `,"status":"confirmed"}}`
-	if result, message := executeFinding(t, tool, findingInv, bad); result != nil || !strings.Contains(message, "未知字段") {
-		t.Fatalf("unknown authority accepted: %+v %s", result, message)
+	// 放宽：未知字段被忽略而非报错；自报的 status=confirmed 不生效，仍只保存为 candidate（候选≠确认）。
+	if result, message := executeFinding(t, tool, findingInv, bad); result == nil || result.Status != "candidate" {
+		t.Fatalf("unknown authority field not ignored: %+v %s", result, message)
 	}
 	findingInv.CallID = "bad-index"
 	badIndex := strings.Replace(findingArguments(evidence.EvidenceID, "错误索引"), "[0]", "[1]", 1)

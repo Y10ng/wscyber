@@ -1,6 +1,6 @@
 # 漏洞卡（K1 后端）
 
-漏洞的本体是**最小复现**：一句话影响 + 前置条件 + 1–3 个关键请求（平台原件，关键片段高亮）+ 正常对照 + 修复要点 + 复测方法；AI 长推理入附录。最小复现由独立验证工具 `webapi_verification_result` 在 supported 时产出（字段与校验见 `native/VERIFICATION.md`「最小复现与 AI 建议等级」）。本接口只读聚合，不新增表。实现 `native/webapi/vuln_card.go`。
+漏洞的本体是**最小复现**：一句话影响 + 前置条件 + 关键请求（平台原件，关键片段高亮）+ 正常对照 + 修复要点 + 复测方法；AI 长推理入附录。最小复现由独立验证工具 `webapi_verification_result` 在 supported 时产出（字段与校验见 `native/VERIFICATION.md`「最小复现与 AI 建议等级」）。本接口只读聚合，不新增表。实现 `native/webapi/vuln_card.go`。
 
 ## 键与编号
 
@@ -68,7 +68,7 @@ curl -sS -X METHOD 'URL' \
 - 单引号 shell 转义；方法大写，非常规字符时整体加引号。
 - 默认遮盖：敏感头（Authorization、Proxy-Authorization、Cookie、Set-Cookie、X-API-Key、X-Auth-Token，同证据图片）值替换为 `******`；URL 去 userinfo；URL、头、正文中该任务资产测试账号 secret（≥4 字）替换为 `******`。
 - `mask=0` 输出原值，并登记审计 `vuln.curl_unmasked`（user；target 为该键；detail `vuln_key, step, evidence_id, verification_id`，不含请求内容）。
-- 错误：键非法、`step` 非 1..3 或超出步数、`mask` 非 0/1 → 400；条目不存在、无最小复现、证据不存在 → 404；原件无法解析 → 422。
+- 错误：键非法、`step` 不是 1..实际步数的整数、`mask` 非 0/1 → 400；条目不存在、无最小复现、证据不存在 → 404；原件无法解析 → 422。
 
 ## 申请复测（V3 后端）
 

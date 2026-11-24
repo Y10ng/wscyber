@@ -253,10 +253,10 @@ func TestWebAPIReportDraftAndDeterministicExport(t *testing.T) {
 	store := f.capability.store
 	valid := f.draftArguments([]string{f.evidenceA, f.verifyEvID}, []string{f.evidenceB}, "报告标题")
 
-	if result, message := executeReportDraft(t, store, operation.Invocation{SessionID: f.task.InitialSessionID, TurnID: "t", CallID: "c"}, valid); result != nil || !strings.Contains(message, "不是已保存的报告会话") {
+	if result, message := executeReportDraft(t, store, operation.Invocation{SessionID: f.task.InitialSessionID, TurnID: "t", CallID: "c"}, valid); result != nil || !strings.Contains(message, "当前不是报告会话，不能保存报告草稿") {
 		t.Fatalf("ordinary session wrote draft: %+v %s", result, message)
 	}
-	if result, message := executeReportDraft(t, store, operation.Invocation{SessionID: f.verifyA.SessionID, TurnID: "t", CallID: "c"}, valid); result != nil || !strings.Contains(message, "不是已保存的报告会话") {
+	if result, message := executeReportDraft(t, store, operation.Invocation{SessionID: f.verifyA.SessionID, TurnID: "t", CallID: "c"}, valid); result != nil || !strings.Contains(message, "当前不是报告会话，不能保存报告草稿") {
 		t.Fatalf("verification session wrote draft: %+v %s", result, message)
 	}
 	inv := operation.Invocation{SessionID: report.SessionID, TurnID: "report-turn", CallID: "draft-call"}
@@ -273,14 +273,12 @@ func TestWebAPIReportDraftAndDeterministicExport(t *testing.T) {
 			t.Fatalf("%s evidence accepted: %+v %s", name, result, message)
 		}
 	}
-	if result, message := executeReportDraft(t, store, inv, strings.Replace(valid, `"title"`, `"report_id":"x","title"`, 1)); result != nil || !strings.Contains(message, "未知字段") {
-		t.Fatalf("self-reported ownership accepted: %+v %s", result, message)
-	}
 	if status, _, _ := f.do(http.MethodGet, "/api/webapi/tasks/"+f.task.ID+"/reports/"+reportID+"/export?format=json", ""); status != 409 {
 		t.Fatalf("rejected drafts left a draft: %d", status)
 	}
 
-	saved, message := executeReportDraft(t, store, inv, valid)
+	// 放宽：未知字段（自报 report_id）被忽略；归属仍取自可信会话。
+	saved, message := executeReportDraft(t, store, inv, strings.Replace(valid, `"title"`, `"report_id":"x","title"`, 1))
 	if saved == nil || saved["report_id"] != reportID || saved["item_count"] != float64(2) {
 		t.Fatalf("valid draft rejected: %+v %s", saved, message)
 	}

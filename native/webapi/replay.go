@@ -266,8 +266,9 @@ func (c *Capability) handleVulnCardReplay(w http.ResponseWriter, r *http.Request
 	}
 	step := 1
 	if input.Step != nil {
-		if *input.Step < 1 || *input.Step > maxReproSteps {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("step 必须是 1..%d 的整数", maxReproSteps))
+		// 上界按该条目最小复现的实际步数，由 locateReproStep 判定。
+		if *input.Step < 1 {
+			writeError(w, http.StatusBadRequest, "step 必须是从 1 开始的整数")
 			return
 		}
 		step = *input.Step

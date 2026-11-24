@@ -491,11 +491,11 @@ func TestWebAPIHTTPEvidenceAPIRealFlowAndCursor(t *testing.T) {
 }
 
 func TestWebAPIHTTPBinaryPreviewBounds(t *testing.T) {
-	small, truncated := responsePreview([]byte{0, 255}, "application/octet-stream")
+	small, truncated := responsePreview([]byte{0, 255}, "application/octet-stream", false)
 	if truncated || string(small) != "base64:AP8=" || len(small) > maxPreviewBytes {
 		t.Fatalf("small binary=%q truncated=%v", small, truncated)
 	}
-	large, truncated := responsePreview(bytes.Repeat([]byte{255}, maxCaptureBytes), "application/octet-stream")
+	large, truncated := responsePreview(bytes.Repeat([]byte{255}, maxCaptureBytes), "application/octet-stream", false)
 	if !truncated || len(large) > maxPreviewBytes || !strings.HasPrefix(string(large), "base64:") {
 		t.Fatalf("large binary len=%d truncated=%v", len(large), truncated)
 	}

@@ -21,7 +21,7 @@
 
 ## 结论工具 `webapi_retest_result`
 
-参数：`conclusion`、`method`、`preconditions`、`summary`、`limitations`、`evidence[{evidence_id,relation}]`。归属取自原生 Invocation。
+参数：`conclusion`、`method`、`preconditions`、`summary`、`limitations`、`evidence[{evidence_id,relation}]`（条数不限，整体规范载荷 ≤24KiB；未知字段忽略，不报错）。归属取自原生 Invocation。
 
 - `reproducible`（仍可复现）需要 supporting；`fixed_in_scope`（本次范围内已修复）需要 counterevidence；`inconclusive`（无法判定）可以不带证据。
 - 只能引用本复测 session 的新证据。有效的支持/反证必须是已发送、completed、有实际 HTTP 响应、Flow 完整且未截断的原件。未发送、无响应（unknown）、截断只能作为 limitation。

@@ -86,9 +86,6 @@ func validateReportDraftArguments(arguments string) (reportDraftPayload, []byte,
 				problems.add(err)
 			}
 		}
-		if len(item.EvidenceIDs) > 16 {
-			problems.add(fmt.Errorf("%s.evidence_ids数量过多：实际 %d，上限 16", path, len(item.EvidenceIDs)))
-		}
 		seen := map[string]bool{}
 		for evidenceIndex, evidenceID := range item.EvidenceIDs {
 			evidencePath := fmt.Sprintf("%s.evidence_ids[%d]", path, evidenceIndex)
@@ -170,7 +167,7 @@ func (t *reportDraftTool) Execute(ctx context.Context, arguments string) (*aop.T
 	}
 	report, err := t.store.reportForSession(ctx, inv.SessionID)
 	if err != nil || report == nil {
-		return coretool.ErrorResult("当前session不是已保存的报告会话，草稿未保存"), nil
+		return coretool.ErrorResult("当前不是报告会话，不能保存报告草稿；报告由用户在任务页固定候选后发起，草稿未保存"), nil
 	}
 	args, canonical, err := validateReportDraftArguments(arguments)
 	if err != nil {

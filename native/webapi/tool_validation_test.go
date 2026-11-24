@@ -21,7 +21,6 @@ func TestToolValidationCollectsIndependentErrors(t *testing.T) {
 		{"finding", validateFindingForErrorTest, `{"content":{"title":"", "description":"", "steps":[{"text":"", "evidence_indices":[-1,4]}], "evidence":[{"evidence_id":"", "relation":"bad"}]}}`, []string{"content.title", "content.description", "content.evidence[0].evidence_id", "content.evidence[0].relation", "content.steps[0].text", "content.steps[0].evidence_indices[0]", "content.steps[0].evidence_indices[1]"}},
 		{"retest", validateRetestForErrorTest, `{"conclusion":"bad", "method":"", "summary":"", "evidence":[{"evidence_id":"", "relation":"bad"}]}`, []string{"conclusion", "method", "summary", "evidence[0].evidence_id", "evidence[0].relation"}},
 		{"verification", validateVerificationForErrorTest, `{"verdict":"supported", "method":"", "summary":"", "key_steps":[{"title":"", "evidence_id":""}]}`, []string{"method", "summary", "impact", "key_steps[0].title", "key_steps[0].evidence_id"}},
-		{"non-supported repro", validateVerificationForErrorTest, `{"verdict":"inconclusive", "method":"m", "summary":"s", "impact":"i", "retest_method":"r"}`, []string{"impact", "retest_method"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -32,6 +31,13 @@ func TestToolValidationCollectsIndependentErrors(t *testing.T) {
 			}
 		})
 	}
+	// 纠正 1：非 supported 时多填的最小复现字段被忽略，不报错。
+	t.Run("non-supported repro ignored", func(t *testing.T) {
+		args, _, err := validateVerificationArguments(`{"verdict":"inconclusive", "method":"m", "summary":"s", "impact":"i", "retest_method":"r"}`)
+		if err != nil || args.Impact != "" || args.RetestMethod != "" {
+			t.Fatalf("non-supported repro = %+v %v", args, err)
+		}
+	})
 	t.Run("ten-error budget including nested validators", func(t *testing.T) {
 		args := validVerificationForErrorTest()
 		for i := 0; i < 16; i++ {
@@ -75,18 +81,21 @@ func TestBoardToolValidationFieldPaths(t *testing.T) {
 	}{
 		{"read section", &boardReadTool{}, `{"section":"bad"}`, []string{"section", "summary/endpoints/facts/oracles"}},
 		{"read filters", &boardReadTool{}, `{"section":"facts","status":"bad","category":"bad","limit":101}`, []string{"limit", "status", "category"}},
-		{"read summary", &boardReadTool{}, `{"section":"summary","status":"active","category":"other","limit":2}`, []string{"status:", "category:", "limit:"}},
+		// summary 的 status/category 被忽略；limit 取值非法仍报错。
+		{"read summary limit value", &boardReadTool{}, `{"section":"summary","status":"active","category":"other","limit":101}`, []string{"limit", "1..100"}},
 		{"map count", &boardMapTool{}, `{"endpoints":[]}`, []string{"endpoints", "1..50"}},
 		{"map method url note", &boardMapTool{}, `{"endpoints":[{"method":"?","url":"https://example.test"},{"method":"GET","url":"relative","note":"\u0000"}]}`, []string{"endpoints[0].method", "endpoints[1].url", "endpoints[1].note"}},
 		{"fact empty", &boardFactTool{}, `{}`, []string{"add", "retract", "至少"}},
 		{"fact fields", &boardFactTool{}, `{"add":[{"kind":"bad","subject":"","statement":"","confidence":"bad","evidence_ids":["","same","same"]}],"retract":["","same","same"]}`, []string{"add[0].kind", "add[0].subject", "add[0].statement", "add[0].confidence", "add[0].evidence_ids[0]", "add[0].evidence_ids[2]", "retract[0]", "retract[2]"}},
 		{"fact confirmed", &boardFactTool{}, `{"add":[{"kind":"other","subject":"s","statement":"s","confidence":"confirmed"}]}`, []string{"add[0].evidence_ids", "至少 1"}},
 		{"oracle action", &boardOracleTool{}, `{"action":"bad"}`, []string{"action", "propose/claim/close/drop"}},
-		{"oracle number", &boardOracleTool{}, `{"action":"claim","number":"bad","summary":"extra"}`, []string{"number", "O-001", "summary"}},
+		// claim 用不到 summary：忽略，只报 number 本身非法。
+		{"oracle number", &boardOracleTool{}, `{"action":"claim","number":"bad","summary":"extra"}`, []string{"number", "O-001"}},
 		{"oracle propose count", &boardOracleTool{}, `{"action":"propose","items":[]}`, []string{"items", "1..20"}},
 		{"oracle proposal", &boardOracleTool{}, `{"action":"propose","items":[{"question":"","category":"bad","priority":"bad","endpoint_keys":["invalid"]}]}`, []string{"items[0].question", "items[0].category", "items[0].priority", "items[0].endpoint_keys[0]"}},
 		{"oracle close", &boardOracleTool{}, `{"action":"close","number":"O-001","status":"holds","summary":""}`, []string{"summary", "finding_id", "evidence_ids"}},
-		{"oracle close enum", &boardOracleTool{}, `{"action":"close","number":"O-001","status":"bad","summary":"s","finding_id":"wf_1"}`, []string{"status", "finding_id"}},
+		// 非 holds（含非法 status）时 finding_id 被忽略，只报 status 本身非法。
+		{"oracle close enum", &boardOracleTool{}, `{"action":"close","number":"O-001","status":"bad","summary":"s","finding_id":"wf_1"}`, []string{"status", "holds/refuted/blocked"}},
 		{"oracle refuted", &boardOracleTool{}, `{"action":"close","number":"O-001","status":"refuted","summary":"s"}`, []string{"evidence_ids", "至少 1"}},
 		{"oracle drop", &boardOracleTool{}, `{"action":"drop","number":"O-001","summary":""}`, []string{"summary", "非空"}},
 	}
@@ -154,18 +163,30 @@ func TestSessionAndFindingEvidenceErrorsAreIndexed(t *testing.T) {
 	requireToolValidationError(t, errors.New(message), "content.evidence[0].evidence_id", "content.evidence[1].evidence_id")
 }
 
-func TestStrictUnknownFieldsKeepNestedPaths(t *testing.T) {
-	for _, tt := range []struct {
-		name, input string
-		target      any
-		paths       []string
-	}{
-		{"report", `{"items":[{"extra":1},{"extra":2}]}`, &reportDraftPayload{}, []string{"items[0].extra", "items[1].extra"}},
-		{"finding", `{"content":{"steps":[{"extra":1}]}}`, &findingToolArguments{}, []string{"content.steps[0].extra"}},
-		{"oracle", `{"items":[{"extra":1}]}`, &boardOracleArguments{}, []string{"items[0].extra"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			requireToolValidationError(t, decodeStrictToolPayload(tt.input, tt.target, "测试"), tt.paths...)
-		})
+// 模型工具解码忽略未知字段（含嵌套），已知字段照常解码；类型不符、语法错误、多对象仍报错。
+func TestModelToolDecoderIgnoresUnknownFields(t *testing.T) {
+	var report reportDraftPayload
+	if err := decodeStrictToolPayload(`{"title":"t","extra":0,"items":[{"finding_id":"wf_1","extra":1},{"extra":2}]}`, &report, "测试"); err != nil {
+		t.Fatalf("report unknown fields rejected: %v", err)
 	}
+	if report.Title != "t" || len(report.Items) != 2 || report.Items[0].FindingID != "wf_1" {
+		t.Fatalf("report decoded = %+v", report)
+	}
+	var finding findingToolArguments
+	if err := decodeStrictToolPayload(`{"task_id":"other","content":{"title":"x","steps":[{"text":"s","extra":1}]}}`, &finding, "测试"); err != nil {
+		t.Fatalf("finding unknown fields rejected: %v", err)
+	}
+	if finding.Content.Title != "x" || len(finding.Content.Steps) != 1 || finding.Content.Steps[0].Text != "s" {
+		t.Fatalf("finding decoded = %+v", finding)
+	}
+	var oracle boardOracleArguments
+	if err := decodeStrictToolPayload(`{"action":"propose","items":[{"question":"q","extra":1}]}`, &oracle, "测试"); err != nil {
+		t.Fatalf("oracle unknown fields rejected: %v", err)
+	}
+	if oracle.Action != "propose" || len(oracle.Items) != 1 || oracle.Items[0].Question != "q" {
+		t.Fatalf("oracle decoded = %+v", oracle)
+	}
+	requireToolValidationError(t, decodeStrictToolPayload(`{"title":7,"extra":1}`, &reportDraftPayload{}, "测试"), "title", "期望 string")
+	requireToolValidationError(t, decodeStrictToolPayload(`{"title":"t"`, &reportDraftPayload{}, "测试"), "JSON语法错误")
+	requireToolValidationError(t, decodeStrictToolPayload(`{"title":"t"}{}`, &reportDraftPayload{}, "测试"), "只能包含一个JSON对象")
 }

@@ -73,7 +73,7 @@ Hub（cmd/wscyber-hub，调用上游 pkg/web/host.Serve）── PostgreSQL（�
 | GET | `/audit?action=&actor=&task_id=&asset_id=&q=&from=&to=&limit=&cursor=` | 审计记录（只读）：任务/策略/会话发起、审批决定、资产/测试账号/计划/漏洞库/推送配置改动、计划运行与推送终态，actor user/system，`at` 倒序键游标；见 `native/AUDIT.md` |
 | GET | `/approvals?task_id=&session_id=&status=&limit=&cursor=`、`/tasks/{id}/approvals?session_id=&status=&limit=&cursor=` | 审批记录（R2，表 `webapi_approvals`，迁移 0002）：按任务精确过滤、session 含经父会话处理的子 Agent 审批，`pending_count` 为同范围待审批数，`actionable` 标出本进程仍挂起可处理的项；Hub 重启时遗留 pending 记为 cancelled；见 `native/POLICY.md`「审批记录」 |
 
-工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）、`webapi_board_read|map|fact|oracle`（任务黑板：任务内会话可读，仅研究会话可写；Oracle 成立须关联候选，不等于确认）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
+工具：`webapi_http`（scope=origins 时只发授权 origins，unrestricted 时任意 http/https；均保存完整 Flow；存证响应体与证据详情预览为前 64KiB，超出标 `capture_truncated`；给模型的工具结果按上游传输预算（约 48KiB）装配，preview 再缩短时标 `preview_truncated`）、`webapi_finding`（保存/更新候选，引用同任务证据）、`webapi_verification_result`（验证会话写判读，引用本会话新证据）、`webapi_report_draft`（报告会话写不可变草稿）、`webapi_retest_result`（复测会话写不可变结论，引用本会话新证据）、`webapi_board_read|map|fact|oracle`（任务黑板：任务内会话可读，仅研究会话可写；Oracle 成立须关联候选，不等于确认）。模型工具参数中的未知字段与本操作用不到的字段忽略、不报错（人用 HTTP 接口仍严格解码）。验证细节见 `native/VERIFICATION.md`，报告见 `native/REPORT.md`，复测见 `native/RETEST.md`。
 
 ## 4. 关键约束与已知缺口
 

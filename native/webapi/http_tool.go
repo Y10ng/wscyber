@@ -33,7 +33,7 @@ import (
 
 const (
 	maxCaptureBytes = 64 * 1024
-	maxPreviewBytes = 4 * 1024
+	maxPreviewBytes = maxCaptureBytes // 模型看到的响应预览与存证上限一致（64KiB）
 	maxRequestBody  = 1 << 20
 	httpTimeout     = 30 * time.Second
 )
@@ -435,7 +435,7 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 		flow.Complete = false
 		return r.finishUnknown(ctx, claimed, flow, httpFailureReason(readErr, true), &statusCode)
 	}
-	preview, previewTruncated := responsePreview(captured, resp.Header.Get("Content-Type"))
+	preview, previewTruncated := responsePreview(captured, resp.Header.Get("Content-Type"), captureTruncated)
 	model, err := r.store.finish(ctx, claimed.ID, requestCompleted, "已收到并保存有界响应", preview, previewTruncated, captureTruncated, &statusCode, flow)
 	if err != nil {
 		return r.saveFailure(ctx, claimed, flow, &statusCode, preview, previewTruncated, captureTruncated)
@@ -509,11 +509,33 @@ func (r requestRecorder) saveFailure(ctx context.Context, claimed *requestModel,
 	return sendResult{state: requestCaptureFailed, model: model, note: note}
 }
 
-func responsePreview(captured []byte, contentType string) ([]byte, bool) {
+// trimIncompleteUTF8Tail 去掉末尾被截断的不完整 UTF-8 序列（最多回退 3 字节），返回去掉的字节数。
+// 只处理“合法前缀被截断”的情形；真正的非法字节保留，由调用方按二进制处理。
+func trimIncompleteUTF8Tail(data []byte) ([]byte, int) {
+	for back := 1; back <= 3 && back <= len(data); back++ {
+		start := len(data) - back
+		if !utf8.RuneStart(data[start]) {
+			continue
+		}
+		if !utf8.FullRune(data[start:]) {
+			return data[:start], back
+		}
+		break
+	}
+	return data, 0
+}
+
+// responsePreview 生成给模型/证据详情的响应预览。cut 表示 captured 已被调用方截断（捕获上限）；
+// 截断或长度达到预览上限时，先去掉末尾被切断的多字节字符，避免文本因截断点落在字符中间而被误判为二进制。
+func responsePreview(captured []byte, contentType string, cut bool) ([]byte, bool) {
+	trimmed := 0
+	if cut || len(captured) >= maxPreviewBytes {
+		captured, trimmed = trimIncompleteUTF8Tail(captured)
+	}
 	textual := utf8.Valid(captured) && (strings.HasPrefix(strings.ToLower(contentType), "text/") || strings.Contains(strings.ToLower(contentType), "json") || contentType == "")
 	if !textual {
 		const prefix = "base64:"
-		// 保留一个原字节余量，使base64长度恰为4的倍数且含前缀不超4KiB。
+		// 保留一个原字节余量，使base64长度恰为4的倍数且含前缀不超maxPreviewBytes。
 		limit := (maxPreviewBytes-len(prefix))/4*3 - 1
 		truncated := len(captured) > limit
 		if truncated {
@@ -521,8 +543,8 @@ func responsePreview(captured []byte, contentType string) ([]byte, bool) {
 		}
 		return []byte(prefix + base64.StdEncoding.EncodeToString(captured)), truncated
 	}
-	truncated := len(captured) > maxPreviewBytes
-	if truncated {
+	truncated := trimmed > 0 || len(captured) > maxPreviewBytes
+	if len(captured) > maxPreviewBytes {
 		captured = captured[:maxPreviewBytes]
 		for len(captured) > 0 && !utf8.Valid(captured) {
 			captured = captured[:len(captured)-1]
@@ -568,6 +590,13 @@ func valueOrZero(value *int) int {
 	return *value
 }
 
+// modelToolResultBudget 是给模型的单个工具结果文本预算，保证 JSON 完整不被上游截断。上游有两道边界：
+// 传输层 core/tool toolResultBudgetBytes=64KiB（超出在中间截断）；agent 循环给模型的投影再按
+// agent.DefaultMaxResultSize=50KiB 截头（modelToolResultMessage）。取较小者 50KiB 减去余量。
+const modelToolResultBudget = 48 << 10
+
+// formatEvidence 组装给模型的证据结果。存证与证据详情仍是完整 preview（≤maxPreviewBytes）；
+// 只有序列化后超过 modelToolResultBudget 时才缩短本结果里的 preview，并照实标 preview_truncated。
 func formatEvidence(model *requestModel, note string) string {
 	if model == nil {
 		return note
@@ -582,7 +611,46 @@ func formatEvidence(model *requestModel, note string) string {
 		value["http_status"] = model.StatusCode.Int64
 	}
 	raw, _ := json.Marshal(value)
-	return string(raw)
+	if len(raw) <= modelToolResultBudget {
+		return string(raw)
+	}
+	preview := string(model.Preview)
+	encode := func(keep int) []byte {
+		value["preview"] = cutModelPreview(preview, keep)
+		value["preview_truncated"] = true
+		out, _ := json.Marshal(value)
+		return out
+	}
+	// 二分出整体不超预算时 preview 可保留的最多字节数（按 rune / base64 4 字节边界切）。
+	low, high := 0, len(preview)
+	for low < high {
+		mid := (low + high + 1) / 2
+		if len(encode(mid)) <= modelToolResultBudget {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(encode(low))
+}
+
+// cutModelPreview 把预览缩到至多 keep 字节：base64 预览按 4 字节对齐（保持可解码），文本按 rune 边界。
+func cutModelPreview(preview string, keep int) string {
+	if keep >= len(preview) {
+		return preview
+	}
+	const prefix = "base64:"
+	if strings.HasPrefix(preview, prefix) {
+		if keep < len(prefix) {
+			return prefix
+		}
+		payload := keep - len(prefix)
+		return preview[:len(prefix)+payload/4*4]
+	}
+	for keep > 0 && !utf8.RuneStart(preview[keep]) {
+		keep--
+	}
+	return preview[:keep]
 }
 
 func nullableBool(value sql.NullBool) *bool {

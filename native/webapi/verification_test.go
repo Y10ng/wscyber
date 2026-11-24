@@ -145,7 +145,7 @@ func TestWebAPIVerificationSourceSessionAndFindingProtection(t *testing.T) {
 	if denied.Status != "denied" || denied.TaskID != task.ID {
 		t.Fatalf("verification lost parent origins: %+v", denied)
 	}
-	if result, message := executeVerification(t, &verificationTool{store: capability.store}, operation.Invocation{SessionID: inv.SessionID, TurnID: "not-verification", CallID: "not-verification"}, verificationArguments("supported", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "不是已保存的独立验证") {
+	if result, message := executeVerification(t, &verificationTool{store: capability.store}, operation.Invocation{SessionID: inv.SessionID, TurnID: "not-verification", CallID: "not-verification"}, verificationArguments("supported", newEvidence.EvidenceID, "supporting")); result != nil || !strings.Contains(message, "当前是研究或其它会话，不能保存验证判读") {
 		t.Fatalf("ordinary session forged verification result: %+v %s", result, message)
 	}
 	verificationInv.CallID = "verify-finding"

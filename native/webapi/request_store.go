@@ -214,7 +214,8 @@ func (s *taskStore) evidenceByID(ctx context.Context, taskID, evidenceID string)
 func (s *taskStore) evidenceList(ctx context.Context, taskID string, limit int, afterCreatedAt, afterID string) ([]requestModel, error) {
 	var models []requestModel
 	err := s.read(ctx, func(ctx context.Context, db bun.IDB) error {
-		query := db.NewSelect().Model(&models).Column("id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview", "preview_truncated", "capture_truncated", "created_at", "completed_at").
+		// 列表不返回 preview（详情接口才给），不读该列，避免每行多读最多 64KiB。
+		query := db.NewSelect().Model(&models).Column("id", "task_id", "session_id", "turn_id", "call_id", "fingerprint", "method", "url", "status", "reason", "sent", "status_code", "preview_truncated", "capture_truncated", "created_at", "completed_at").
 			Where("task_id = ?", taskID)
 		if afterCreatedAt != "" {
 			query = query.Where(`(created_at COLLATE "C" < ? OR (created_at = ? AND id COLLATE "C" < ?))`, afterCreatedAt, afterCreatedAt, afterID)

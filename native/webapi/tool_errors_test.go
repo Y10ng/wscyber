@@ -67,12 +67,6 @@ func TestWebAPIReportToolValidationErrors(t *testing.T) {
 		{"item remediation too long", func(args *reportDraftPayload) { args.Items[0].Remediation = strings.Repeat("m", 4097) }, []string{"items[0].remediation", "4097", "4096"}},
 		{"missing finding id", func(args *reportDraftPayload) { args.Items[0].FindingID = "" }, []string{"items[0].finding_id", "必填为空"}},
 		{"invalid finding id", func(args *reportDraftPayload) { args.Items[0].FindingID = "bad/id" }, []string{"items[0].finding_id", "非法"}},
-		{"too much evidence", func(args *reportDraftPayload) {
-			args.Items[1].EvidenceIDs = make([]string, 17)
-			for index := range args.Items[1].EvidenceIDs {
-				args.Items[1].EvidenceIDs[index] = fmt.Sprintf("we_extra_%d", index)
-			}
-		}, []string{"items[1].evidence_ids", "实际 17", "上限 16"}},
 		{"duplicate evidence", func(args *reportDraftPayload) { args.Items[0].EvidenceIDs = []string{"we_same", "we_same"} }, []string{"items[0].evidence_ids[1]", "重复"}},
 		{"invalid evidence", func(args *reportDraftPayload) { args.Items[0].EvidenceIDs = []string{"bad/id"} }, []string{"items[0].evidence_ids[0]", "非法"}},
 	}
@@ -84,10 +78,24 @@ func TestWebAPIReportToolValidationErrors(t *testing.T) {
 		})
 	}
 
-	t.Run("unknown field", func(t *testing.T) {
+	// 放宽：证据条数不再有 16 上限（整体 128KiB 字节上限保留）。
+	t.Run("many evidence accepted", func(t *testing.T) {
+		args := validReportDraftForErrorTest()
+		args.Items[1].EvidenceIDs = make([]string, 20)
+		for index := range args.Items[1].EvidenceIDs {
+			args.Items[1].EvidenceIDs[index] = fmt.Sprintf("we_extra_%d", index)
+		}
+		if err := validateReportDraftForErrorTest(mustToolArgumentsJSON(t, args)); err != nil {
+			t.Fatalf("20 evidence rejected: %v", err)
+		}
+	})
+	// 放宽：模型工具忽略未知字段。
+	t.Run("unknown field ignored", func(t *testing.T) {
 		raw := mustToolArgumentsJSON(t, validReportDraftForErrorTest())
 		raw = strings.Replace(raw, `"title"`, `"unknown":true,"title"`, 1)
-		requireToolValidationError(t, validateReportDraftForErrorTest(raw), "strict JSON", `未知字段 "unknown"`)
+		if err := validateReportDraftForErrorTest(raw); err != nil {
+			t.Fatalf("unknown field rejected: %v", err)
+		}
 	})
 	t.Run("type mismatch", func(t *testing.T) {
 		raw := mustToolArgumentsJSON(t, validReportDraftForErrorTest())
@@ -132,12 +140,6 @@ func TestWebAPIFindingToolValidationErrors(t *testing.T) {
 		{"second step too long", func(args *findingToolArguments) {
 			args.Content.Steps = append(args.Content.Steps, findingStepInput{Text: strings.Repeat("s", 1025), EvidenceIndices: []int{0}})
 		}, []string{"content.steps[1].text", "1025", "1024"}},
-		{"too much evidence", func(args *findingToolArguments) {
-			args.Content.Evidence = make([]findingEvidenceInput, 17)
-			for index := range args.Content.Evidence {
-				args.Content.Evidence[index] = findingEvidenceInput{EvidenceID: fmt.Sprintf("we_%d", index), Relation: "supporting"}
-			}
-		}, []string{"content.evidence", "实际 17", "上限 16"}},
 		{"duplicate evidence", func(args *findingToolArguments) {
 			args.Content.Evidence = append(args.Content.Evidence, args.Content.Evidence[0])
 		}, []string{"content.evidence[1].evidence_id", "重复"}},
@@ -152,9 +154,29 @@ func TestWebAPIFindingToolValidationErrors(t *testing.T) {
 		})
 	}
 
-	t.Run("unknown field", func(t *testing.T) {
+	// 放宽：steps/evidence/evidence_indices 不再有 16 上限（整体 24KiB 字节上限保留）。
+	t.Run("many steps and evidence accepted", func(t *testing.T) {
+		args := validFindingForErrorTest()
+		args.Content.Evidence = make([]findingEvidenceInput, 20)
+		indices := make([]int, 20)
+		for index := range args.Content.Evidence {
+			args.Content.Evidence[index] = findingEvidenceInput{EvidenceID: fmt.Sprintf("we_%d", index), Relation: "supporting"}
+			indices[index] = index
+		}
+		args.Content.Steps = make([]findingStepInput, 20)
+		for index := range args.Content.Steps {
+			args.Content.Steps[index] = findingStepInput{Text: fmt.Sprintf("中性步骤 %d", index), EvidenceIndices: []int{index}}
+		}
+		args.Content.Steps[0].EvidenceIndices = indices
+		if err := validateFindingForErrorTest(mustToolArgumentsJSON(t, args)); err != nil {
+			t.Fatalf("20 steps/evidence rejected: %v", err)
+		}
+	})
+	t.Run("unknown field ignored", func(t *testing.T) {
 		raw := strings.Replace(mustToolArgumentsJSON(t, validFindingForErrorTest()), `"content"`, `"unknown":true,"content"`, 1)
-		requireToolValidationError(t, validateFindingForErrorTest(raw), "strict JSON", `未知字段 "unknown"`)
+		if err := validateFindingForErrorTest(raw); err != nil {
+			t.Fatalf("unknown field rejected: %v", err)
+		}
 	})
 	t.Run("type mismatch", func(t *testing.T) {
 		raw := strings.Replace(mustToolArgumentsJSON(t, validFindingForErrorTest()), `"title":"中性候选"`, `"title":false`, 1)
@@ -185,22 +207,37 @@ func TestWebAPIVerificationToolValidationErrors(t *testing.T) {
 		args.Summary = "\t"
 		requireToolValidationError(t, validateVerificationForErrorTest(mustToolArgumentsJSON(t, args)), "summary", "必填为空")
 	})
-	t.Run("too much evidence", func(t *testing.T) {
+	// 放宽：evidence 不再有 16 上限（验证与复测共用 validateResultBody；整体 24KiB 字节上限保留）。
+	t.Run("many evidence accepted", func(t *testing.T) {
 		args := validVerificationForErrorTest()
-		args.Evidence = make([]verificationEvidenceInput, 17)
+		args.Evidence = make([]verificationEvidenceInput, 20)
 		for index := range args.Evidence {
 			args.Evidence[index] = verificationEvidenceInput{EvidenceID: fmt.Sprintf("we_%d", index), Relation: "limitation"}
 		}
-		requireToolValidationError(t, validateVerificationForErrorTest(mustToolArgumentsJSON(t, args)), "evidence", "实际 17", "上限 16")
+		if err := validateVerificationForErrorTest(mustToolArgumentsJSON(t, args)); err != nil {
+			t.Fatalf("20 evidence rejected: %v", err)
+		}
+		retest := validRetestForErrorTest()
+		for index := 0; index < 20; index++ {
+			retest.Evidence = append(retest.Evidence, retestEvidenceInput{EvidenceID: fmt.Sprintf("we_%d", index), Relation: "limitation"})
+		}
+		if _, _, err := validateRetestArguments(mustToolArgumentsJSON(t, retest)); err != nil {
+			t.Fatalf("retest 20 evidence rejected: %v", err)
+		}
 	})
 	t.Run("duplicate evidence", func(t *testing.T) {
 		args := validVerificationForErrorTest()
 		args.Evidence = []verificationEvidenceInput{{EvidenceID: "we_same", Relation: "limitation"}, {EvidenceID: "we_same", Relation: "limitation"}}
 		requireToolValidationError(t, validateVerificationForErrorTest(mustToolArgumentsJSON(t, args)), "evidence[1].evidence_id", "重复")
 	})
-	t.Run("unknown field", func(t *testing.T) {
+	t.Run("unknown field ignored", func(t *testing.T) {
 		raw := strings.Replace(mustToolArgumentsJSON(t, validVerificationForErrorTest()), `"verdict"`, `"unknown":true,"verdict"`, 1)
-		requireToolValidationError(t, validateVerificationForErrorTest(raw), "strict JSON", `未知字段 "unknown"`)
+		if err := validateVerificationForErrorTest(raw); err != nil {
+			t.Fatalf("unknown field rejected: %v", err)
+		}
+		// 字段值非法仍报错。
+		bad := strings.Replace(raw, `"verdict":"inconclusive"`, `"verdict":"maybe"`, 1)
+		requireToolValidationError(t, validateVerificationForErrorTest(bad), "verdict仅支持")
 	})
 	t.Run("type mismatch", func(t *testing.T) {
 		raw := strings.Replace(mustToolArgumentsJSON(t, validVerificationForErrorTest()), `"method":"中性方法"`, `"method":[]`, 1)

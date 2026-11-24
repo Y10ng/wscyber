@@ -44,14 +44,14 @@
 
 任务内任意会话（研究 / 验证 / 复测 / 子 Agent）可读；**写只允许该任务研究会话（`initial_session_id`）及其 `oracle_explorer` 子会话**，其他会话返回“只有本任务研究会话可写黑板……”。
 
-认领排他与子会话（M5a，见 `native/SUBAGENT.md`）：子 Agent 派出时平台把 Oracle 置 `in_progress`（事件 actor `ai`、summary“子 Agent 认领”），启动后 `claimed_session_id` 为子会话 id；子会话可写地图/事实、可 propose 新 Oracle，只能 close/drop 自己认领的那一个、不能 claim 其它；子 Agent 持有（运行中或预占中）的 Oracle 研究会话不能 claim/close/drop（409）。子会话结束未结案 → 平台退回 `open`（summary“子 Agent 结束未给结论（<stop>）”）。事件 actor 新增 `ai`（平台代子 Agent 生命周期写入）。session/turn/call 只取自可信 Invocation。参数为 strict JSON（未知字段拒），错误逐字段说明（如 `items[0].category 仅支持 …`），校验失败整批不写。
+认领排他与子会话（M5a，见 `native/SUBAGENT.md`）：子 Agent 派出时平台把 Oracle 置 `in_progress`（事件 actor `ai`、summary“子 Agent 认领”），启动后 `claimed_session_id` 为子会话 id；子会话可写地图/事实、可 propose 新 Oracle，只能 close/drop 自己认领的那一个、不能 claim 其它；子 Agent 持有（运行中或预占中）的 Oracle 研究会话不能 claim/close/drop（409）。子会话结束未结案 → 平台退回 `open`（summary“子 Agent 结束未给结论（<stop>）”）。事件 actor 新增 `ai`（平台代子 Agent 生命周期写入）。session/turn/call 只取自可信 Invocation。参数为单个 JSON 对象，未知字段与本操作用不到的字段忽略、不报错；字段值非法逐字段说明（如 `items[0].category 仅支持 …`），校验失败整批不写。
 
 | 工具 | 参数 | 结果 |
 |---|---|---|
-| `webapi_board_read` | `{section: summary\|endpoints\|facts\|oracles, status?, category?, limit?(1..100，默认 50)}`；endpoints 的 `status` 只支持 `untested`；facts 的 `status` 为 `active`（默认）/`retracted`、`category` 即 kind；oracles 的 `status`/`category` 为对应枚举 | 紧凑文本。summary＝`boardDigest(…, 2000)`；oracles 按 in_progress、open、blocked、holds、refuted、dropped，再按优先级、编号 |
+| `webapi_board_read` | `{section: summary\|endpoints\|facts\|oracles, status?, category?, limit?(1..100，默认 50)}`；summary 忽略 status/category/limit（limit 取值仍校验），endpoints 忽略 category；endpoints 的 `status` 只支持 `untested`；facts 的 `status` 为 `active`（默认）/`retracted`、`category` 即 kind；oracles 的 `status`/`category` 为对应枚举 | 紧凑文本。summary＝`boardDigest(…, 2000)`；oracles 按 in_progress、open、blocked、holds、refuted、dropped，再按优先级、编号 |
 | `webapi_board_map` | `{endpoints:[{method, url, note?(≤500 字)}]}`（1..50） | `{endpoints:[{endpoint_key, created, source}]}`；已存在的键不重复，`note` 非空时覆盖 |
 | `webapi_board_fact` | `{add?:[{kind, subject(≤200 字), statement(≤2000 字), confidence, evidence_ids?(≤20)}](≤20), retract?:[id](≤20)}` | `{added, retracted, already_retracted}`。kind：`endpoint\|auth\|role\|tech\|config\|data\|other`；confidence：`confirmed`（须 ≥1 条证据）/`inferred`。证据须为同任务已发送的 evidence_id。事实 id = `bf_`+UUIDv5(task, session, turn, call, 序号)，同一 call 重放不重复新增；撤回不存在的 id 整批拒绝 |
-| `webapi_board_oracle` | `action: propose` `{items:[{question(≤500 字), category, endpoint_keys(0..20), priority}](1..20)}`；`claim {number}`；`close {number, status: holds\|refuted\|blocked, summary(≤2000 字), evidence_ids?(≤20), finding_id?}`；`drop {number, summary}` | propose → `{items:[{number, created, status, id}]}`（`created=false` 为去重命中）；其他 → `{number, status, changed}`。holds 需 `finding_id`（同任务候选）+ ≥1 证据；refuted 需 ≥1 证据；blocked 只需 summary；`finding_id` 只用于 holds；与 action 无关的字段拒绝。number 接受 `O-001`/`o-1`/`1` |
+| `webapi_board_oracle` | `action: propose` `{items:[{question(≤500 字), category, endpoint_keys(0..20), priority}](1..20)}`；`claim {number}`；`close {number, status: holds\|refuted\|blocked, summary(≤2000 字), evidence_ids?(≤20), finding_id?}`；`drop {number, summary}` | propose → `{items:[{number, created, status, id}]}`（`created=false` 为去重命中）；其他 → `{number, status, changed}`。holds 需 `finding_id`（同任务候选）+ ≥1 证据；refuted 需 ≥1 证据；blocked 只需 summary；`finding_id` 只用于 holds，其它结论带了忽略、不写入；与 action 无关的字段忽略。number 接受 `O-001`/`o-1`/`1` |
 
 category：`authz|authn|injection|ssrf|file|logic|info_disclosure|config|other`；priority：`high|medium|low`。
 

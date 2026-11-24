@@ -131,15 +131,8 @@ func TestVerificationReproValidation(t *testing.T) {
 	}{
 		{"缺 impact", func(p map[string]any) { delete(p, "impact") }, "验证参数 impact 必填为空"},
 		{"impact 空白", func(p map[string]any) { p["impact"] = "  " }, "验证参数 impact 必填为空"},
-		{"impact 超长", func(p map[string]any) { p["impact"] = strings.Repeat("长", 201) }, "impact 超长：实际 201 字，上限 200 字"},
 		{"缺 key_steps", func(p map[string]any) { delete(p, "key_steps") }, "验证参数 key_steps 必填为空"},
 		{"key_steps 空数组", func(p map[string]any) { p["key_steps"] = []any{} }, "验证参数 key_steps 必填为空"},
-		{"key_steps 过多", func(p map[string]any) {
-			p["key_steps"] = []map[string]any{{"title": "1", "evidence_id": e1.ID}, {"title": "2", "evidence_id": e2.ID}, {"title": "3", "evidence_id": "we_x"}, {"title": "4", "evidence_id": "we_y"}}
-		}, "key_steps 数量过多：实际 4，上限 3"},
-		{"标题超长", func(p map[string]any) {
-			p["key_steps"] = []map[string]any{{"title": strings.Repeat("题", 81), "evidence_id": e1.ID}}
-		}, "key_steps[0].title 超长"},
 		{"步骤缺证据", func(p map[string]any) { p["key_steps"] = []map[string]any{{"title": "t"}} }, "key_steps[0].evidence_id 必填为空"},
 		{"步骤证据重复", func(p map[string]any) {
 			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": e1.ID}, {"title": "b", "evidence_id": e1.ID}}
@@ -150,24 +143,18 @@ func TestVerificationReproValidation(t *testing.T) {
 		{"mark 多行", func(p map[string]any) {
 			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": e1.ID, "response_marks": []string{"a\nb"}}}
 		}, "key_steps[0].response_marks[0] 必须是单行文本片段"},
+		{"mark 超长", func(p map[string]any) {
+			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": e1.ID, "response_marks": []string{strings.Repeat("标", 101)}}}
+		}, "key_steps[0].response_marks[0] 超长：实际 101 字，上限 100 字"},
 		{"mark 空", func(p map[string]any) {
 			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": e1.ID, "response_marks": []string{""}}}
 		}, "key_steps[0].response_marks[0] 必填为空"},
 		{"对照相同", func(p map[string]any) {
 			p["contrast"] = map[string]any{"normal_evidence_id": e1.ID, "abnormal_evidence_id": e1.ID}
 		}, "contrast.normal_evidence_id 与 contrast.abnormal_evidence_id 不能相同"},
-		{"对照说明超长", func(p map[string]any) {
-			p["contrast"] = map[string]any{"normal_evidence_id": e2.ID, "abnormal_evidence_id": e1.ID, "note": strings.Repeat("差", 201)}
-		}, "contrast.note 超长"},
-		{"修复要点过多", func(p map[string]any) { p["remediation"] = []string{"a", "b", "c", "d"} }, "remediation 数量过多：实际 4，上限 3"},
-		{"修复要点超长", func(p map[string]any) { p["remediation"] = []string{strings.Repeat("修", 161)} }, "remediation[0] 超长"},
-		{"复测方法超长", func(p map[string]any) { p["retest_method"] = strings.Repeat("复", 301) }, "retest_method 超长"},
 		{"建议等级非法", func(p map[string]any) { p["suggested_severity"] = "urgent"; p["severity_reason"] = "x" }, "suggested_severity 仅支持critical/high/medium/low/info"},
 		{"理由无等级", func(p map[string]any) { p["severity_reason"] = "x" }, "severity_reason 须与 suggested_severity 一起填写"},
 		{"等级无理由", func(p map[string]any) { p["suggested_severity"] = "high" }, "验证参数 severity_reason 必填为空"},
-		{"未知字段", func(p map[string]any) {
-			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": e1.ID, "marks": []string{"x"}}}
-		}, "未知字段 \"marks\""},
 		{"步骤证据跨会话", func(p map[string]any) {
 			p["key_steps"] = []map[string]any{{"title": "a", "evidence_id": other.ID}}
 		}, "key_steps[0].evidence_id 只接受本验证session在本任务产生的新HTTP证据"},
@@ -186,17 +173,6 @@ func TestVerificationReproValidation(t *testing.T) {
 		tc.mutate(payload)
 		if result, message := f.callVerification(v, payload); result != nil || !strings.Contains(message, tc.want) {
 			t.Fatalf("%s: result=%v message=%q want %q", tc.name, result, message, tc.want)
-		}
-	}
-	// 非 supported 填写任一最小复现字段：逐字段列出后拒绝。
-	for verdict, relation := range map[string]string{"inconclusive": "limitation", "counterevidence": "counterevidence"} {
-		payload := map[string]any{"verdict": verdict, "method": "m", "summary": "s", "evidence": []map[string]any{{"evidence_id": e1.ID, "relation": relation}},
-			"impact": "x", "key_steps": []map[string]any{{"title": "a", "evidence_id": e1.ID}}, "suggested_severity": "low", "severity_reason": "r"}
-		if result, message := f.callVerification(v, payload); result != nil || !strings.Contains(message, "验证参数 impact、key_steps、suggested_severity、severity_reason 仅在 verdict=supported 时填写") {
-			t.Fatalf("%s with repro: %v %q", verdict, result, message)
-		}
-		if result, message := f.callVerification(v, map[string]any{"verdict": verdict, "method": "m", "summary": "s", "evidence": []map[string]any{{"evidence_id": e1.ID, "relation": relation}}, "remediation": []string{}}); result != nil || !strings.Contains(message, "验证参数 remediation 仅在") {
-			t.Fatalf("%s with empty remediation: %v %q", verdict, result, message)
 		}
 	}
 	if len(f.notifications()) != 0 {
@@ -244,6 +220,28 @@ func TestVerificationReproValidation(t *testing.T) {
 	canonical, _ := json.Marshal(verificationToolPayload{Verdict: "inconclusive", Method: "m", Summary: "s"})
 	if string(canonical) != `{"verdict":"inconclusive","method":"m","summary":"s"}` {
 		t.Fatalf("canonical without repro = %s", canonical)
+	}
+	// 放宽：非 supported 时多填的最小复现/建议等级字段（含空数组）被忽略：保存成功，且不写入结果。
+	for verdict, relation := range map[string]string{"inconclusive": "limitation", "counterevidence": "counterevidence"} {
+		other := f.newVerification("t1", fid, frev)
+		evidence := f.addEvidence("t1", other.SessionID, cardFlow("https://api.example.test/orders/1002", "sid=a", `{"owner":"demo-user"}`))
+		payload := map[string]any{"verdict": verdict, "method": "m", "summary": "s", "evidence": []map[string]any{{"evidence_id": evidence.ID, "relation": relation}},
+			"impact": "x", "key_steps": []map[string]any{{"title": "a", "evidence_id": evidence.ID}}, "remediation": []string{}, "retest_method": "r",
+			"contrast": map[string]any{"normal_evidence_id": evidence.ID, "abnormal_evidence_id": evidence.ID}, "suggested_severity": "low", "severity_reason": "r"}
+		if result, message := f.callVerification(other, payload); result == nil || result["verdict"] != verdict {
+			t.Fatalf("%s with repro fields rejected: %q", verdict, message)
+		}
+		stored, err := f.capability.store.verificationResult(t.Context(), other.VerificationID)
+		if err != nil || stored == nil {
+			t.Fatalf("%s result = %v %v", verdict, stored, err)
+		}
+		if p := stored.Payload; p.hasRepro() || p.Impact != "" || p.KeySteps != nil || p.Contrast != nil || p.Remediation != nil || p.RetestMethod != "" || p.SuggestedSeverity != "" || p.SeverityReason != "" {
+			t.Fatalf("%s stored ignored repro fields: %+v", verdict, p)
+		}
+		raw, _ := json.Marshal(stored.Payload)
+		if strings.Contains(string(raw), "impact") || strings.Contains(string(raw), "key_steps") || strings.Contains(string(raw), "suggested_severity") {
+			t.Fatalf("%s payload json = %s", verdict, raw)
+		}
 	}
 }
 

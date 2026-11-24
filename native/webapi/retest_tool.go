@@ -69,7 +69,7 @@ func (t *retestTool) Execute(ctx context.Context, arguments string) (*aop.ToolRe
 	}
 	retest, err := t.store.retestForSession(ctx, inv.SessionID)
 	if err != nil || retest == nil {
-		return coretool.ErrorResult("当前session不是已保存的复测，结论未保存"), nil
+		return coretool.ErrorResult("当前不是复测会话，不能保存复测结论；复测由用户在任务页或漏洞卡发起，结论未保存"), nil
 	}
 	args, canonical, err := validateRetestArguments(arguments)
 	if err != nil {

@@ -183,7 +183,7 @@ func TestEvidenceMaskBinaryAndNoAsset(t *testing.T) {
 	body := append([]byte{0xff, 0}, []byte(evidenceLongSecret+"|tiny")...)
 	flow := &traffic.Flow{Request: &traffic.HttpRequest{Method: "POST", Url: "https://example.test/", Body: body},
 		Response: &traffic.HttpResponse{StatusCode: 200, Body: body}}
-	preview, _ := responsePreview(body, "application/octet-stream")
+	preview, _ := responsePreview(body, "application/octet-stream", false)
 	insertMaskEvidence(t, f.assetFixture, "t1", "we_binary_mask", "", flow, preview)
 	status, data, raw := f.do("GET", "/api/webapi/tasks/t1/evidence/we_binary_mask?mask=1", "")
 	if status != 200 || data["masked_secrets"] != float64(6) {
