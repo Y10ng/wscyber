@@ -265,7 +265,7 @@ func TestVerificationFirstMessageMatchesFrontend(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(verificationMessageVariant.requirement, "verdict=supported 时须给出最小复现与建议等级") || !strings.Contains(verificationMessageVariant.requirement, "只留能证明问题的 1–3 个请求") ||
+	if !strings.Contains(verificationMessageVariant.requirement, "verdict=supported 时须给出最小复现与建议等级") || !strings.Contains(verificationMessageVariant.requirement, "只留能证明问题的关键请求") ||
 		!strings.Contains(verificationMessageVariant.requirement, "越权类给 contrast 正常对照") {
 		t.Fatalf("requirement = %s", verificationMessageVariant.requirement)
 	}

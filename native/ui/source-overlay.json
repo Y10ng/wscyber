@@ -248,7 +248,7 @@
     },
     "src/hooks/useChatSession.ts": {
       "source_sha256": "51e84a673a79c80225be277f0182357638964de5d7dce405e06942f549847d81",
-      "sha256": "fd83113ed21fe9aef57ef7a601fec2b2a85d5f7068f593ea1292277e1d2c591e"
+      "sha256": "1f3a0f0e692c9c2ed82e921f36e468f4f4a722b3eef368caf4e9e5fecd3c9a87"
     },
     "src/hooks/useWebApiTaskViewCounts.ts": {
       "source_sha256": null,
