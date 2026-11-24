@@ -410,9 +410,16 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 		return sendResult{state: sendExisting, model: claimed}
 	}
 
-	resp, sendErr := directClient.Do(req.WithContext(ctx))
+	// sendCtx 与 directClient.Timeout 同截止：trace 把它带进 DialTLS（拨号上下文脱离请求取消），
+	// 补链随本次发送截止/取消而停止。补链审计在 Do 返回后写库，不在握手路径上等待数据库。
+	sendCtx, cancel := sendContext(ctx)
+	defer cancel()
+	sink := &aiaAuditSink{store: r.store, taskID: r.taskID}
+	trace := &tlsSendTrace{taskID: r.taskID, sessionID: r.inv.SessionID, parent: sendCtx, record: sink.add}
+	resp, sendErr := directClient.Do(req.WithContext(withTLSTrace(sendCtx, trace)))
+	sink.flush(ctx)
 	if sendErr != nil {
-		return r.finishUnknown(ctx, claimed, flow, httpFailureReason(sendErr, false), nil)
+		return r.finishUnknown(ctx, claimed, flow, httpFailureReason(trace.classify(sendErr), false), nil)
 	}
 	defer resp.Body.Close()
 	captured, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBytes+1))
@@ -436,6 +443,13 @@ func (r requestRecorder) send(ctx context.Context, req *http.Request, body []byt
 	return sendResult{state: requestCompleted, model: model}
 }
 
+func sendContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if directClient.Timeout > 0 {
+		return context.WithTimeout(ctx, directClient.Timeout)
+	}
+	return context.WithCancel(ctx)
+}
+
 // httpFailureReason only emits fixed classifications, never err.Error(): wrapped
 // URL/net/TLS errors may contain credentials, target addresses or response text.
 // A Do error does not establish whether the target received the request.
@@ -450,8 +464,12 @@ func httpFailureReason(err error, readingBody bool) string {
 	var authorityError x509.UnknownAuthorityError
 	var hostnameError x509.HostnameError
 	var certificateError x509.CertificateInvalidError
+	var chainIncomplete *tlsChainIncompleteError
 	classification := "transport_other：其它传输错误"
 	switch {
+	case errors.As(err, &chainIncomplete):
+		// 先于 timeout：补链未完成（预算耗尽/单次超时/补链期间上层截止）的真因是证书链不完整。
+		classification = "tls_chain_incomplete：证书链补全未完成"
 	case errors.Is(err, context.Canceled):
 		classification = "context_canceled：上下文取消"
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &networkError) && networkError.Timeout():

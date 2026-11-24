@@ -62,6 +62,8 @@
 
 **记录。** 表 `webapi_egress_flows(id, task_id, session_id, turn_id, call_id, tool, method, url, host, decision allowed|denied, sent, http_status, error, flow_pb, request_bytes, response_bytes, preview_truncated, created_at, completed_at)`，索引 `(task_id, created_at)`、`(session_id)`。放行请求由上游 `FlowCompletedObserved` 写入（`flow_pb` 为 `proto.Marshal(traffic.Flow)`，与 `webapi_requests.flow_pb` 同序列化；HTTPS 记的是 MITM 解密后的内层请求，CONNECT 本身不单独记）；`sent=true` 仅当收到响应，无响应时 `sent=null`（未知，不推断）。拒绝在鉴权回调写一条：`decision=denied`、`sent=false`、只有请求行与请求头（`Proxy-Authorization` 已去除）。body 只保留每侧前 4096 字节预览（上游未落盘模式），`request_bytes/response_bytes` 为观察到的原始字节数，`preview_truncated` 如实标出，上游截断说明保留在 Flow 的 `error` 里、不计入记录的 `error`。无令牌的拒绝也记（`task_id`、`session_id` 为空，任务 API 不显示）。不发 observe AOP 事件。候选/验证暂不能引用这些流量（后续）。旧库：C3 阶段（二十二表）补表。
 
+**平台自身的证书补链出网。** `webapi_http` 及共用发送路径（authz 变体、一键重放）在 HTTPS 缺中间证书时按 AIA 直连获取公网 HTTP 证书（证书验证出网例外，不经本代理、不受 origins 限制，见 `native/RUNNING.md` §6）；这类出网不进 `webapi_egress_flows`，但每次实际获取（含被拒地址）都登记审计 `tls.aia_fetch`（`native/AUDIT.md`）。
+
 **API（原生鉴权，错误体 `{error}`）：**
 - `GET /api/webapi/tasks/{id}/egress?session_id=&decision=allowed|denied&limit=1..200(默认50)&cursor=` → `{items:[{id, session_id, turn_id, call_id, tool, method, url, decision, sent, http_status, error, created_at, completed_at}], has_more, next_cursor}`，按 `created_at` 倒序（放行流取请求开始时间）；任务不存在 404。
 - `GET /api/webapi/tasks/{id}/egress/{flow_id}` → `{summary, host, flow(protojson：请求/响应头与 body 预览，base64), flow_protobuf_base64, capture:{request_bytes, response_bytes, preview_limit:4096, preview_truncated, note}}`。

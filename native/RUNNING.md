@@ -98,7 +98,16 @@ env CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off python3 -I scripts/cyber-go-over
 
 `webapi_http` 及共用发送路径在证书无法链到系统信任根时，会按 AIA caIssuers 自动获取公网 HTTP 证书并跟随 HTTP 跳转；无需额外配置或逐次确认（用户确认的证书验证出网例外，不受任务 origins 限制）。补取材料只作中间证书，仍严格验证系统根、目标域名/IP、有效期、用途与签名链，不安装新信任根。
 
-单次握手最多补取 4 次，每次最多 5 秒/64KB，URL 缓存最多 64 项；仅支持 DER/PEM，不支持 PKCS#7、HTTPS/LDAP AIA 或私网发布点。补链也使用直连；无法获取或仍不可信时继续返回 `tls_certificate`，不重发目标请求。辅助补链请求当前不记录为任务 HTTP 证据或审计，不等于普通目标请求获准越界。
+单次握手最多补取 4 次，每次最多 5 秒/64KB、最多跟随 2 次 http 跳转，URL 缓存最多 64 项；仅支持 DER/PEM，不支持 PKCS#7、HTTPS/LDAP AIA 或私网发布点。补链也使用直连；任何情况都不重发目标请求。
+
+**时间预算**（`native/webapi/tls_chain.go` 常量；`directClient` 总超时 `httpTimeout` 30s 覆盖拨号到读完响应体）：TCP 拨号 ≤ 10s；整个 HTTPS 建连（拨号 + 握手 + 补链）≤ 20s；其中补链总耗时 ≤ 8s，单次 ≤ 5s 且不超过剩余补链预算，并在建连截止前留 0.5s 余量。握手阶段最晚 20s 结束，至少留 10s 给请求发送与响应头。本次发送截止或取消时，进行中的补取随之中止（Go transport 的拨号上下文本身脱离请求取消，平台把发送上下文接回建连）。
+
+**两种 TLS 分类：**
+- `tls_certificate：TLS证书校验失败`——无需补链即失败（域名/有效期/用途等），或补链已走完（获取成功但仍链不到系统根、发布点 404/不可解析/被拒/网络错误、达到 4 次上限）仍不可信。
+- `tls_chain_incomplete：证书链补全未完成`——补链没走完：补链预算耗尽、某次补取超时，或补链进行中本次发送已到截止。优先于通用 `timeout`，因为真因是证书链不完整。补链进行中被人为取消仍记 `context_canceled`；未进入补链的握手/响应超时仍记 `timeout`。
+两者都是 `unknown`、不自动重试、不重放，与其它发送失败相同。
+
+**审计：** 每次实际发起的补取登记一条 `tls.aia_fetch`（actor `system`，target 为发布点 host，task_id 为触发握手的任务；detail 只有 host、目标 host、固定结果枚举、跳转次数、成功字节数、会话 id，不含 URL 路径/证书/错误原文）；缓存命中不登记，地址被拒也登记。登记在发送返回后写库，不阻塞握手；写库失败只记日志。补链请求仍不记为任务 HTTP 证据，也不等于普通目标请求获准越界。见 `native/AUDIT.md`。
 
 ## 7. 限制
 

@@ -104,18 +104,27 @@ func (c synthChain) leaf(t *testing.T, opts leafOptions) *synthCA {
 	return synthIssue(t, c.inter2, tmpl)
 }
 
-// 本地 AIA 替身：按 URL 返回 DER，计数每次补取。
+// 本地 AIA 替身：按 URL 返回 DER，计数每次补取；errs 指定某 URL 返回的错误，hang 为真时挂起直到 ctx 结束。
 type aiaStub struct {
 	docs    map[string][]byte
+	errs    map[string]error
+	hang    bool
 	fetches atomic.Int32
 }
 
-func (s *aiaStub) fetch(_ context.Context, rawURL string) ([]byte, error) {
+func (s *aiaStub) fetch(ctx context.Context, rawURL string) ([]byte, int, error) {
 	s.fetches.Add(1)
-	if data, ok := s.docs[rawURL]; ok {
-		return data, nil
+	if s.hang {
+		<-ctx.Done()
+		return nil, 0, ctx.Err()
 	}
-	return nil, errors.New("not found")
+	if err, ok := s.errs[rawURL]; ok {
+		return nil, 0, err
+	}
+	if data, ok := s.docs[rawURL]; ok {
+		return data, 0, nil
+	}
+	return nil, 0, errors.New("not found")
 }
 
 func (c synthChain) stub() *aiaStub {

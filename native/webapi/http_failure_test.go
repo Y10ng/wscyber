@@ -42,6 +42,9 @@ func TestHTTPFailureReasonClassification(t *testing.T) {
 		{"tls_authority", x509.UnknownAuthorityError{Cert: cert}, "tls_certificate：TLS证书校验失败"},
 		{"tls_hostname", x509.HostnameError{Certificate: cert, Host: "private.example.test"}, "tls_certificate：TLS证书校验失败"},
 		{"tls_expiry", x509.CertificateInvalidError{Cert: cert, Reason: x509.Expired, Detail: private}, "tls_certificate：TLS证书校验失败"},
+		// 补链未完成优先于 timeout 与 tls_certificate（内层可能是超时或证书校验错误）。
+		{"tls_chain_incomplete_timeout", &tlsChainIncompleteError{err: context.DeadlineExceeded}, "tls_chain_incomplete：证书链补全未完成"},
+		{"tls_chain_incomplete_verify", &tlsChainIncompleteError{err: &tls.CertificateVerificationError{Err: errors.New(private)}}, "tls_chain_incomplete：证书链补全未完成"},
 		{"eof", io.EOF, "connection_interrupted：连接中断或EOF"},
 		{"short_body", io.ErrUnexpectedEOF, "connection_interrupted：连接中断或EOF"},
 		{"closed", net.ErrClosed, "connection_interrupted：连接中断或EOF"},

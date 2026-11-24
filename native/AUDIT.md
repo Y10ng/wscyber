@@ -48,6 +48,7 @@
 | `notify.settings` | 企业微信配置保存且有变化（含 V4 运营通知三个开关） | user | `from`/`to` `{enabled, require_confirm, base_url, notify_approval, notify_schedule_failed, notify_weekly_digest}`、`webhook_changed`（提交了与原值不同的 webhook）、`webhook_cleared`（`"-"` 清除了已有 webhook） |
 | `notify.test` | 测试推送实际发出（未配置 409、限频 429 不登记） | user | `ok`、`errcode`（网络错误为 -1） |
 | `notification.confirm` / `.dismiss` / `.retry` | 人工处理成功（409/404 不登记） | user | `notification_id`、`title` |
+| `tls.aia_fetch` | HTTPS 目标缺中间证书时按证书 AIA 实际发起一次补取（`tls_chain.go`；`webapi_http`、`webapi_authz_compare` 变体与一键重放共用 `requestRecorder.send`）：成功、失败、地址被拒（非公网/非 http/带凭据 URL）都登记；URL 缓存命中未出网不登记；补链预算耗尽后不再出网也不登记 | system | `aia_host`（发布点 host，含端口）、`target_host`（被访问目标 host/IP）、`result`（`ok`/`refused_address`/`unsupported_url`/`http_status`/`too_large`/`parse_failed`/`timeout`/`network` 固定枚举）、`redirects`（实际跟随次数）、`bytes`（仅成功）、`session_id`（有则填；重放为 `replay`）；不含 URL 路径、证书内容、目标请求内容或错误原文；target_kind = `host`，target_id = aia_host，task_id = 触发握手的任务；summary 如“证书补链：获取 aia.example.test 的中间证书（失败：超时）”。握手中只入内存，发送（Do）返回后写库（`at` 为实际获取时刻），之后才到达的条目异步写入 |
 | `notification.sent` / `.failed` | 投递终态：两段都成功 → sent；第 3 次失败 → failed（中间重试、45009 推迟不登记）；运营通知（V4）同规则，`title` 为任务标题/资产名/“每周摘要 <周>”；审批已决或挂起丢失而改为 dismissed 的不登记 | system | `notification_id`、`title`、`attempts`、`last_error`（D2 已去除 webhook 地址） |
 
 审批操作摘要 `operation` 即审批记录的 `summary`：`webapi_http` 为 `方法 + URL`（去 userinfo）；`bash` 为命令单行前 200 字；`write` 为路径；先按任务资产测试账号回替口令占位符，再经上游 `guardrail.RedactText` 脱敏 `token=` 等赋值。请求头/请求体不入审计。
