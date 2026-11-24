@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Archive, ArchiveRestore, ArrowRight, HelpCircle, Loader2, MoreHorizontal, Plus, RefreshCw,
+  Archive, ArchiveRestore, ArrowRight, HelpCircle, Loader2, MoreHorizontal, Plus, RefreshCw, Trash2,
 } from 'lucide-react'
 import {
-  Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-  EmptyState, Input, Spinner, Tooltip, TooltipContent, TooltipTrigger, useConfirm,
+  Badge, Button, Checkbox, Dialog, DialogContent, DropdownMenu, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, EmptyState, Input, Spinner,
+  Tooltip, TooltipContent, TooltipTrigger, useConfirm,
 } from '@cyber/ui'
 import { cn } from '@cyber/theme'
 import { FilterPills, Page, PageHeader, TableCard } from './PageFrame'
 import { TaskStateBadge } from './ui-badges'
+import { DialogFooterRow, DialogHeaderRow } from './ui-dialog'
 import { usePolling } from '../hooks/usePolling'
 import { formatTokens } from '../lib/format-tokens'
 import { formatDateTime, formatShortDateTime } from '../lib/time'
 import {
+  APIError,
+  deleteWebApiTask,
   listWebApiAssets,
   listWebApiSchedules,
   listWebApiTaskList,
@@ -30,6 +34,8 @@ interface TasksPageProps {
   onOpenAsset: (assetId: string) => void
   onOpenMenu: () => void
   onArchive: (sessionId: string, archived: boolean) => Promise<void>
+  /** 任务删除成功后的侧栏计数失效信号（与归档共用）。 */
+  onTaskDeleted: () => void
 }
 
 type TaskFilter = 'all' | Exclude<WebApiTaskListStatus, 'unknown'> | 'archived'
@@ -37,10 +43,14 @@ type PageMode = 'tasks' | 'schedules'
 
 const PAGE_LIMIT = 50
 
-export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onOpenAsset, onOpenMenu, onArchive }: TasksPageProps) {
+export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onOpenAsset, onOpenMenu, onArchive, onTaskDeleted }: TasksPageProps) {
   const { t } = useTranslation('chat')
   const confirm = useConfirm()
   const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<WebApiTaskListItem | null>(null)
+  const [deleteAck, setDeleteAck] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [mode, setMode] = useState<PageMode>('tasks')
   const [searchInput, setSearchInput] = useState('')
   const [query, setQuery] = useState('')
@@ -185,6 +195,41 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
 
   const total = counts?.all ?? items.length
   const rangeText = t('shell.tableRange', { from: items.length === 0 ? 0 : 1, to: items.length, total })
+
+  // 删除任务：不可恢复。运行中的任务入口禁用；成功后才关闭对话框并静默刷新。
+  const openDelete = (item: WebApiTaskListItem) => {
+    if (item.status === 'running') return
+    setDeleteTarget(item)
+    setDeleteAck(false)
+    setDeleteError('')
+  }
+
+  const closeDelete = () => {
+    if (deleting) return
+    setDeleteTarget(null)
+    setDeleteAck(false)
+    setDeleteError('')
+  }
+
+  const submitDelete = async () => {
+    if (!deleteTarget || !deleteAck || deleting) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await deleteWebApiTask(deleteTarget.task_id)
+      setDeleteTarget(null)
+      setDeleteAck(false)
+      cursorRef.current = null
+      void loadTasks({ reset: true, silent: true })
+      onTaskDeleted()
+    } catch (err) {
+      // 409 固定提示先停止；其余（含 500）显示后端 error 原文，任务业务数据未删，可直接重试。
+      if (err instanceof APIError && err.status === 409) setDeleteError(t('shell.deleteTaskInFlight'))
+      else setDeleteError(err instanceof Error && err.message ? err.message : t('shell.deleteTaskFailed'))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -377,6 +422,19 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
                                       : <Archive className="mr-2 h-3.5 w-3.5" />}
                                     {t(item.archived ? 'shell.unarchiveTask' : 'shell.archiveTask')}
                                   </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    aria-disabled={item.status === 'running' || undefined}
+                                    title={item.status === 'running' ? t('shell.deleteTaskRunning') : undefined}
+                                    className={cn('text-destructive focus:text-destructive', item.status === 'running' && 'opacity-50')}
+                                    onSelect={(event) => {
+                                      if (item.status === 'running') { event.preventDefault(); return }
+                                      openDelete(item)
+                                    }}
+                                  >
+                                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                    {t('shell.deleteTask')}
+                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </div>
@@ -472,6 +530,52 @@ export default function TasksPage({ webapiEnabled, onOpenTask, onCreateTask, onO
           </>
         )}
       </Page>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(next) => { if (!next) closeDelete() }}>
+        <DialogContent
+          closeLabel={t('shell.deleteTaskCancel')}
+          aria-describedby={undefined}
+          className="flex w-[calc(100vw-2rem)] max-w-[480px] flex-col gap-0 overflow-hidden p-0"
+        >
+          <DialogHeaderRow icon={<Trash2 className="h-4 w-4" />} title={t('shell.deleteTaskTitle')} />
+          <div className="space-y-3 p-5">
+            <p className="truncate text-[14px] font-medium text-foreground" title={deleteTarget?.title}>
+              {deleteTarget?.title || deleteTarget?.task_id.slice(0, 8)}
+            </p>
+            <p className="text-[13px] leading-relaxed text-muted-foreground">
+              {t('shell.deleteTaskBody')} {t('shell.deleteTaskKept')}
+            </p>
+            <div
+              className="flex cursor-pointer items-start gap-2"
+              onClick={() => { if (!deleting) setDeleteAck((value) => !value) }}
+            >
+              <Checkbox
+                checked={deleteAck}
+                onCheckedChange={setDeleteAck}
+                disabled={deleting}
+                aria-label={t('shell.deleteTaskAck')}
+                className="mt-0.5"
+              />
+              <span className="text-[13px] leading-5 text-foreground">{t('shell.deleteTaskAck')}</span>
+            </div>
+            {deleteError && <p role="alert" className="break-words text-[12px] leading-5 text-destructive">{deleteError}</p>}
+          </div>
+          <DialogFooterRow>
+            <Button type="button" variant="outline" onClick={closeDelete} disabled={deleting}>
+              {t('shell.deleteTaskCancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void submitDelete()}
+              disabled={!deleteAck || deleting}
+            >
+              {deleting && <Spinner className="mr-1.5 h-3.5 w-3.5" />}
+              {t('shell.deleteTaskConfirm')}
+            </Button>
+          </DialogFooterRow>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

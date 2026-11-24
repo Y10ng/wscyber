@@ -796,6 +796,35 @@ export async function listWebApiTaskList(params: {
   return apiJSON<WebApiTaskList>(`/api/webapi/task-list${suffix ? `?${suffix}` : ''}`, 'Failed to load tasks')
 }
 
+// 任务删除（不可恢复）：只删任务本体与会话，保留审计/推送/审批/计划运行。
+// 409 为任务仍在运行（code=in_flight，不删数据）；500 的 error 原文带已删会话数与可重试说明。
+export interface WebApiTaskDeleteCounts {
+  requests: number
+  findings: number
+  verifications: number
+  reports: number
+  retests: number
+  egress_flows: number
+  board_endpoints: number
+  board_facts: number
+  board_oracles: number
+  authz_compares: number
+  subsessions: number
+  sessions: number
+}
+
+export interface WebApiTaskDeleteResult {
+  task_id: string
+  deleted: WebApiTaskDeleteCounts
+  orphan_vulns_removed: number
+}
+
+export async function deleteWebApiTask(taskId: string): Promise<WebApiTaskDeleteResult> {
+  return apiJSON<WebApiTaskDeleteResult>(`/api/webapi/tasks/${encodeURIComponent(taskId)}`, 'Failed to delete task', {
+    method: 'DELETE',
+  })
+}
+
 // --- 全局漏洞（U2a，只读）：GET /vulns，字段见 native/OVERVIEW.md ---
 // 全局漏洞 = 未归档资产的漏洞条目 + 未关联资产任务的候选（kind=task_finding，
 // id=finding:<finding_id>）。状态与排序由后端按资产漏洞库同一规则派生。

@@ -24,11 +24,11 @@
     },
     "src/App.tsx": {
       "source_sha256": "7f56299d0b003e9c3a90b4f5a14c537b6621480ee5b00f8ae6fba5b01633d192",
-      "sha256": "867cc8d1f6f10710379e68547f525868b711c1803312b925e326729fee524645"
+      "sha256": "1214a68d410941e22d85798be4405ea9a176a336160264d9505e5779e26dd3ff"
     },
     "src/api.ts": {
       "source_sha256": "7247148819c179c585fefee45abe366691a0f23e99252eefa0b70e75b2684ea5",
-      "sha256": "f552950b37f634bd54f8415069c8b7a3ee189378e9a3a3f0b3665d3bbb5b93e1"
+      "sha256": "422aaf3e876965d1873f98705d3a82bdcdcc497629b233aa86c4f8fd685a26a3"
     },
     "src/components/AgentPanel.tsx": {
       "source_sha256": "5272bd1988f679389e0d2d2169a63139699252a7d1fba86e5eb7234b09c866ed",
@@ -84,7 +84,7 @@
     },
     "src/components/TasksPage.tsx": {
       "source_sha256": null,
-      "sha256": "2306edcd373be61dd9531add29e9e3b0fc34edde479f166555afa240a7b64694"
+      "sha256": "550dd9901ce4678bac7a89bf84cfd03e5cd4445e5139b6b788f38ee38077a4c5"
     },
     "src/components/VulnCardPage.tsx": {
       "source_sha256": null,
@@ -264,7 +264,7 @@
     },
     "src/i18n/locales/en/chat.ts": {
       "source_sha256": "27a17fce7f89ee8ea59e92245c4ef4b4b6d61be2f0b0bf0b149ff06b8121043b",
-      "sha256": "a45933d127831b3b01009991621093227de07d50d9f9e824e44c204cb1041f21"
+      "sha256": "547f0e578d222f24fdb6fc90578469867999dcb1ae243d90f1a36d061c82feb3"
     },
     "src/i18n/locales/en/config.ts": {
       "source_sha256": "8bed45bc34424b7eafc871e03e6b23e9930629607fad058d58a61f633295b769",
@@ -280,7 +280,7 @@
     },
     "src/i18n/locales/zh/chat.ts": {
       "source_sha256": "66698940fbe725c27406b4688f1693e7522259752f0004b523cff115fd16375d",
-      "sha256": "7affe29c2e6e5cf364bcf8a59d058f5b1463723997f5723bc1952b6339e8ff99"
+      "sha256": "983d50258a2efcdc260a70aedee758fbb8960b45b6628802df9ab5315a71f027"
     },
     "src/i18n/locales/zh/config.ts": {
       "source_sha256": "e95bacc61beafab4a9dc94765c876b872e76be22b0310b6b03185fbdf6ab35c9",

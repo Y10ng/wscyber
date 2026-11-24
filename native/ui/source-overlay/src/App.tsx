@@ -1120,6 +1120,7 @@ export default function App({ services }: { services: HubServices }) {
                     await chat.updateSession(id, { archived })
                     setSidebarCountsRevision((n) => n + 1)
                   }}
+                  onTaskDeleted={() => setSidebarCountsRevision((n) => n + 1)}
                 />
               )}
               {page === 'chats' && (
