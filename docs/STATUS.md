@@ -12,7 +12,7 @@ R1 发现的问题（均可自恢复，非阻断）：
 
 **长期方向（11-17 用户提出）：** 企业自动化渗透 Harness（资产登记、周期任务、审批拦截、全工具出口、企业微信/SDL 推送、审计）。分阶段计划见 [roadmap](roadmap.md)。
 
-**预览：** 运行中 http://127.0.0.1:42453/（11-23 14:21 UTC 从 a6dd8bc 构建，schema 2，含 U2g、F4、HTTP 安全错误分类与严格 TLS 自动补链；用户授权更新，升级前旧二进制/state/PG 备份在 `var/tls-fix-deploy-retest/backup-20261123T142107Z/`，停机一致备份为其中 `state-stopped/`、`pg-wscyber_preview-stopped.dump`；日志 `var/tls-fix-deploy-retest/hub-20261123T142107Z.log`）。重开方式：
+**预览：** 运行中 http://127.0.0.1:42453/（11-24 07:10 UTC 从 8cea1e8 构建，schema 2，含任务删除、TLS 补链审计/超时预算、审计页动作名；用户授权，由 wangsu-sonnet-latest 部署；备份 `var/preview-upgrade-taskdel/backup-20261124T071003Z/`〔旧二进制、在线/停机 state 与 PG dump〕，旧前端 `uibackup-20261124T070418Z/public.tgz`；日志 `var/preview-upgrade-taskdel/hub-20261124T071003Z.log`）。重开方式：
 
 ```bash
 cd /root/桌面/wscyber
