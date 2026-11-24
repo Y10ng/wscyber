@@ -37,6 +37,7 @@ const ACTION_CATEGORIES = [
   { value: 'vuln.', labelKey: 'shell.auditCategoryVuln' },
   { value: 'notify.', labelKey: 'shell.auditCategoryNotify' },
   { value: 'notification.', labelKey: 'shell.auditCategoryNotification' },
+  { value: 'tls.', labelKey: 'shell.auditCategoryTls' },
 ]
 
 // 每个登记动作的中文/英文名（覆盖 native/AUDIT.md 登记点表；另含后端已有但文档表外的 task.scenario / board.oracle.*）。
@@ -44,6 +45,7 @@ const ACTION_LABELS: Record<string, string> = {
   'task.create': 'shell.auditActionTaskCreate',
   'task.policy': 'shell.auditActionTaskPolicy',
   'task.scenario': 'shell.auditActionTaskScenario',
+  'task.delete': 'shell.auditActionTaskDelete',
   'verification.start': 'shell.auditActionVerificationStart',
   'retest.start': 'shell.auditActionRetestStart',
   'report.start': 'shell.auditActionReportStart',
@@ -77,6 +79,7 @@ const ACTION_LABELS: Record<string, string> = {
   'notification.failed': 'shell.auditActionNotificationFailed',
   'board.oracle.create': 'shell.auditActionBoardOracleCreate',
   'board.oracle.update': 'shell.auditActionBoardOracleUpdate',
+  'tls.aia_fetch': 'shell.auditActionTlsAiaFetch',
 }
 
 const TARGET_KIND_LABELS: Record<string, string> = {
