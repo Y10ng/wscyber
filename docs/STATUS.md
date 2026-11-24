@@ -116,7 +116,9 @@ U2b 验收时记下的缺口：原侧栏的会话重命名/删除、非 Web/API 
 
 **TLS 缺链定位与修复复测完成（a6dd8bc）：** 真实诊断确认目标只发叶证书；用原系统 CA 库补齐两级中间链即可严格验证通过，并非 Linux 缺根。HTTP 发送路径新增 AIA 自动补链，材料只作 intermediates，保留域名/有效期/serverAuth/系统根校验；主会话复跑补链、拒绝不可信证书、HTTP unknown 与 Replay 等定向测试通过（8.957s）。用户明确允许补链 URL/HTTP 跳转不逐次确认及不受任务 origins 限制，例外与限制已写 AGENTS/RUNNING。已备份并部署；Astra 以用户最新地址新建 `tls-retest-9da74546de43`，真实产品模型只调用一次 HTTP：`completed / sent=true / HTTP 200`，回合正常 completed，无 error/unknown/子 Agent，最终 idle。会话链接 http://127.0.0.1:42453/sessions/adc3a95c76c1be1a 。结构化结果 `var/tls-fix-deploy-retest/result.md`；主会话不读取原始资料。未访问换址前目标、不修改历史 unknown；仅首请求验证通过，不代表全部新挖掘能力已实测。
 
-**任务删除已完成（后端 9b66b98、前端 605a2a0，契约 `native/TASK_DELETE.md`）：** 用户定语义“删任务本体，留审计与漏洞”。`DELETE /api/webapi/tasks/{id}`：运行中 409；先经原生 `Sessions.DeleteSession` 删全部任务会话，再单写事务删 28 类业务表；审计/推送/审批/计划运行保留并置空 `task_id`；只删本任务漏洞成员（空人工条目与无资产候选 `finding:` 处置随删）；同事务登记 `task.delete`。前端行菜单“删除任务”+ 勾选确认。主会话演示环境亲自走过：菜单 → 未勾选禁用 → 删除 → 列表与侧栏计数 2→1；API 删除全链任务（会话 8、HTTP 22、候选 4、验证 4、报告 1、复测 2），GET/再删 404，漏洞与用量归零，审计两条 `task.delete`。已知：会话删除中途失败会留“任务在、部分会话已删”的状态（重试幂等完成）；`raw_artifacts` 不清理。**预览尚未升级（需用户授权）。**
+**任务删除已完成（后端 9b66b98、前端 605a2a0，契约 `native/TASK_DELETE.md`）：** 用户定语义“删任务本体，留审计与漏洞”。`DELETE /api/webapi/tasks/{id}`：运行中 409；先经原生 `Sessions.DeleteSession` 删全部任务会话，再单写事务删 28 类业务表；审计/推送/审批/计划运行保留并置空 `task_id`；只删本任务漏洞成员（空人工条目与无资产候选 `finding:` 处置随删）；同事务登记 `task.delete`。前端行菜单“删除任务”+ 勾选确认。主会话演示环境亲自走过：菜单 → 未勾选禁用 → 删除 → 列表与侧栏计数 2→1；API 删除全链任务（会话 8、HTTP 22、候选 4、验证 4、报告 1、复测 2），GET/再删 404，漏洞与用量归零，审计两条 `task.delete`。已知：会话删除中途失败会留“任务在、部分会话已删”的状态（重试幂等完成）；`raw_artifacts` 不清理。审计页补 `task.delete`/`tls.aia_fetch` 动作名与“证书补链”类别（be45103）。
+
+**TLS 补链审计与超时预算（928d955）：** 每次实际 AIA 获取（含被拒地址）登记 `tls.aia_fetch`（system，只记 host 与固定结果枚举，缓存命中不登记，覆盖 webapi_http/身份对比/一键重放）；预算：拨号 10s、建连总上限 20s、补链总 8s、单次 5s，补链未完成归新分类 `tls_chain_incomplete`（不再误报 `timeout`）；顺带修复自定义 DialTLS 握手可无限挂起、请求放弃后补链仍出网。AGENTS 例外条款已同步。未用真实目标复测。
 
 ## 下一步
 
